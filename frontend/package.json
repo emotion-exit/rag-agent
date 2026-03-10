@@ -11,18 +11,17 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
-    "@a2ui/lit": "^0.8.3",
     "@ant-design/icons-vue": "^7.0.1",
     "@types/uuid": "^10.0.0",
-    "ant-design-vue": "^4.2.6",
     "axios": "^1.13.6",
-    "marked": "^17.0.4",
+    "markdown-it": "^14.1.1",
     "uuid": "^13.0.0",
     "vue": "^3.5.29",
     "vue-router": "^5.0.3"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.11.0",
     "@vitejs/plugin-vue": "^6.0.4",
     "@vue/tsconfig": "^0.8.1",

@@ -10,8 +10,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
-from app.agent.rag_agent import create_rag_agent
-from app.config import settings
+from app.agent.rag_agent import build_source_summaries, create_rag_agent
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -26,7 +25,22 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    sources: list[str] = []
+    sources: list[dict] = []
+
+
+async def _ensure_session_exists(session_id: str) -> None:
+    """Create the in-memory session when it does not exist yet."""
+    session = await session_service.get_session(
+        app_name=APP_NAME,
+        session_id=session_id,
+        user_id="user",
+    )
+    if session is None:
+        await session_service.create_session(
+            app_name=APP_NAME,
+            session_id=session_id,
+            user_id="user",
+        )
 
 
 async def _stream_agent_response(
@@ -41,41 +55,65 @@ async def _stream_agent_response(
         session_service=session_service,
     )
 
-    # Ensure the session exists
-    try:
-        await session_service.get_session(app_name=APP_NAME, session_id=session_id, user_id="user")
-    except Exception:
-        await session_service.create_session(app_name=APP_NAME, session_id=session_id, user_id="user")
+    await _ensure_session_exists(session_id)
+
+    source_summaries = build_source_summaries(message)
 
     user_content = genai_types.Content(
         role="user",
         parts=[genai_types.Part(text=message)],
     )
 
-    full_reply = []
+    event_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-    try:
-        async for event in runner.run_async(
-            user_id="user",
-            session_id=session_id,
-            new_message=user_content,
-        ):
-            if event.is_final_response():
+    async def produce_events() -> None:
+        try:
+            async for event in runner.run_async(
+                user_id="user",
+                session_id=session_id,
+                new_message=user_content,
+            ):
                 if event.content and event.content.parts:
+                    event_type = "answer" if event.is_final_response() else "thought"
                     for part in event.content.parts:
                         if part.text:
-                            full_reply.append(part.text)
-                            yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
-                break
-            elif event.content and event.content.parts:
-                for part in event.content.parts:
-                    if part.text and not event.is_final_response():
-                        full_reply.append(part.text)
-                        yield f"data: {json.dumps({'type': 'text', 'content': part.text})}\n\n"
+                            await event_queue.put(
+                                f"data: {json.dumps({'type': event_type, 'content': part.text})}\n\n"
+                            )
+                if event.is_final_response():
+                    break
+            await event_queue.put(f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n")
+        except Exception as exc:
+            await event_queue.put(
+                f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
+            )
+        finally:
+            await event_queue.put(None)
 
-        yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
-    except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+    producer = asyncio.create_task(produce_events())
+
+    try:
+        yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
+        if source_summaries:
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'sources', 'content': '', 'sources': source_summaries}, ensure_ascii=False)}"
+                "\n\n"
+            )
+        while True:
+            event = await event_queue.get()
+
+            if event is None:
+                break
+
+            yield event
+    finally:
+        if not producer.done():
+            producer.cancel()
+            try:
+                await producer
+            except asyncio.CancelledError:
+                pass
 
 
 @router.post("/stream")
@@ -89,6 +127,7 @@ async def chat_stream(request: ChatRequest):
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
     )
@@ -107,10 +146,7 @@ async def chat(request: ChatRequest):
         session_service=session_service,
     )
 
-    try:
-        await session_service.get_session(app_name=APP_NAME, session_id=request.session_id, user_id="user")
-    except Exception:
-        await session_service.create_session(app_name=APP_NAME, session_id=request.session_id, user_id="user")
+    await _ensure_session_exists(request.session_id)
 
     user_content = genai_types.Content(
         role="user",
@@ -130,4 +166,4 @@ async def chat(request: ChatRequest):
             break
 
     reply = "".join(reply_parts)
-    return ChatResponse(reply=reply)
+    return ChatResponse(reply=reply, sources=build_source_summaries(request.message))

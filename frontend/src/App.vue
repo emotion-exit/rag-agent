@@ -1,78 +1,154 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import {
   MessageOutlined,
   BookOutlined,
-  RobotOutlined,
-} from '@ant-design/icons-vue'
+  RobotOutlined
+} from '@ant-design/icons-vue';
 
-const route = useRoute()
-const selectedKeys = computed(() => {
-  if (route.path === '/knowledge-base') return ['knowledge-base']
-  return ['chat']
-})
+const route = useRoute();
 </script>
 
 <template>
-  <a-layout style="min-height: 100vh">
-    <a-layout-sider
-      width="220"
-      theme="dark"
-      style="position: fixed; height: 100vh; left: 0; top: 0; bottom: 0; overflow: auto; z-index: 10"
-    >
-      <div class="logo-area">
-        <RobotOutlined class="logo-icon" />
-        <span class="logo-text">RAG Agent</span>
-      </div>
-      <a-menu
-        theme="dark"
-        mode="inline"
-        :selected-keys="selectedKeys"
-      >
-        <a-menu-item key="chat">
-          <router-link to="/">
+  <div class="app-layout">
+    <!-- Floating Minimalist Header -->
+    <header class="app-header">
+      <div class="header-content">
+        <div class="logo-area">
+          <div class="logo-icon-wrapper">
+            <RobotOutlined class="logo-icon" />
+          </div>
+          <span class="logo-text">RAG.Agent</span>
+        </div>
+        <nav class="nav-menu">
+          <router-link to="/" class="nav-item" active-class="nav-item-active">
             <MessageOutlined />
-            <span>智能问答</span>
+            智能问答
           </router-link>
-        </a-menu-item>
-        <a-menu-item key="knowledge-base">
-          <router-link to="/knowledge-base">
+          <router-link
+            to="/knowledge-base"
+            class="nav-item"
+            active-class="nav-item-active">
             <BookOutlined />
-            <span>知识库管理</span>
+            知识库
           </router-link>
-        </a-menu-item>
-      </a-menu>
-    </a-layout-sider>
+        </nav>
+      </div>
+    </header>
 
-    <a-layout style="margin-left: 220px">
-      <a-layout-content style="padding: 24px; min-height: 100vh; background: #f0f2f5">
-        <RouterView />
-      </a-layout-content>
-    </a-layout>
-  </a-layout>
+    <!-- Main Centered Content -->
+    <main class="app-main">
+      <RouterView />
+    </main>
+  </div>
 </template>
 
 <style scoped>
+.app-layout {
+  min-height: 100vh;
+  background-color: #fafafa;
+  color: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family:
+    'SF Pro Display',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+.app-header {
+  position: sticky;
+  top: 24px;
+  z-index: 100;
+  width: 100%;
+  max-width: 900px;
+  padding: 0 20px;
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  padding: 12px 16px 12px 20px;
+  border-radius: 100px;
+  box-shadow:
+    0 4px 24px -8px rgba(0, 0, 0, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+
 .logo-area {
-  height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon-wrapper {
+  background: #1a1a1a;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  margin-bottom: 4px;
-}
-
-.logo-icon {
-  font-size: 24px;
-  color: #1890ff;
+  font-size: 16px;
 }
 
 .logo-text {
-  color: #fff;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.3px;
+  color: #1a1a1a;
+}
+
+.nav-menu {
+  display: flex;
+  gap: 8px;
+  background: #f4f4f5;
+  padding: 4px;
+  border-radius: 100px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #71717a;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.nav-item:hover {
+  color: #1a1a1a;
+}
+
+.nav-item-active {
+  background: #ffffff;
+  color: #1a1a1a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.app-main {
+  width: 100%;
+  max-width: 900px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 20px 40px;
 }
 </style>
