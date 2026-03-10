@@ -1,0 +1,92 @@
+import os
+import uuid
+import chromadb
+from chromadb.config import Settings as ChromaSettings
+from app.config import settings
+from app.services.embedding import get_embedding
+
+# Singleton ChromaDB client
+_client: chromadb.ClientAPI | None = None
+_collection: chromadb.Collection | None = None
+COLLECTION_NAME = "knowledge_base"
+
+
+def _get_collection() -> chromadb.Collection:
+    global _client, _collection
+    if _client is None:
+        os.makedirs(settings.chroma_persist_dir, exist_ok=True)
+        _client = chromadb.PersistentClient(
+            path=settings.chroma_persist_dir,
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
+    if _collection is None:
+        _collection = _client.get_or_create_collection(
+            name=COLLECTION_NAME,
+            metadata={"hnsw:space": "cosine"},
+        )
+    return _collection
+
+
+def add_documents(
+    chunks: list[str],
+    metadatas: list[dict],
+    doc_id: str,
+) -> int:
+    """Embed and store document chunks in the vector store."""
+    collection = _get_collection()
+    ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
+    embeddings = [get_embedding(chunk) for chunk in chunks]
+    collection.add(
+        ids=ids,
+        documents=chunks,
+        embeddings=embeddings,
+        metadatas=metadatas,
+    )
+    return len(chunks)
+
+
+def query_documents(query: str, n_results: int = 5) -> list[dict]:
+    """Search for relevant documents using semantic similarity."""
+    collection = _get_collection()
+    if collection.count() == 0:
+        return []
+    query_embedding = get_embedding(query)
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=min(n_results, collection.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+    docs = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    ):
+        docs.append({"content": doc, "metadata": meta, "distance": dist})
+    return docs
+
+
+def delete_document(doc_id: str) -> int:
+    """Delete all chunks belonging to a document."""
+    collection = _get_collection()
+    existing = collection.get(where={"doc_id": {"$eq": doc_id}})
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+        return len(existing["ids"])
+    return 0
+
+
+def list_documents() -> list[dict]:
+    """Return a deduplicated list of documents stored in the vector store."""
+    collection = _get_collection()
+    all_items = collection.get(include=["metadatas"])
+    seen: dict[str, dict] = {}
+    for meta in all_items["metadatas"]:
+        doc_id = meta.get("doc_id", "")
+        if doc_id and doc_id not in seen:
+            seen[doc_id] = meta
+    return list(seen.values())
+
+
+def collection_count() -> int:
+    return _get_collection().count()
