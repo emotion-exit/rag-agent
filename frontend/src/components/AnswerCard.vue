@@ -5,7 +5,6 @@ import {
   UserOutlined,
   RobotOutlined,
   LoadingOutlined,
-  BookOutlined,
   WarningOutlined,
 } from '@ant-design/icons-vue'
 
@@ -20,6 +19,14 @@ export interface Message {
 const props = defineProps<{
   message: Message
 }>()
+
+// A2UI cards expect a theme object via context/property; this minimal shape
+// avoids runtime errors while letting the app style the card shell itself.
+const minimalA2uiCardTheme = Object.freeze({
+  components: {
+    Card: {},
+  },
+})
 
 const isUser = computed(() => props.message.role === 'user')
 const isLoading = computed(() => props.message.status === 'loading')
@@ -53,44 +60,44 @@ const formattedTime = computed(() => {
     </div>
 
     <!-- Message card -->
-    <a-card
+    <a2ui-card
+      :theme.prop="minimalA2uiCardTheme"
       :class="[
         'message-card',
         isUser ? 'user-card' : 'assistant-card',
         isError ? 'error-card' : '',
         isNoResult ? 'no-result-card' : '',
       ]"
-      :bordered="false"
-      size="small"
     >
-      <!-- Loading skeleton -->
-      <template v-if="isLoading && !message.content">
-        <a-skeleton :active="true" :paragraph="{ rows: 2 }" :title="false" />
-      </template>
+      <div class="card-inner">
+        <!-- Loading skeleton -->
+        <template v-if="isLoading && !message.content">
+          <a-skeleton :active="true" :paragraph="{ rows: 2 }" :title="false" />
+        </template>
 
-      <!-- No result indicator -->
-      <template v-else-if="isNoResult">
-        <div class="no-result-content">
-          <WarningOutlined class="no-result-icon" />
-          <div class="no-result-text" v-html="renderedContent" />
+        <!-- No result indicator -->
+        <template v-else-if="isNoResult">
+          <div class="no-result-content">
+            <WarningOutlined class="no-result-icon" />
+            <div class="no-result-text" v-html="renderedContent" />
+          </div>
+        </template>
+
+        <!-- Normal content -->
+        <template v-else>
+          <div
+            v-if="!isUser"
+            class="markdown-body"
+            v-html="renderedContent"
+          />
+          <div v-else class="user-text">{{ message.content }}</div>
+        </template>
+
+        <div v-if="formattedTime" class="card-footer">
+          <span class="msg-time">{{ formattedTime }}</span>
         </div>
-      </template>
-
-      <!-- Normal content -->
-      <template v-else>
-        <div
-          v-if="!isUser"
-          class="markdown-body"
-          v-html="renderedContent"
-        />
-        <div v-else class="user-text">{{ message.content }}</div>
-      </template>
-
-      <!-- Footer -->
-      <template #extra>
-        <span v-if="formattedTime" class="msg-time">{{ formattedTime }}</span>
-      </template>
-    </a-card>
+      </div>
+    </a2ui-card>
 
     <!-- User avatar -->
     <div v-if="isUser" class="avatar user-avatar">
@@ -101,6 +108,7 @@ const formattedTime = computed(() => {
 
 <style scoped>
 .message-row {
+  --message-card-radius: 12px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -138,21 +146,28 @@ const formattedTime = computed(() => {
   color: #fff;
 }
 
-.message-card {
+a2ui-card.message-card {
   max-width: 72%;
   min-width: 60px;
-  border-radius: 12px !important;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08) !important;
+  border-radius: var(--message-card-radius);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
   transition: box-shadow 0.2s;
+  overflow: hidden;
 }
 
-.message-card:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12) !important;
+a2ui-card.message-card:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
 }
 
-.user-card {
-  background: linear-gradient(135deg, #1890ff, #096dd9) !important;
-  color: #fff !important;
+.card-inner {
+  padding: 12px 16px;
+  border-radius: var(--message-card-radius);
+  background: #fff;
+}
+
+.user-card .card-inner {
+  background: linear-gradient(135deg, #1890ff, #096dd9);
+  color: #fff;
 }
 
 .user-card .user-text {
@@ -160,17 +175,17 @@ const formattedTime = computed(() => {
   line-height: 1.6;
 }
 
-.assistant-card {
-  background: #fff !important;
+.assistant-card .card-inner {
+  background: #fff;
 }
 
-.error-card {
-  border-left: 3px solid #ff4d4f !important;
+.error-card .card-inner {
+  border-left: 3px solid #ff4d4f;
 }
 
-.no-result-card {
-  background: #fffbe6 !important;
-  border-left: 3px solid #faad14 !important;
+.no-result-card .card-inner {
+  background: #fffbe6;
+  border-left: 3px solid #faad14;
 }
 
 .no-result-content {
@@ -191,7 +206,13 @@ const formattedTime = computed(() => {
   line-height: 1.6;
 }
 
-.msg-time {
+.card-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.card-footer .msg-time {
   font-size: 11px;
   color: rgba(0, 0, 0, 0.35);
 }

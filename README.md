@@ -6,7 +6,7 @@
 - **问答 LLM**：[OpenRouter](https://openrouter.ai)
 - **向量数据库**：ChromaDB
 - **后端**：Python FastAPI + uv
-- **前端**：Vue3 + Ant Design Vue
+- **前端**：Vue3 + A2UI（回答卡片）+ Ant Design Vue（页面框架）
 
 ---
 
@@ -14,7 +14,7 @@
 
 1. 📚 **知识库管理**：上传 PDF、Word、TXT、Markdown、CSV 等文档
 2. 💬 **智能问答**：Agent 从知识库中检索答案，不自由发挥
-3. 🎴 **美化回答**：以精美的 Card 卡片形式展示回答（支持 Markdown 渲染）
+3. 🎴 **美化回答**：使用 A2UI Answer Card 展示回答（支持 Markdown 渲染）
 4. ⚠️ **找不到就说找不到**：知识库中无相关内容时，明确告知用户
 
 ---
