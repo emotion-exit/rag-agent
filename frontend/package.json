@@ -11,6 +11,7 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
+    "@a2ui/lit": "^0.8.3",
     "@ant-design/icons-vue": "^7.0.1",
     "@types/uuid": "^10.0.0",
     "ant-design-vue": "^4.2.6",
