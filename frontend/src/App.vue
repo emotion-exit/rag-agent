@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons-vue';
 
 const route = useRoute();
+const isKnowledgeBaseRoute = computed(() => route.name === 'knowledge-base');
+const usesOverlayHeader = computed(() => route.name === 'chat');
 </script>
 
 <template>
@@ -38,7 +40,12 @@ const route = useRoute();
     </header>
 
     <!-- Main Centered Content -->
-    <main class="app-main">
+    <main
+      :class="[
+        'app-main',
+        isKnowledgeBaseRoute ? 'app-main-scrollable' : '',
+        usesOverlayHeader ? 'app-main-overlay' : 'app-main-aligned'
+      ]">
       <RouterView />
     </main>
   </div>
@@ -52,7 +59,7 @@ const route = useRoute();
   color: #1a1a1a;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   font-family:
     'SF Pro Display',
     -apple-system,
@@ -70,6 +77,7 @@ const route = useRoute();
   z-index: 100;
   width: 100%;
   max-width: 900px;
+  margin: 0 auto;
   padding: 0 20px;
 }
 
@@ -147,12 +155,45 @@ const route = useRoute();
 .app-main {
   width: 100%;
   max-width: 900px;
+  margin: 0 auto;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   padding: 24px 20px 40px;
-  margin-top: -78px;
   overflow: hidden;
+}
+
+.app-main-overlay {
+  margin-top: -78px;
+}
+
+.app-main-aligned {
+  padding-top: 10px;
+}
+
+.app-main-scrollable {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    top: 16px;
+    padding: 0 14px;
+  }
+
+  .app-main {
+    padding: 18px 14px 28px;
+  }
+
+  .app-main-overlay {
+    margin-top: -72px;
+  }
+
+  .app-main-aligned {
+    padding-top: 8px;
+  }
 }
 </style>

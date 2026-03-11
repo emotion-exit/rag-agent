@@ -14,6 +14,14 @@ export interface SourceSummary {
   doc_id: string;
   filename: string;
   chunk_index: number;
+  system_name: string;
+  module_name: string;
+  feature_name: string;
+  version_name: string;
+  doc_type: string;
+  source_type: string;
+  source_label: string;
+  source_page: number;
   summary: string;
 }
 
@@ -112,6 +120,21 @@ async function openSource(source: SourceSummary) {
 function closeSourceModal() {
   activeSource.value = null;
 }
+
+function buildSourceMeta(source: SourceSummary) {
+  const sourceTypeLabel =
+    source.source_type === 'image_ocr' ? '截图识别' : '正文文本';
+
+  return [
+    sourceTypeLabel,
+    source.system_name,
+    source.module_name,
+    source.version_name
+  ]
+    .map((item) => item?.trim())
+    .filter(Boolean)
+    .join(' / ');
+}
 </script>
 
 <template>
@@ -187,7 +210,12 @@ function closeSourceModal() {
               :title="`查看原文片段: ${source.filename}`"
               @click="openSource(source)">
               <span class="source-badge-index">{{ index + 1 }}</span>
-              <span class="source-filename">{{ source.filename }}</span>
+              <span class="source-badge-copy">
+                <span class="source-filename">{{ source.filename }}</span>
+                <span v-if="buildSourceMeta(source)" class="source-meta">
+                  {{ buildSourceMeta(source) }}
+                </span>
+              </span>
             </button>
           </div>
         </div>
@@ -405,7 +433,7 @@ function closeSourceModal() {
 
 .source-badge {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   background: #f4f4f5;
   border: 1px solid #e4e4e7;
@@ -423,6 +451,13 @@ function closeSourceModal() {
   color: #18181b;
 }
 
+.source-badge-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
 .source-badge-index {
   background: #ffffff;
   color: #1a1a1a;
@@ -438,9 +473,16 @@ function closeSourceModal() {
 }
 
 .source-filename {
+  display: block;
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-meta {
+  color: #71717a;
+  font-size: 11px;
   white-space: nowrap;
 }
 

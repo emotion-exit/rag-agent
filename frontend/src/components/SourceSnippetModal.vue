@@ -7,6 +7,14 @@ interface SourceSummary {
   doc_id: string;
   filename: string;
   chunk_index: number;
+  system_name: string;
+  module_name: string;
+  feature_name: string;
+  version_name: string;
+  doc_type: string;
+  source_type: string;
+  source_label: string;
+  source_page: number;
   summary: string;
 }
 
@@ -27,6 +35,22 @@ const loading = ref(false);
 const error = ref('');
 
 const sourceKeywords = computed(() => extractKeywords(props.queryText || ''));
+const sourceMetaLines = computed(() => {
+  if (!props.source) return [];
+
+  return [
+    {
+      label: '来源类型',
+      value: props.source.source_type === 'image_ocr' ? '截图识别' : '正文文本'
+    },
+    { label: '来源位置', value: props.source.source_label },
+    { label: '所属系统', value: props.source.system_name },
+    { label: '业务模块', value: props.source.module_name },
+    { label: '功能主题', value: props.source.feature_name },
+    { label: '适用版本', value: props.source.version_name },
+    { label: '文档类型', value: props.source.doc_type }
+  ].filter((item) => item.value?.trim());
+});
 
 const highlightedExcerpt = computed(() => {
   if (!excerpt.value) return '';
@@ -131,6 +155,14 @@ function highlightKeywords(text: string, keywords: string[]) {
         <div>
           <div class="source-modal-title">{{ source.filename }}</div>
           <div class="source-modal-meta">片段 {{ source.chunk_index + 1 }}</div>
+          <div v-if="sourceMetaLines.length > 0" class="source-modal-tags">
+            <span
+              v-for="item in sourceMetaLines"
+              :key="item.label"
+              class="source-tag">
+              {{ item.label }}：{{ item.value }}
+            </span>
+          </div>
         </div>
         <button type="button" class="source-modal-close" @click="closeModal">
           <CloseOutlined />
@@ -197,6 +229,26 @@ function highlightKeywords(text: string, keywords: string[]) {
 
 .source-modal-tip {
   padding: 14px 22px 0;
+}
+
+.source-modal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f5f8ff;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .source-modal-close {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   UploadOutlined,
   DeleteOutlined,
@@ -17,6 +17,11 @@ interface DocumentInfo {
   doc_id: string;
   filename: string;
   upload_time: string;
+  system_name: string;
+  module_name: string;
+  feature_name: string;
+  version_name: string;
+  doc_type: string;
 }
 
 interface Stats {
@@ -24,20 +29,51 @@ interface Stats {
   total_documents: number;
 }
 
+interface UploadMetadataForm {
+  system_name: string;
+  module_name: string;
+  feature_name: string;
+  version_name: string;
+  doc_type: string;
+}
+
 type ToastType = 'success' | 'error';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const DOC_TYPE_OPTIONS = [
+  '用户手册',
+  '操作指南',
+  '常见问题',
+  '故障排查',
+  '发布说明',
+  '其他'
+];
 
 const documents = ref<DocumentInfo[]>([]);
 const stats = ref<Stats>({ total_chunks: 0, total_documents: 0 });
 const loading = ref(false);
 const uploading = ref(false);
 const isDragOver = ref(false);
+const uploadForm = ref<UploadMetadataForm>({
+  system_name: '',
+  module_name: '',
+  feature_name: '',
+  version_name: '',
+  doc_type: DOC_TYPE_OPTIONS[0] ?? '用户手册'
+});
 const toast = ref<{ visible: boolean; type: ToastType; message: string }>({
   visible: false,
   type: 'success',
   message: ''
 });
+
+const uploadMetadataPreview = computed(() => [
+  { label: '所属系统', value: uploadForm.value.system_name || '未填写' },
+  { label: '业务模块', value: uploadForm.value.module_name || '未填写' },
+  { label: '功能主题', value: uploadForm.value.feature_name || '未填写' },
+  { label: '适用版本', value: uploadForm.value.version_name || '未填写' },
+  { label: '文档类型', value: uploadForm.value.doc_type || '未填写' }
+]);
 
 function showToast(message: string, type: ToastType = 'success') {
   toast.value = { visible: true, type, message };
@@ -66,6 +102,10 @@ function formatDate(text: string) {
   } catch {
     return text;
   }
+}
+
+function formatMetadata(value: string) {
+  return value?.trim() || '未设置';
 }
 
 async function fetchDocuments() {
@@ -104,6 +144,12 @@ async function processFiles(fileList: FileList | File[]) {
 
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('system_name', uploadForm.value.system_name.trim());
+      formData.append('module_name', uploadForm.value.module_name.trim());
+      formData.append('feature_name', uploadForm.value.feature_name.trim());
+      formData.append('version_name', uploadForm.value.version_name.trim());
+      formData.append('doc_type', uploadForm.value.doc_type.trim());
+
       const response = await fetch(`${API_BASE}/api/knowledge-base/upload`, {
         method: 'POST',
         body: formData
@@ -178,14 +224,6 @@ onMounted(() => {
 
 <template>
   <div class="kb-container">
-    <section class="hero-block">
-      <div>
-        <div class="eyebrow">Knowledge Base</div>
-        <h1>让知识库成为回答的底座</h1>
-        <p>上传原始资料、沉淀索引结构、再在聊天页中获得带引用摘要的回答。</p>
-      </div>
-    </section>
-
     <section class="stats-grid">
       <article class="stat-card">
         <div class="stat-icon blue"><DatabaseOutlined /></div>
@@ -213,6 +251,83 @@ onMounted(() => {
         </div>
       </div>
 
+      <div class="metadata-grid">
+        <label class="field-block">
+          <span class="field-label">所属系统</span>
+          <input
+            v-model="uploadForm.system_name"
+            class="field-input"
+            type="text"
+            maxlength="40"
+            placeholder="例如：CRM、ERP、客服中台"
+            :disabled="uploading" />
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">业务模块</span>
+          <input
+            v-model="uploadForm.module_name"
+            class="field-input"
+            type="text"
+            maxlength="40"
+            placeholder="例如：权限管理、订单中心"
+            :disabled="uploading" />
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">功能主题</span>
+          <input
+            v-model="uploadForm.feature_name"
+            class="field-input"
+            type="text"
+            maxlength="60"
+            placeholder="例如：新增角色、导入订单"
+            :disabled="uploading" />
+        </label>
+
+        <label class="field-block">
+          <span class="field-label">适用版本</span>
+          <input
+            v-model="uploadForm.version_name"
+            class="field-input"
+            type="text"
+            maxlength="30"
+            placeholder="例如：V3.2、2026 春季版"
+            :disabled="uploading" />
+        </label>
+
+        <label class="field-block field-block-wide">
+          <span class="field-label">文档类型</span>
+          <select
+            v-model="uploadForm.doc_type"
+            class="field-input field-select"
+            :disabled="uploading">
+            <option
+              v-for="option in DOC_TYPE_OPTIONS"
+              :key="option"
+              :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </label>
+      </div>
+
+      <div class="metadata-preview">
+        <div
+          v-for="item in uploadMetadataPreview"
+          :key="item.label"
+          class="metadata-chip">
+          <span class="metadata-chip-label">{{ item.label }}</span>
+          <span
+            :class="[
+              'metadata-chip-value',
+              item.value === '未填写' ? 'metadata-chip-value-missing' : ''
+            ]">
+            {{ item.value }}
+          </span>
+        </div>
+      </div>
+
       <label
         class="upload-zone"
         :class="{ dragging: isDragOver, busy: uploading }"
@@ -223,15 +338,17 @@ onMounted(() => {
           type="file"
           class="hidden-input"
           multiple
-          accept=".pdf,.doc,.docx,.txt,.md,.rst,.csv"
+          accept=".pdf,.docx,.txt,.md,.rst,.csv"
           :disabled="uploading"
           @change="handleFileSelect" />
-        <div class="upload-inner" v-if="!uploading">
+        <div v-if="!uploading" class="upload-inner">
           <UploadOutlined class="upload-icon" />
           <div class="upload-title">点击选择文件，或将文件拖放到这里</div>
-          <div class="upload-hint">上传后会自动抽取文本并构建向量索引</div>
+          <div class="upload-hint">
+            上传后会自动抽取正文文本；Word/PDF 内截图会额外做 OCR 并进入检索
+          </div>
         </div>
-        <div class="upload-inner" v-else>
+        <div v-else class="upload-inner">
           <LoadingOutlined class="upload-icon spin" />
           <div class="upload-title">正在处理文档并建立索引...</div>
           <div class="upload-hint">请稍候，完成后列表会自动刷新</div>
@@ -244,7 +361,7 @@ onMounted(() => {
         <div>
           <div class="panel-title">已收录文档</div>
           <div class="panel-subtitle">
-            这里展示可被聊天问答检索到的文档资产。
+            这里展示可被聊天问答检索到的文档资产与分类元数据。
           </div>
         </div>
         <button
@@ -262,19 +379,23 @@ onMounted(() => {
           <thead>
             <tr>
               <th>文档名称</th>
+              <th>所属系统</th>
+              <th>业务模块</th>
+              <th>适用版本</th>
+              <th>文档类型</th>
               <th>上传时间</th>
               <th class="action-cell">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading && documents.length === 0">
-              <td colspan="3" class="empty-row">
+              <td colspan="7" class="empty-row">
                 <LoadingOutlined class="spin" />
                 正在加载文档列表...
               </td>
             </tr>
             <tr v-else-if="documents.length === 0">
-              <td colspan="3" class="empty-row">暂无文档，请先上传文件。</td>
+              <td colspan="7" class="empty-row">暂无文档，请先上传文件。</td>
             </tr>
             <tr v-for="doc in documents" :key="doc.doc_id">
               <td>
@@ -285,6 +406,14 @@ onMounted(() => {
                   <span class="filename-text">{{ doc.filename }}</span>
                 </div>
               </td>
+              <td>{{ formatMetadata(doc.system_name) }}</td>
+              <td>
+                <div class="meta-stack-cell">
+                  <span>{{ formatMetadata(doc.module_name) }}</span>
+                </div>
+              </td>
+              <td>{{ formatMetadata(doc.version_name) }}</td>
+              <td>{{ formatMetadata(doc.doc_type) }}</td>
               <td class="upload-time">{{ formatDate(doc.upload_time) }}</td>
               <td class="action-cell">
                 <button
@@ -312,9 +441,10 @@ onMounted(() => {
 
 <style scoped>
 .kb-container {
-  max-width: 900px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 28px 0 64px;
+  padding: 30px 0 64px;
 }
 
 .hero-block,
@@ -431,6 +561,93 @@ onMounted(() => {
   font-size: 13px;
 }
 
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-block-wide {
+  grid-column: span 2;
+}
+
+.field-label {
+  color: #3f3f46;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field-input {
+  width: 100%;
+  border: 1px solid rgba(24, 24, 27, 0.12);
+  border-radius: 16px;
+  background: #fcfcfd;
+  color: #18181b;
+  font: inherit;
+  padding: 12px 14px;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  background: #ffffff;
+}
+
+.field-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.field-select {
+  appearance: none;
+}
+
+.metadata-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.metadata-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: #f5f8ff;
+  border: 1px solid rgba(37, 99, 235, 0.12);
+}
+
+.metadata-chip-label {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metadata-chip-value {
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.metadata-chip-value-missing {
+  color: #dc2626;
+}
+
 .upload-zone {
   display: block;
   border: 1.5px dashed #d4d4d8;
@@ -501,10 +718,14 @@ onMounted(() => {
 
 .table-shell {
   overflow-x: auto;
+  margin: 0 -6px;
+  padding: 0 6px 8px;
+  scrollbar-gutter: stable both-edges;
 }
 
 .docs-table {
   width: 100%;
+  min-width: 980px;
   border-collapse: collapse;
 }
 
@@ -513,6 +734,7 @@ onMounted(() => {
   padding: 16px 10px;
   border-bottom: 1px solid #f4f4f5;
   text-align: left;
+  vertical-align: top;
 }
 
 .docs-table th {
@@ -540,6 +762,13 @@ onMounted(() => {
   line-height: 1.6;
 }
 
+.meta-stack-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.meta-subtext,
 .upload-time {
   color: #71717a;
   font-size: 13px;
@@ -616,6 +845,10 @@ onMounted(() => {
 }
 
 @media (max-width: 640px) {
+  .kb-container {
+    padding: 0 0 40px;
+  }
+
   .hero-block,
   .panel-block {
     padding: 22px 18px;
@@ -626,8 +859,13 @@ onMounted(() => {
     font-size: 28px;
   }
 
-  .stats-grid {
+  .stats-grid,
+  .metadata-grid {
     grid-template-columns: 1fr;
+  }
+
+  .field-block-wide {
+    grid-column: span 1;
   }
 
   .panel-head {

@@ -14,6 +14,7 @@ FINAL_CONTEXT_LIMIT = 3
 FINAL_SOURCE_LIMIT = 3
 MAX_CHUNKS_PER_DOCUMENT = 2
 SOURCE_SUMMARY_LENGTH = 140
+QUERY_FILTER_FIELDS = ("system_name", "module_name", "feature_name", "version_name")
 QUERY_STOPWORDS = {
     "请问",
     "一下",
@@ -90,6 +91,71 @@ def _extract_query_terms(query: str) -> list[str]:
     return deduped
 
 
+def _normalize_metadata_value(value: str) -> str:
+    return re.sub(r"\s+", "", value.lower())
+
+
+def _collect_filter_candidates() -> dict[str, set[str]]:
+    candidates: dict[str, set[str]] = {field: set() for field in QUERY_FILTER_FIELDS}
+    for document in vector_store.list_documents():
+        for field in QUERY_FILTER_FIELDS:
+            value = str(document.get(field, "")).strip()
+            if value:
+                candidates[field].add(value)
+    return candidates
+
+
+def _infer_metadata_filters(query: str) -> dict[str, str]:
+    normalized_query = _normalize_metadata_value(query)
+    if not normalized_query:
+        return {}
+
+    inferred: dict[str, str] = {}
+    candidates = _collect_filter_candidates()
+
+    for field, values in candidates.items():
+        for value in sorted(values, key=len, reverse=True):
+            if _normalize_metadata_value(value) in normalized_query:
+                inferred[field] = value
+                break
+
+    return inferred
+
+
+def _format_context_header(metadata: dict) -> str:
+    header_parts = []
+    for label, key in (
+        ("系统", "system_name"),
+        ("模块", "module_name"),
+        ("功能", "feature_name"),
+        ("版本", "version_name"),
+        ("类型", "doc_type"),
+    ):
+        value = str(metadata.get(key, "")).strip()
+        if value:
+            header_parts.append(f"[{label}] {value}")
+
+    source_type = str(metadata.get("source_type", "")).strip()
+    if source_type == "image_ocr":
+        header_parts.append("[来源类型] 截图识别")
+    elif source_type:
+        header_parts.append("[来源类型] 正文文本")
+
+    source_label = str(metadata.get("source_label", "")).strip()
+    if source_label:
+        header_parts.append(f"[来源位置] {source_label}")
+
+    return "\n".join(header_parts)
+
+
+def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
+    values = [
+        _normalize_text(str(metadata.get(field, "")))
+        for field in QUERY_FILTER_FIELDS
+    ]
+    return sum(1 for term in query_terms if any(term in value for value in values if value))
+
+
 def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
     content = _normalize_text(doc.get("content", ""))
     distance = float(doc.get("distance", 1.0))
@@ -101,8 +167,10 @@ def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
     keyword_hits = sum(1 for term in query_terms if term in content)
     weighted_hits = sum(len(term) for term in query_terms if term in content)
     keyword_score = min(weighted_hits / max(len("".join(query_terms)), 1), 1.0)
-    final_score = semantic_score * 0.65 + keyword_score * 0.35
-    return final_score, keyword_hits
+    metadata_hits = _metadata_match_count(query_terms, doc.get("metadata", {}))
+    metadata_score = min(metadata_hits / max(len(query_terms), 1), 1.0)
+    final_score = semantic_score * 0.55 + keyword_score * 0.3 + metadata_score * 0.15
+    return final_score, keyword_hits + metadata_hits
 
 
 def _build_rerank_status(mode: str) -> str:
@@ -195,7 +263,15 @@ def retrieve_relevant_documents_with_mode(
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
 ) -> tuple[list[dict], str]:
-    results = vector_store.query_documents(query, n_results=initial_n_results)
+    metadata_filters = _infer_metadata_filters(query)
+    results = vector_store.query_documents(
+        query,
+        n_results=initial_n_results,
+        metadata_filters=metadata_filters,
+    )
+
+    if not results and metadata_filters:
+        results = vector_store.query_documents(query, n_results=initial_n_results)
 
     if not results:
         return [], RERANK_MODE_LOCAL
@@ -240,6 +316,14 @@ def build_source_payload(
                 "doc_id": metadata.get("doc_id", ""),
                 "filename": metadata.get("filename", "未知文档"),
                 "chunk_index": metadata.get("chunk_index", 0),
+                "system_name": metadata.get("system_name", ""),
+                "module_name": metadata.get("module_name", ""),
+                "feature_name": metadata.get("feature_name", ""),
+                "version_name": metadata.get("version_name", ""),
+                "doc_type": metadata.get("doc_type", ""),
+                "source_type": metadata.get("source_type", "text"),
+                "source_label": metadata.get("source_label", "正文文本"),
+                "source_page": metadata.get("source_page", 0),
                 "summary": _summarize_excerpt(content),
             }
         )
@@ -275,8 +359,13 @@ def retrieve_from_knowledge_base(query: str) -> str:
 
     context_parts = []
     for i, doc in enumerate(relevant, 1):
-        filename = doc["metadata"].get("filename", "未知文档")
-        context_parts.append(f"[来源 {i}: {filename}]\n{doc['content']}")
+        metadata = doc["metadata"]
+        filename = metadata.get("filename", "未知文档")
+        header = _format_context_header(metadata)
+        if header:
+            context_parts.append(f"[来源 {i}: {filename}]\n{header}\n[内容]\n{doc['content']}")
+        else:
+            context_parts.append(f"[来源 {i}: {filename}]\n[内容]\n{doc['content']}")
 
     return "\n\n---\n\n".join(context_parts)
 

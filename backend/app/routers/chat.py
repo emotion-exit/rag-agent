@@ -34,6 +34,9 @@ class SourceDetailResponse(BaseModel):
     filename: str
     chunk_index: int
     excerpt: str
+    source_type: str = "text"
+    source_label: str = ""
+    source_page: int = 0
 
 
 async def _ensure_session_exists(session_id: str) -> None:
@@ -196,4 +199,7 @@ async def get_chat_source_detail(doc_id: str, chunk_index: int):
         filename=metadata.get("filename", "未知文档"),
         chunk_index=chunk_index,
         excerpt=chunk.get("content", ""),
+        source_type=metadata.get("source_type", "text"),
+        source_label=metadata.get("source_label", ""),
+        source_page=int(metadata.get("source_page", 0) or 0),
     )

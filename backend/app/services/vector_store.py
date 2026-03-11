@@ -11,6 +11,25 @@ _collection: chromadb.Collection | None = None
 COLLECTION_NAME = "knowledge_base"
 
 
+def _build_where_clause(metadata_filters: dict[str, str] | None) -> dict | None:
+    if not metadata_filters:
+        return None
+
+    clauses = []
+    for key, value in metadata_filters.items():
+        normalized = value.strip()
+        if normalized:
+            clauses.append({key: {"$eq": normalized}})
+
+    if not clauses:
+        return None
+
+    if len(clauses) == 1:
+        return clauses[0]
+
+    return {"$and": clauses}
+
+
 def _get_collection() -> chromadb.Collection:
     global _client, _collection
     if _client is None:
@@ -45,16 +64,22 @@ def add_documents(
     return len(chunks)
 
 
-def query_documents(query: str, n_results: int = 5) -> list[dict]:
+def query_documents(
+    query: str,
+    n_results: int = 5,
+    metadata_filters: dict[str, str] | None = None,
+) -> list[dict]:
     """Search for relevant documents using semantic similarity."""
     collection = _get_collection()
     if collection.count() == 0:
         return []
     query_embedding = get_embedding(query)
+    where = _build_where_clause(metadata_filters)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=min(n_results, collection.count()),
         include=["documents", "metadatas", "distances"],
+        where=where,
     )
     docs = []
     for doc, meta, dist in zip(
