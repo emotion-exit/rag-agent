@@ -46,7 +46,8 @@ const route = useRoute();
 
 <style scoped>
 .app-layout {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background-color: #fafafa;
   color: #1a1a1a;
   display: flex;
@@ -149,6 +150,9 @@ const route = useRoute();
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   padding: 24px 20px 40px;
+  margin-top: -78px;
+  overflow: hidden;
 }
 </style>

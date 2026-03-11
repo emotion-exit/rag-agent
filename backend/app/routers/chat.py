@@ -10,7 +10,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
-from app.agent.rag_agent import build_source_summaries, create_rag_agent
+from app.agent.rag_agent import build_source_payload, create_rag_agent, _build_rerank_status
+from app.services.vector_store import get_document_chunk
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -26,6 +27,13 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     sources: list[dict] = []
+
+
+class SourceDetailResponse(BaseModel):
+    doc_id: str
+    filename: str
+    chunk_index: int
+    excerpt: str
 
 
 async def _ensure_session_exists(session_id: str) -> None:
@@ -57,7 +65,7 @@ async def _stream_agent_response(
 
     await _ensure_session_exists(session_id)
 
-    source_summaries = build_source_summaries(message)
+    source_summaries, rerank_mode = build_source_payload(message)
 
     user_content = genai_types.Content(
         role="user",
@@ -94,6 +102,11 @@ async def _stream_agent_response(
 
     try:
         yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
+        yield (
+            "data: "
+            f"{json.dumps({'type': 'retrieval', 'content': _build_rerank_status(rerank_mode)}, ensure_ascii=False)}"
+            "\n\n"
+        )
         if source_summaries:
             yield (
                 "data: "
@@ -166,4 +179,21 @@ async def chat(request: ChatRequest):
             break
 
     reply = "".join(reply_parts)
-    return ChatResponse(reply=reply, sources=build_source_summaries(request.message))
+    sources, _ = build_source_payload(request.message)
+    return ChatResponse(reply=reply, sources=sources)
+
+
+@router.get("/sources/{doc_id}/{chunk_index}", response_model=SourceDetailResponse)
+async def get_chat_source_detail(doc_id: str, chunk_index: int):
+    """Fetch a full source excerpt on demand for the chat UI."""
+    chunk = get_document_chunk(doc_id, chunk_index)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="Source chunk not found")
+
+    metadata = chunk.get("metadata", {})
+    return SourceDetailResponse(
+        doc_id=doc_id,
+        filename=metadata.get("filename", "未知文档"),
+        chunk_index=chunk_index,
+        excerpt=chunk.get("content", ""),
+    )

@@ -126,6 +126,12 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
     return;
   }
 
+  if (data.type === 'retrieval') {
+    assistantMsg.status = 'loading';
+    assistantMsg.progressText = data.content;
+    return;
+  }
+
   if (data.type === 'text') {
     assistantMsg.answerContent =
       (assistantMsg.answerContent || '') + data.content;
@@ -195,6 +201,7 @@ async function sendMessage() {
     content: '',
     thoughtContent: '',
     answerContent: '',
+    queryText: text,
     sources: [],
     status: 'loading',
     progressText: CONNECTING_HINT,
@@ -304,9 +311,11 @@ function handleKeyDown(e: KeyboardEvent) {
         </div>
       </div>
 
-      <template v-for="msg in messages" :key="msg.id">
-        <AnswerCard :message="msg" />
-      </template>
+      <div v-else class="messages-stack">
+        <template v-for="msg in messages" :key="msg.id">
+          <AnswerCard :message="msg" />
+        </template>
+      </div>
     </div>
 
     <button
@@ -353,16 +362,48 @@ function handleKeyDown(e: KeyboardEvent) {
 .chat-container {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 112px);
+  flex: 1;
+  min-height: 0;
   position: relative;
+  padding-top: 78px;
 }
 
 .messages-area {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 6px 20px;
+  min-height: 0;
+  padding: 42px 8px 20px;
+  margin-top: -78px;
   display: flex;
   flex-direction: column;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.45) transparent;
+}
+
+.messages-area::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.messages-area::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.36);
+  border-radius: 999px;
+}
+
+.messages-area::-webkit-scrollbar-thumb:hover {
+  background: rgba(82, 82, 91, 0.56);
+}
+
+.messages-stack {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 84px;
+  box-sizing: border-box;
 }
 
 .welcome-container {

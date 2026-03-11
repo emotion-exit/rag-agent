@@ -66,6 +66,29 @@ def query_documents(query: str, n_results: int = 5) -> list[dict]:
     return docs
 
 
+def get_document_chunk(doc_id: str, chunk_index: int) -> dict | None:
+    """Return a single stored chunk by document id and chunk index."""
+    collection = _get_collection()
+    result = collection.get(
+        where={
+            "$and": [
+                {"doc_id": {"$eq": doc_id}},
+                {"chunk_index": {"$eq": chunk_index}},
+            ]
+        },
+        include=["documents", "metadatas"],
+    )
+
+    if not result["ids"]:
+        return None
+
+    return {
+        "id": result["ids"][0],
+        "content": result["documents"][0],
+        "metadata": result["metadatas"][0],
+    }
+
+
 def delete_document(doc_id: str) -> int:
     """Delete all chunks belonging to a document."""
     collection = _get_collection()

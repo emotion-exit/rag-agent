@@ -21,7 +21,22 @@
 
 ## 快速开始
 
-### 1. 配置环境变量
+### 1. 环境要求
+
+后端：Python 3.11+
+
+前端：Node.js 20.19+ 或 22.12+
+
+推荐工具：
+
+- 后端依赖管理：`uv`
+- 前端包管理：`pnpm`
+
+### 2. 配置环境变量
+
+先进入后端目录，并根据操作系统复制环境变量模板。
+
+Linux / macOS:
 
 ```bash
 cd backend
@@ -29,38 +44,133 @@ cp .env.example .env
 # 编辑 .env，填写您的 API Key
 ```
 
+Windows PowerShell:
+
+```powershell
+cd backend
+Copy-Item .env.example .env
+# 编辑 .env，填写您的 API Key
+```
+
 `.env` 需要填写：
 
-| 变量名 | 说明 |
-|--------|------|
-| `SILICONFLOW_API_KEY` | 硅基流动 API Key |
-| `OPENROUTER_API_KEY` | OpenRouter API Key |
-| `EMBEDDING_MODEL` | 嵌入模型（默认 `BAAI/bge-large-zh-v1.5`） |
-| `CHAT_MODEL` | 对话模型（默认 `anthropic/claude-3-haiku`） |
+| 变量名                | 说明                                        |
+| --------------------- | ------------------------------------------- |
+| `SILICONFLOW_API_KEY` | 硅基流动 API Key                            |
+| `OPENROUTER_API_KEY`  | OpenRouter API Key                          |
+| `EMBEDDING_MODEL`     | 嵌入模型（默认 `BAAI/bge-large-zh-v1.5`）   |
+| `RERANKER_MODEL`      | 重排模型（默认 `BAAI/bge-reranker-v2-m3`）  |
+| `CHAT_MODEL`          | 对话模型（默认 `anthropic/claude-3-haiku`） |
 
-### 2. 启动后端
+### 3. 安装与启动后端
+
+#### Linux
 
 ```bash
 cd backend
 
-# 安装 uv（如未安装）
-pip install uv
+# 如未安装 uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 创建虚拟环境并安装依赖
 uv venv
+source .venv/bin/activate
 uv pip install -e .
 
-# 复制并填写环境变量
+# 如尚未创建 .env
 cp .env.example .env
-# 编辑 .env 填入你的 API keys
 
 # 启动服务
-.venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### macOS
+
+```bash
+cd backend
+
+# 如未安装 uv
+brew install uv
+
+# 创建虚拟环境并安装依赖
+uv venv
+source .venv/bin/activate
+uv pip install -e .
+
+# 如尚未创建 .env
+cp .env.example .env
+
+# 启动服务
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+#### Windows PowerShell
+
+```powershell
+cd backend
+
+# 如未安装 uv
+winget install --id Astral-sh.uv
+
+# 创建虚拟环境并安装依赖
+uv venv
+.\.venv\Scripts\Activate.ps1
+uv pip install -e .
+
+# 如尚未创建 .env
+Copy-Item .env.example .env
+
+# 启动服务
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+如果 PowerShell 阻止脚本执行，可先运行：
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 API 文档：http://localhost:8000/docs
 
-### 3. 启动前端
+### 4. 安装与启动前端
+
+#### Linux
+
+```bash
+cd frontend
+
+# 如未安装 pnpm
+npm install -g pnpm
+
+pnpm install
+pnpm dev
+```
+
+#### macOS
+
+```bash
+cd frontend
+
+# 如未安装 pnpm
+npm install -g pnpm
+
+pnpm install
+pnpm dev
+```
+
+#### Windows PowerShell
+
+```powershell
+cd frontend
+
+# 如未安装 pnpm
+npm install -g pnpm
+
+pnpm install
+pnpm dev
+```
+
+如果你更习惯 npm，也可以使用：
 
 ```bash
 cd frontend
@@ -69,6 +179,12 @@ npm run dev
 ```
 
 前端地址：http://localhost:5173
+
+### 5. 一次性启动顺序
+
+1. 先启动后端服务，确认 http://localhost:8000/docs 可以打开。
+2. 再启动前端开发服务，打开 http://localhost:5173。
+3. 首次进入后，先去知识库页面上传文档，再回到问答页面提问。
 
 ---
 
@@ -106,16 +222,16 @@ rag-agent/
 
 ### 知识库管理
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/knowledge-base/upload` | 上传文档 |
-| `GET` | `/api/knowledge-base/documents` | 获取文档列表 |
-| `DELETE` | `/api/knowledge-base/documents/{doc_id}` | 删除文档 |
-| `GET` | `/api/knowledge-base/stats` | 获取统计信息 |
+| 方法     | 路径                                     | 说明         |
+| -------- | ---------------------------------------- | ------------ |
+| `POST`   | `/api/knowledge-base/upload`             | 上传文档     |
+| `GET`    | `/api/knowledge-base/documents`          | 获取文档列表 |
+| `DELETE` | `/api/knowledge-base/documents/{doc_id}` | 删除文档     |
+| `GET`    | `/api/knowledge-base/stats`              | 获取统计信息 |
 
 ### 聊天
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
+| 方法   | 路径               | 说明            |
+| ------ | ------------------ | --------------- |
 | `POST` | `/api/chat/stream` | 流式问答（SSE） |
-| `POST` | `/api/chat/` | 非流式问答 |
+| `POST` | `/api/chat/`       | 非流式问答      |

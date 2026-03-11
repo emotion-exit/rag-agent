@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     siliconflow_api_key: str = Field(default="", alias="SILICONFLOW_API_KEY")
     siliconflow_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="SILICONFLOW_BASE_URL")
     embedding_model: str = Field(default="BAAI/bge-large-zh-v1.5", alias="EMBEDDING_MODEL")
+    reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
 
     # OpenRouter
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")

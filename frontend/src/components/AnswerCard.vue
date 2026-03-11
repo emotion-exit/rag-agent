@@ -5,12 +5,13 @@ import {
   RobotOutlined,
   LoadingOutlined,
   WarningOutlined,
-  DownOutlined,
-  FileTextOutlined
+  DownOutlined
 } from '@ant-design/icons-vue';
+import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
 
 export interface SourceSummary {
   index: number;
+  doc_id: string;
   filename: string;
   chunk_index: number;
   summary: string;
@@ -26,6 +27,7 @@ export interface Message {
   progressText?: string;
   timestamp?: Date;
   sources?: SourceSummary[];
+  queryText?: string;
 }
 
 const props = defineProps<{
@@ -59,7 +61,14 @@ const hasAnswerSection = computed(
 const hasSources = computed(
   () =>
     props.message.role === 'assistant' &&
+    props.message.status === 'done' &&
     (props.message.sources?.length || 0) > 0
+);
+const showStatusLine = computed(
+  () =>
+    props.message.role === 'assistant' &&
+    props.message.status === 'loading' &&
+    (Boolean(props.message.content) || hasThoughtSection.value)
 );
 const isNoResult = computed(
   () =>
@@ -69,6 +78,7 @@ const isNoResult = computed(
       assistantAnswer.value.includes('未找到'))
 );
 const thoughtExpanded = ref(false);
+const activeSource = ref<SourceSummary | null>(null);
 
 const renderedContent = computed(() => {
   if (!props.message.content) return '';
@@ -93,6 +103,14 @@ const formattedTime = computed(() => {
 
 function toggleThought() {
   thoughtExpanded.value = !thoughtExpanded.value;
+}
+
+async function openSource(source: SourceSummary) {
+  activeSource.value = source;
+}
+
+function closeSourceModal() {
+  activeSource.value = null;
 }
 </script>
 
@@ -158,32 +176,33 @@ function toggleThought() {
 
         <div v-else class="user-text">{{ message.content }}</div>
 
-        <section v-if="hasSources" class="sources-wrap">
-          <div class="section-kicker">引用摘要</div>
-          <div class="source-list">
-            <article
-              v-for="source in message.sources"
+        <div v-if="hasSources" class="sources-inline-wrap">
+          <div class="sources-inline-label">参考来源:</div>
+          <div class="source-badges">
+            <button
+              v-for="(source, index) in message.sources"
               :key="`${message.id}-${source.index}`"
-              class="source-card">
-              <div class="source-title-row">
-                <div class="source-title">
-                  <FileTextOutlined class="source-icon" />
-                  <span>{{ source.filename }}</span>
-                </div>
-                <span class="source-tag">
-                  片段 {{ source.chunk_index + 1 }}
-                </span>
-              </div>
-              <p class="source-summary">{{ source.summary }}</p>
-            </article>
+              type="button"
+              class="source-badge"
+              :title="`查看原文片段: ${source.filename}`"
+              @click="openSource(source)">
+              <span class="source-badge-index">{{ index + 1 }}</span>
+              <span class="source-filename">{{ source.filename }}</span>
+            </button>
           </div>
-        </section>
+        </div>
       </template>
 
-      <div v-if="isLoading && !isUser" class="status-line">
+      <div v-if="showStatusLine" class="status-line">
         {{ loadingText }}
       </div>
     </div>
+
+    <SourceSnippetModal
+      :visible="Boolean(activeSource)"
+      :source="activeSource"
+      :query-text="message.queryText"
+      @close="closeSourceModal" />
   </div>
 </template>
 
@@ -204,11 +223,11 @@ function toggleThought() {
 }
 
 .message-shell {
-  width: 100%;
   max-width: 100%;
 }
 
 .user-shell {
+  width: fit-content;
   max-width: min(78%, 640px);
   background: #18181b;
   color: #ffffff;
@@ -218,6 +237,7 @@ function toggleThought() {
 }
 
 .assistant-shell {
+  width: 100%;
   max-width: min(100%, 760px);
 }
 
@@ -255,7 +275,7 @@ function toggleThought() {
 .loading-block,
 .answer-wrap,
 .thought-wrap,
-.sources-wrap,
+.sources-inline-wrap,
 .notice-block,
 .status-line,
 .assistant-shell > .answer-body {
@@ -285,9 +305,11 @@ function toggleThought() {
 .w-92 {
   width: 92%;
 }
+
 .w-84 {
   width: 84%;
 }
+
 .w-60 {
   width: 60%;
 }
@@ -357,53 +379,69 @@ function toggleThought() {
   text-transform: uppercase;
 }
 
-.sources-wrap {
-  margin-top: 14px;
-}
-
-.source-list {
-  display: grid;
-  gap: 10px;
-}
-
-.source-card {
-  background: #ffffff;
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  border-radius: 16px;
-  padding: 14px 16px;
-}
-
-.source-title-row {
+.sources-inline-wrap {
+  margin-top: 12px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid rgba(24, 24, 27, 0.08);
 }
 
-.source-title {
+.sources-inline-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #71717a;
+  padding-top: 5px;
+}
+
+.source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.source-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 14px;
+  padding: 4px 10px 4px 6px;
+  font-size: 12px;
+  color: #3f3f46;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.source-badge:hover {
+  background: #e4e4e7;
+  border-color: rgba(24, 24, 27, 0.1);
   color: #18181b;
-  font-size: 13px;
+}
+
+.source-badge-index {
+  background: #ffffff;
+  color: #1a1a1a;
   font-weight: 600;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
-.source-icon {
-  color: #71717a;
-}
-
-.source-tag {
-  color: #71717a;
-  font-size: 11px;
+.source-filename {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.source-summary {
-  margin: 10px 0 0;
-  color: #52525b;
-  line-height: 1.7;
-  font-size: 13px;
 }
 
 .notice-block {
@@ -539,12 +577,13 @@ function toggleThought() {
 
 @media (max-width: 640px) {
   .user-shell {
+    width: fit-content;
     max-width: 88%;
   }
 
   .answer-wrap,
   .thought-wrap,
-  .sources-wrap,
+  .sources-inline-wrap,
   .notice-block,
   .status-line,
   .assistant-shell > .answer-body,
@@ -552,7 +591,6 @@ function toggleThought() {
     margin-left: 0;
   }
 
-  .source-title-row,
   .message-head {
     align-items: flex-start;
     flex-direction: column;
