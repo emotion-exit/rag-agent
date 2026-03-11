@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
     chat_model: str = Field(default="anthropic/claude-3-haiku", alias="CHAT_MODEL")
+    openrouter_site_url: str = Field(default="http://localhost:5173", alias="OPENROUTER_SITE_URL")
+    openrouter_app_title: str = Field(default="RAG.Agent Local", alias="OPENROUTER_APP_TITLE")
+    openrouter_categories: str = Field(default="general-chat", alias="OPENROUTER_CATEGORIES")
 
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
@@ -25,6 +28,18 @@ class Settings(BaseSettings):
 
     def get_cors_origins(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def get_openrouter_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+
+        if self.openrouter_site_url.strip():
+            headers["HTTP-Referer"] = self.openrouter_site_url.strip()
+        if self.openrouter_app_title.strip():
+            headers["X-OpenRouter-Title"] = self.openrouter_app_title.strip()
+        if self.openrouter_categories.strip():
+            headers["X-OpenRouter-Categories"] = self.openrouter_categories.strip()
+
+        return headers
 
 
 settings = Settings()

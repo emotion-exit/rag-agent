@@ -54,13 +54,16 @@ Copy-Item .env.example .env
 
 `.env` 需要填写：
 
-| 变量名                | 说明                                        |
-| --------------------- | ------------------------------------------- |
-| `SILICONFLOW_API_KEY` | 硅基流动 API Key                            |
-| `OPENROUTER_API_KEY`  | OpenRouter API Key                          |
-| `EMBEDDING_MODEL`     | 嵌入模型（默认 `BAAI/bge-large-zh-v1.5`）   |
-| `RERANKER_MODEL`      | 重排模型（默认 `BAAI/bge-reranker-v2-m3`）  |
-| `CHAT_MODEL`          | 对话模型（默认 `anthropic/claude-3-haiku`） |
+| 变量名                  | 说明                                        |
+| ----------------------- | ------------------------------------------- |
+| `SILICONFLOW_API_KEY`   | 硅基流动 API Key                            |
+| `OPENROUTER_API_KEY`    | OpenRouter API Key                          |
+| `OPENROUTER_SITE_URL`   | OpenRouter 应用 URL，用于来源归因           |
+| `OPENROUTER_APP_TITLE`  | OpenRouter 应用名称，用于来源归因           |
+| `OPENROUTER_CATEGORIES` | OpenRouter 应用分类，逗号分隔，可选         |
+| `EMBEDDING_MODEL`       | 嵌入模型（默认 `BAAI/bge-large-zh-v1.5`）   |
+| `RERANKER_MODEL`        | 重排模型（默认 `BAAI/bge-reranker-v2-m3`）  |
+| `CHAT_MODEL`            | 对话模型（默认 `anthropic/claude-3-haiku`） |
 
 ### 3. 安装与启动后端
 

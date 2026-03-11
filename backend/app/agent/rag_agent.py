@@ -38,8 +38,8 @@ SYSTEM_INSTRUCTION = """你是一个知识库问答助手。你的职责是：
 4. 回答时请引用来源文档名称，让用户知道答案来自哪里。
 5. 保持回答简洁、准确、有帮助。优先输出 2-4 个要点或最多 3 个短段落。
 6. 最终给用户的答案请使用 Markdown 格式输出；合适时使用列表、加粗和引用。
-7. 不要输出多余的前言、英文分析过程、重复表述或与答案无关的自言自语。
-8. 如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。"""
+7. 不要输出多余的前言、中文分析过程、重复表述或与答案无关的自言自语。
+8. 中文给出结论，如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。"""
 
 
 def _build_llm() -> LiteLlm:
@@ -48,6 +48,7 @@ def _build_llm() -> LiteLlm:
         model=f"openai/{settings.chat_model}",
         api_key=settings.openrouter_api_key,
         api_base=settings.openrouter_base_url,
+        headers=settings.get_openrouter_headers(),
     )
 
 
