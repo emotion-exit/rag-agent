@@ -6,7 +6,8 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.document_processor import extract_document_chunks
+from app.services.document_assets import delete_document_assets, save_document_images
+from app.services.document_processor import extract_document_chunks, extract_document_images
 from app.services.vector_store import add_documents, delete_document, list_documents, collection_count
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
@@ -26,6 +27,7 @@ class DocumentInfo(BaseModel):
     feature_name: str = ""
     version_name: str = ""
     doc_type: str = ""
+    image_count: int = 0
 
 
 def _normalize_metadata_value(value: str | None) -> str:
@@ -62,15 +64,15 @@ async def upload_document(
     if len(file_bytes) == 0:
         raise HTTPException(status_code=400, detail="File is empty")
 
+    doc_id = str(uuid.uuid4())
     chunks_with_sources = extract_document_chunks(file_bytes, file.filename or "")
     if not chunks_with_sources:
-        raise HTTPException(status_code=400, detail="Could not extract text or OCR content from file")
+        raise HTTPException(status_code=400, detail="Could not extract text content from file")
 
     chunks = [item["content"] for item in chunks_with_sources]
-    ocr_chunk_count = sum(1 for item in chunks_with_sources if item.get("source_type") == "image_ocr")
+    document_images = extract_document_images(file_bytes, file.filename or "")
+    saved_images = save_document_images(doc_id, document_images)
 
-    # Generate document ID
-    doc_id = str(uuid.uuid4())
     upload_time = datetime.now(timezone.utc).isoformat()
     normalized_system_name = _normalize_metadata_value(system_name)
     normalized_module_name = _normalize_metadata_value(module_name)
@@ -93,6 +95,13 @@ async def upload_document(
             "source_type": chunk_info.get("source_type", "text"),
             "source_label": chunk_info.get("source_label", "正文文本"),
             "source_page": int(chunk_info.get("source_page", 0) or 0),
+            "section_title": chunk_info.get("section_title", ""),
+            "heading_path": chunk_info.get("heading_path", ""),
+            "paragraph_index_start": int(chunk_info.get("paragraph_index_start", 0) or 0),
+            "paragraph_index_end": int(chunk_info.get("paragraph_index_end", 0) or 0),
+            "block_index_start": int(chunk_info.get("block_index_start", 0) or 0),
+            "block_index_end": int(chunk_info.get("block_index_end", 0) or 0),
+            "image_count": len(saved_images),
         }
         for i, chunk_info in enumerate(chunks_with_sources)
     ]
@@ -104,8 +113,8 @@ async def upload_document(
         "doc_id": doc_id,
         "filename": file.filename,
         "chunks_created": count,
-        "ocr_chunks_created": ocr_chunk_count,
-        "message": f"成功上传 '{file.filename}'，共创建 {count} 个文本块，其中截图 OCR {ocr_chunk_count} 个",
+        "image_count": len(saved_images),
+        "message": f"成功上传 '{file.filename}'，共创建 {count} 个文本块，检测到 {len(saved_images)} 张文档图片（仅引用展示，不参与检索）",
     }
 
 
@@ -124,6 +133,7 @@ async def get_documents():
             "feature_name": doc.get("feature_name", ""),
             "version_name": doc.get("version_name", ""),
             "doc_type": doc.get("doc_type", ""),
+            "image_count": int(doc.get("image_count", 0) or 0),
         })
     return {"documents": result, "total": len(result)}
 
@@ -134,6 +144,7 @@ async def delete_document_endpoint(doc_id: str):
     deleted_count = delete_document(doc_id)
     if deleted_count == 0:
         raise HTTPException(status_code=404, detail="Document not found")
+    delete_document_assets(doc_id)
     return {
         "success": True,
         "message": f"已删除文档（共删除 {deleted_count} 个文本块）",

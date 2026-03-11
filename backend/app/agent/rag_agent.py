@@ -40,7 +40,9 @@ SYSTEM_INSTRUCTION = """你是一个知识库问答助手。你的职责是：
 5. 保持回答简洁、准确、有帮助。优先输出 2-4 个要点或最多 3 个短段落。
 6. 最终给用户的答案请使用 Markdown 格式输出；合适时使用列表、加粗和引用。
 7. 不要输出多余的前言、中文分析过程、重复表述或与答案无关的自言自语。
-8. 中文给出结论，如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。"""
+8. 中文给出结论，如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。
+9. 不要向用户暴露任何内部实现细节，包括但不限于工具名、函数名、接口路径、类名、文件名、变量名、代码片段或“我调用了某个工具”这类描述。
+10. 如果需要描述检索过程，只能用自然语言概括，例如“我已检索知识库并核对相关内容”，不要出现代码风格标识。"""
 
 
 def _build_llm() -> LiteLlm:
@@ -136,14 +138,20 @@ def _format_context_header(metadata: dict) -> str:
             header_parts.append(f"[{label}] {value}")
 
     source_type = str(metadata.get("source_type", "")).strip()
-    if source_type == "image_ocr":
-        header_parts.append("[来源类型] 截图识别")
-    elif source_type:
+    if source_type:
         header_parts.append("[来源类型] 正文文本")
 
     source_label = str(metadata.get("source_label", "")).strip()
     if source_label:
         header_parts.append(f"[来源位置] {source_label}")
+
+    heading_path = str(metadata.get("heading_path", "")).strip()
+    if heading_path:
+        header_parts.append(f"[章节路径] {heading_path}")
+
+    section_title = str(metadata.get("section_title", "")).strip()
+    if section_title and section_title != heading_path:
+        header_parts.append(f"[章节标题] {section_title}")
 
     return "\n".join(header_parts)
 
@@ -153,6 +161,13 @@ def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
         _normalize_text(str(metadata.get(field, "")))
         for field in QUERY_FILTER_FIELDS
     ]
+    values.extend(
+        [
+            _normalize_text(str(metadata.get("section_title", ""))),
+            _normalize_text(str(metadata.get("heading_path", ""))),
+            _normalize_text(str(metadata.get("source_label", ""))),
+        ]
+    )
     return sum(1 for term in query_terms if any(term in value for value in values if value))
 
 
@@ -324,6 +339,9 @@ def build_source_payload(
                 "source_type": metadata.get("source_type", "text"),
                 "source_label": metadata.get("source_label", "正文文本"),
                 "source_page": metadata.get("source_page", 0),
+                "section_title": metadata.get("section_title", ""),
+                "heading_path": metadata.get("heading_path", ""),
+                "image_count": int(metadata.get("image_count", 0) or 0),
                 "summary": _summarize_excerpt(content),
             }
         )

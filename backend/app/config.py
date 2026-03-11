@@ -22,8 +22,6 @@ class Settings(BaseSettings):
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
     upload_dir: str = Field(default="./data/uploads", alias="UPLOAD_DIR")
-    ocr_enabled: bool = Field(default=True, alias="OCR_ENABLED")
-    ocr_min_text_length: int = Field(default=6, alias="OCR_MIN_TEXT_LENGTH")
 
     # CORS
     cors_origins: str = Field(default="http://localhost:5173,http://localhost:3000", alias="CORS_ORIGINS")

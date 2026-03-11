@@ -22,6 +22,7 @@ interface DocumentInfo {
   feature_name: string;
   version_name: string;
   doc_type: string;
+  image_count: number;
 }
 
 interface Stats {
@@ -106,6 +107,10 @@ function formatDate(text: string) {
 
 function formatMetadata(value: string) {
   return value?.trim() || '未设置';
+}
+
+function formatImageCount(value: number) {
+  return value > 0 ? `附图 ${value} 张` : '无附图';
 }
 
 async function fetchDocuments() {
@@ -236,7 +241,7 @@ onMounted(() => {
         <div class="stat-icon green"><FileTextOutlined /></div>
         <div>
           <div class="stat-value">{{ stats.total_chunks }}</div>
-          <div class="stat-label">文本分块</div>
+          <div class="stat-label">分块</div>
         </div>
       </article>
     </section>
@@ -345,7 +350,7 @@ onMounted(() => {
           <UploadOutlined class="upload-icon" />
           <div class="upload-title">点击选择文件，或将文件拖放到这里</div>
           <div class="upload-hint">
-            上传后会自动抽取正文文本；Word/PDF 内截图会额外做 OCR 并进入检索
+            上传后会自动抽取正文文本；文档图片会保留在引用详情中展示，但不参与检索
           </div>
         </div>
         <div v-else class="upload-inner">
@@ -383,19 +388,20 @@ onMounted(() => {
               <th>业务模块</th>
               <th>适用版本</th>
               <th>文档类型</th>
+              <th>附图</th>
               <th>上传时间</th>
               <th class="action-cell">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading && documents.length === 0">
-              <td colspan="7" class="empty-row">
+              <td colspan="8" class="empty-row">
                 <LoadingOutlined class="spin" />
                 正在加载文档列表...
               </td>
             </tr>
             <tr v-else-if="documents.length === 0">
-              <td colspan="7" class="empty-row">暂无文档，请先上传文件。</td>
+              <td colspan="8" class="empty-row">暂无文档，请先上传文件。</td>
             </tr>
             <tr v-for="doc in documents" :key="doc.doc_id">
               <td>
@@ -414,6 +420,15 @@ onMounted(() => {
               </td>
               <td>{{ formatMetadata(doc.version_name) }}</td>
               <td>{{ formatMetadata(doc.doc_type) }}</td>
+              <td>
+                <span
+                  :class="[
+                    'image-count-badge',
+                    doc.image_count > 0 ? 'has-images' : 'no-images'
+                  ]">
+                  {{ formatImageCount(doc.image_count) }}
+                </span>
+              </td>
               <td class="upload-time">{{ formatDate(doc.upload_time) }}</td>
               <td class="action-cell">
                 <button
@@ -725,7 +740,7 @@ onMounted(() => {
 
 .docs-table {
   width: 100%;
-  min-width: 980px;
+  min-width: 1080px;
   border-collapse: collapse;
 }
 
@@ -772,6 +787,28 @@ onMounted(() => {
 .upload-time {
   color: #71717a;
   font-size: 13px;
+}
+
+.image-count-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.image-count-badge.has-images {
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+}
+
+.image-count-badge.no-images {
+  color: #71717a;
+  background: #f4f4f5;
+  border: 1px solid rgba(113, 113, 122, 0.12);
 }
 
 .action-cell {

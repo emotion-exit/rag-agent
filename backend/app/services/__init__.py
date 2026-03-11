@@ -6,7 +6,12 @@ from app.services.vector_store import (
     list_documents,
     collection_count,
 )
-from app.services.document_processor import extract_text_from_file, chunk_text
+from app.services.document_processor import (
+    extract_text_from_file,
+    extract_document_chunks,
+    extract_document_sections,
+    extract_document_images,
+)
 
 __all__ = [
     "get_embedding",
@@ -16,5 +21,7 @@ __all__ = [
     "list_documents",
     "collection_count",
     "extract_text_from_file",
-    "chunk_text",
+    "extract_document_chunks",
+    "extract_document_sections",
+    "extract_document_images",
 ]

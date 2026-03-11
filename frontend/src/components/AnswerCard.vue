@@ -22,6 +22,7 @@ export interface SourceSummary {
   source_type: string;
   source_label: string;
   source_page: number;
+  image_count?: number;
   summary: string;
 }
 
@@ -122,8 +123,7 @@ function closeSourceModal() {
 }
 
 function buildSourceMeta(source: SourceSummary) {
-  const sourceTypeLabel =
-    source.source_type === 'image_ocr' ? '截图识别' : '正文文本';
+  const sourceTypeLabel = '正文文本';
 
   return [
     sourceTypeLabel,

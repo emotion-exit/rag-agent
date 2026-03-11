@@ -15,7 +15,18 @@ interface SourceSummary {
   source_type: string;
   source_label: string;
   source_page: number;
+  section_title?: string;
+  heading_path?: string;
+  image_count?: number;
   summary: string;
+}
+
+interface SourceImage {
+  image_id: string;
+  filename: string;
+  source_label: string;
+  source_page: number;
+  url: string;
 }
 
 const props = defineProps<{
@@ -33,6 +44,29 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const excerpt = ref('');
 const loading = ref(false);
 const error = ref('');
+const images = ref<SourceImage[]>([]);
+
+const groupedImages = computed(() => {
+  const groups = new Map<string, { title: string; items: SourceImage[] }>();
+
+  for (const image of [...images.value].sort((left, right) => {
+    const pageDiff = left.source_page - right.source_page;
+    if (pageDiff !== 0) return pageDiff;
+    return left.source_label.localeCompare(right.source_label, 'zh-CN');
+  })) {
+    const key = image.source_page > 0 ? `page-${image.source_page}` : 'ordered';
+    const title =
+      image.source_page > 0 ? `第 ${image.source_page} 页` : '按文档顺序';
+
+    if (!groups.has(key)) {
+      groups.set(key, { title, items: [] });
+    }
+
+    groups.get(key)?.items.push(image);
+  }
+
+  return Array.from(groups.values());
+});
 
 const sourceKeywords = computed(() => extractKeywords(props.queryText || ''));
 const sourceMetaLines = computed(() => {
@@ -41,9 +75,15 @@ const sourceMetaLines = computed(() => {
   return [
     {
       label: '来源类型',
-      value: props.source.source_type === 'image_ocr' ? '截图识别' : '正文文本'
+      value: '正文文本'
     },
     { label: '来源位置', value: props.source.source_label },
+    {
+      label: '文档附图',
+      value: images.value.length > 0 ? `共 ${images.value.length} 张` : ''
+    },
+    { label: '章节路径', value: props.source.heading_path || '' },
+    { label: '章节标题', value: props.source.section_title || '' },
     { label: '所属系统', value: props.source.system_name },
     { label: '业务模块', value: props.source.module_name },
     { label: '功能主题', value: props.source.feature_name },
@@ -62,12 +102,14 @@ watch(
   async ([visible, docId, chunkIndex]) => {
     if (!visible || !docId || typeof chunkIndex !== 'number') {
       excerpt.value = '';
+      images.value = [];
       loading.value = false;
       error.value = '';
       return;
     }
 
     excerpt.value = '';
+    images.value = [];
     error.value = '';
     loading.value = true;
 
@@ -82,6 +124,7 @@ watch(
 
       const data = await response.json();
       excerpt.value = typeof data.excerpt === 'string' ? data.excerpt : '';
+      images.value = Array.isArray(data.images) ? data.images : [];
     } catch (fetchError: unknown) {
       error.value =
         fetchError instanceof Error ? fetchError.message : '片段加载失败';
@@ -177,7 +220,37 @@ function highlightKeywords(text: string, keywords: string[]) {
         class="source-modal-body source-modal-state source-modal-error">
         片段加载失败：{{ error }}
       </div>
-      <div v-else class="source-modal-body" v-html="highlightedExcerpt" />
+      <div v-else class="source-modal-body">
+        <div v-html="highlightedExcerpt" />
+        <section v-if="images.length > 0" class="source-images">
+          <div class="source-images-title">文档附图</div>
+          <div class="source-image-groups">
+            <section
+              v-for="group in groupedImages"
+              :key="group.title"
+              class="source-image-group">
+              <div class="source-image-group-title">{{ group.title }}</div>
+              <div class="source-images-grid">
+                <a
+                  v-for="image in group.items"
+                  :key="image.image_id"
+                  class="source-image-card"
+                  :href="image.url"
+                  target="_blank"
+                  rel="noreferrer">
+                  <img
+                    :src="image.url"
+                    :alt="image.filename || image.source_label"
+                    class="source-image-preview" />
+                  <span class="source-image-label">
+                    {{ image.source_label }}
+                  </span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -284,6 +357,68 @@ function highlightKeywords(text: string, keywords: string[]) {
   color: #854d0e;
   padding: 0 2px;
   border-radius: 4px;
+}
+
+.source-images {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #f4f4f5;
+}
+
+.source-image-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.source-image-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-image-group-title {
+  color: #52525b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.source-images-title {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.source-images-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.source-image-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid #e4e4e7;
+  background: #fafafa;
+  text-decoration: none;
+}
+
+.source-image-preview {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #f4f4f5;
+}
+
+.source-image-label {
+  color: #3f3f46;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 @media (max-width: 640px) {
