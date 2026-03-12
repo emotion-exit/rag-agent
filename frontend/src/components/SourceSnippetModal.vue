@@ -5,6 +5,7 @@ import {
   LeftOutlined,
   RightOutlined
 } from '@ant-design/icons-vue';
+import { getApiBase } from '@/services/runtime';
 
 interface SourceSummary {
   index: number;
@@ -43,7 +44,7 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE = getApiBase();
 
 const excerpt = ref('');
 const loading = ref(false);

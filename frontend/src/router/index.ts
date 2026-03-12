@@ -20,6 +20,11 @@ const router = createRouter({
         keepAlive: true,
         keepAliveName: 'KnowledgeBaseView'
       }
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('../views/SettingsView.vue')
     }
   ]
 });

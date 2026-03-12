@@ -1,30 +1,33 @@
-import { fileURLToPath, URL } from 'node:url'
+import { fileURLToPath, URL } from 'node:url';
 
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [
     vue({
       template: {
         compilerOptions: {
-          isCustomElement: (tag) => tag.startsWith('a2ui-'),
-        },
-      },
-    }),
+          isCustomElement: (tag) => tag.startsWith('a2ui-')
+        }
+      }
+    })
   ],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
-    },
+    }
   },
   server: {
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-    },
-  },
-})
+        changeOrigin: true
+      }
+    }
+  }
+});

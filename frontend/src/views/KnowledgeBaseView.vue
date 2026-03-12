@@ -16,6 +16,7 @@ import {
   CheckCircleOutlined,
   WarningOutlined
 } from '@ant-design/icons-vue';
+import { getApiBase } from '@/services/runtime';
 
 interface DocumentInfo {
   doc_id: string;
@@ -45,7 +46,7 @@ interface UploadMetadataForm {
 type ToastType = 'success' | 'error';
 type KnowledgeBaseTab = 'upload' | 'documents';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE = getApiBase();
 const DOC_TYPE_OPTIONS = [
   '用户手册',
   '操作指南',

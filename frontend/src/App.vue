@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router';
 import {
   MessageOutlined,
   BookOutlined,
-  RobotOutlined
+  RobotOutlined,
+  SettingOutlined
 } from '@ant-design/icons-vue';
 
 const route = useRoute();
@@ -43,6 +44,13 @@ const keepAliveIncludes = computed(() =>
             active-class="nav-item-active">
             <BookOutlined />
             知识库
+          </router-link>
+          <router-link
+            to="/settings"
+            class="nav-item"
+            active-class="nav-item-active">
+            <SettingOutlined />
+            设置
           </router-link>
         </nav>
       </div>

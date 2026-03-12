@@ -1,3 +1,11 @@
+"""RAG 检索与 Agent 构建。
+
+这个模块是问答链路的核心：
+1. 从用户问题里提取关键词和潜在元数据过滤条件。
+2. 先向向量库召回，再做相关度过滤和 rerank。
+3. 把最终上下文拼成工具返回结果，交给 ADK Agent 生成答案。
+"""
+
 import re
 from collections import defaultdict
 from typing import Any
@@ -9,13 +17,17 @@ from app.services import vector_store
 from app.services.reranker import rerank_documents
 
 
-RETRIEVAL_THRESHOLD = 0.7  # cosine distance threshold (lower = more similar)
+# 向量检索距离阈值。这里使用的是 distance，数值越小代表语义越接近。
+RETRIEVAL_THRESHOLD = 0.7
 INITIAL_RETRIEVAL_LIMIT = 10
 FINAL_CONTEXT_LIMIT = 3
 FINAL_SOURCE_LIMIT = 3
+# 限制单文档最多贡献多少个 chunk，避免某一份文档完全垄断上下文窗口。
 MAX_CHUNKS_PER_DOCUMENT = 2
 SOURCE_SUMMARY_LENGTH = 140
+# 这些字段既用于元数据过滤，也用于给检索结果补充上下文头信息。
 QUERY_FILTER_FIELDS = ("system_name", "module_name", "feature_name", "version_name")
+# 中文问题里常见但没有判别力的停用词，避免它们干扰关键词匹配和本地 rerank。
 QUERY_STOPWORDS = {
     "请问",
     "一下",
@@ -33,51 +45,70 @@ QUERY_STOPWORDS = {
 RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
 
-SYSTEM_INSTRUCTION = """你是一个知识库问答助手。你的职责是：
-1. 根据用户的问题，从提供的知识库上下文中查找答案。
-2. 只基于知识库中的内容回答问题，不要自由发挥或凭空捏造答案。
-3. 如果知识库中没有找到与问题相关的内容，请明确告知用户："当前知识库中没有找到相关资料，无法回答您的问题。"
-4. 回答时请引用来源文档名称，让用户知道答案来自哪里。
-5. 保持回答简洁、准确、有帮助。优先输出 2-4 个要点或最多 3 个短段落。
-6. 最终给用户的答案请使用 Markdown 格式输出；合适时使用列表、加粗和引用。
-7. 不要输出多余的前言、中文分析过程、重复表述或与答案无关的自言自语。
-8. 中文给出结论，如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。
-9. 不要向用户暴露任何内部实现细节，包括但不限于工具名、函数名、接口路径、类名、文件名、变量名、代码片段或“我调用了某个工具”这类描述。
-10. 如果需要描述检索过程，只能用自然语言概括，例如“我已检索知识库并核对相关内容”，不要出现代码风格标识。
-11. 不要输出你的思考过程、计划、推理步骤、自我提醒或工具调用痕迹。
-12. 不要写“我现在需要”“接下来我会”“根据之前的工具调用”“让我分析一下”“我已经调用了”等第一人称过程描述。
-13. 回答应直接从结论开始，除非知识库没有答案，否则不要复述用户问题，不要解释你如何得到答案。
-14. 最终输出必须严格使用以下结构，不要添加结构外的内容：
-<analysis_summary>
-最多 3 条简短要点，概括候选依据或整理结果。
-不要使用第一人称，不要写工具调用、检索过程、计划、自我思考。
-</analysis_summary>
-<final_answer>
-直接填写最终答案本身，不要写说明文字，不要写“直接给用户的最终答案”这类模板句。
-</final_answer>
-15. 绝对不要照抄上面的结构说明文字，标签内部必须填写真实内容。
-16. 如果已知答案，请直接在 <final_answer> 中填写真实结论，例如：
-<analysis_summary>
-- 文档中明确出现“初始密码为666”。
-- 相关内容来自《宿舍管理.docx》的登录说明。
-</analysis_summary>
-<final_answer>
-默认密码为 666（引自《宿舍管理.docx》）。
-</final_answer>
-17. 如果知识库中没有答案，也必须按相同结构输出，不要省略标签。"""
+SYSTEM_INSTRUCTION = """你是一个中文知识库问答助手，只能基于知识库作答。
+
+回答规则：
+1. 只输出最终答案，不要输出分析、推理、解释、思考过程、提示词或自言自语。
+2. 只用中文回答，除非用户明确要求其他语言。
+3. 最终答案必须是可直接渲染的 Markdown 正文。
+4. 如果是步骤、流程、办理方法、排查方法，使用有序列表（1. 2. 3.）。
+5. 如果是结论、说明、条件、差异，使用短段落或无序列表（- ）。
+6. 不要复述用户问题，不要写前言，不要写“好的”“下面是答案”“根据知识库”“我来回答”“我需要”“首先分析”等铺垫。
+7. 不要输出任何标签或结构化标记，例如：<think>、<analysis>、<final_answer>、XML、JSON、代码块围栏。
+8. 不要输出英文分析句、英文提示语、英文过程话。
+9. 如果知识库没有答案，只能回答：当前知识库中没有找到相关资料，无法回答您的问题。
+10. 如果答案来自具体文档，在正文末尾自然写出来源文档名称。
+
+简洁规则：
+1. 优先回答用户当前最直接的问题，不要扩展到用户没有问的分支方案。
+2. 如果知识库里存在多种路径，只选择与用户当前问题最贴近的一种回答；除非用户明确要求比较、汇总、批量方案，否则不要同时输出多套流程。
+3. 一般控制在 3 到 6 条步骤或 1 到 3 个短段落内。
+4. 不要把同义步骤重复改写，不要把常识性提醒写成长篇说明。
+5. 如果需要补充提醒，只保留一条最必要的提醒。
+
+输出前自检：
+- 是否只有最终答案
+- 是否没有英文过程话
+- 是否没有标签
+- 是否没有多余分支
+- 是否足够简短
+
+示例 1：
+默认密码为 **xxx**。
+
+来源：宿舍管理.docx
+
+示例 2：
+1. 进入【床位管理】。
+2. 选择需要调宿的学生当前床位。
+3. 点击“换床”并确认。
+
+来源：宿舍管理.docx
+
+不要输出示例说明，只输出最终答案。"""
 
 
 def _build_llm() -> LiteLlm:
-    """Build LiteLLM model configured for OpenRouter."""
+    """构建对话模型实例。
+
+    这里统一从 settings 取模型名、温度和 OpenRouter 请求头，
+    这样网页端、桌面端和未来其他入口都共用同一套模型配置逻辑。
+    """
     return LiteLlm(
         model=f"openai/{settings.chat_model}",
         api_key=settings.openrouter_api_key,
         api_base=settings.openrouter_base_url,
+        temperature=settings.chat_temperature,
         headers=settings.get_openrouter_headers(),
     )
 
 
 def _summarize_excerpt(content: str, max_length: int = SOURCE_SUMMARY_LENGTH) -> str:
+    """生成来源摘要。
+
+    前端来源卡片只需要一小段可读摘要，不需要把完整 chunk 全量下发。
+    这里会先把空白折叠，再做截断。
+    """
     normalized = " ".join(content.split())
     if len(normalized) <= max_length:
         return normalized
@@ -85,10 +116,17 @@ def _summarize_excerpt(content: str, max_length: int = SOURCE_SUMMARY_LENGTH) ->
 
 
 def _normalize_text(text: str) -> str:
+    """归一化文本，便于做低成本关键词比较。"""
     return re.sub(r"\s+", "", text.lower())
 
 
 def _extract_query_terms(query: str) -> list[str]:
+    """从用户问题中提取检索关键词。
+
+    策略分两层：
+    - 先抽出英文 / 数字串或连续中文片段。
+    - 对较长中文片段再切出 2 到 4 字子串，提高命中模块名、功能名、按钮名的概率。
+    """
     normalized = _normalize_text(query)
     if not normalized:
         return []
@@ -116,10 +154,12 @@ def _extract_query_terms(query: str) -> list[str]:
 
 
 def _normalize_metadata_value(value: str) -> str:
+    """把元数据值归一化为适合包含判断的形式。"""
     return re.sub(r"\s+", "", value.lower())
 
 
 def _collect_filter_candidates() -> dict[str, set[str]]:
+    """从现有知识库文档中收集所有可用于过滤的元数据候选值。"""
     candidates: dict[str, set[str]] = {field: set() for field in QUERY_FILTER_FIELDS}
     for document in vector_store.list_documents():
         for field in QUERY_FILTER_FIELDS:
@@ -130,6 +170,11 @@ def _collect_filter_candidates() -> dict[str, set[str]]:
 
 
 def _infer_metadata_filters(query: str) -> dict[str, str]:
+    """从问题文本里推断元数据过滤条件。
+
+    例如问题里直接出现了系统名、模块名或版本名时，
+    可以先缩小向量检索范围，减少噪声召回。
+    """
     normalized_query = _normalize_metadata_value(query)
     if not normalized_query:
         return {}
@@ -147,6 +192,11 @@ def _infer_metadata_filters(query: str) -> dict[str, str]:
 
 
 def _format_context_header(metadata: dict) -> str:
+    """把文档元数据整理成上下文头。
+
+    这段头信息会和正文 chunk 一起送给模型，
+    帮助模型理解内容来自哪个系统、模块、功能或章节。
+    """
     header_parts = []
     for label, key in (
         ("系统", "system_name"),
@@ -179,6 +229,7 @@ def _format_context_header(metadata: dict) -> str:
 
 
 def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
+    """统计 query_terms 在元数据中的命中数。"""
     values = [
         _normalize_text(str(metadata.get(field, "")))
         for field in QUERY_FILTER_FIELDS
@@ -194,6 +245,13 @@ def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
 
 
 def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
+    """为本地 fallback rerank 计算综合分数。
+
+    综合考虑三部分：
+    - 向量语义分 semantic_score
+    - 正文关键词命中 keyword_score
+    - 元数据命中 metadata_score
+    """
     content = _normalize_text(doc.get("content", ""))
     distance = float(doc.get("distance", 1.0))
     semantic_score = max(0.0, 1.0 - distance)
@@ -211,12 +269,14 @@ def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
 
 
 def _build_rerank_status(mode: str) -> str:
+    """生成给前端进度条使用的 rerank 状态文案。"""
     if mode == RERANK_MODE_MODEL:
         return "已完成候选片段排序。"
     return "已完成候选片段排序。"
 
 
 def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
+    """根据检索 trace 生成用户可见的进度步骤。"""
     steps: list[str] = []
 
     if trace.get("used_metadata_filters"):
@@ -254,6 +314,7 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
 
 
 def _fallback_rerank_documents(query: str, documents: list[dict]) -> list[dict]:
+    """当模型 rerank 不可用时，使用本地规则排序候选文档。"""
     query_terms = _extract_query_terms(query)
     scored_docs: list[dict] = []
 
@@ -285,6 +346,7 @@ def _fallback_rerank_documents(query: str, documents: list[dict]) -> list[dict]:
 
 
 def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[list[dict], str]:
+    """对过滤后的候选文档做 rerank，并限制最终保留条数。"""
     scored_docs: list[dict]
     rerank_mode = RERANK_MODE_MODEL
 
@@ -315,6 +377,7 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
         scored_docs = _fallback_rerank_documents(query, documents)
         rerank_mode = RERANK_MODE_LOCAL
 
+    # 即使某篇文档相关度很高，也只允许少量 chunk 进入最终上下文，避免答案过度偏向单一来源。
     per_document_count: dict[str, int] = defaultdict(int)
     reranked: list[dict] = []
 
@@ -337,6 +400,10 @@ def retrieve_relevant_documents_trace(
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
 ) -> dict[str, Any]:
+    """执行完整检索流程，并返回可追踪的中间状态。
+
+    这个 trace 会被聊天流式接口复用，用于展示“已召回多少条、过滤后还剩多少条”等进度信息。
+    """
     metadata_filters = _infer_metadata_filters(query)
     results = vector_store.query_documents(
         query,
@@ -345,6 +412,7 @@ def retrieve_relevant_documents_trace(
     )
     fallback_without_filters = False
 
+    # 如果基于元数据过滤没有召回结果，就自动回退到无过滤检索，避免误过滤导致完全答不出来。
     if not results and metadata_filters:
         fallback_without_filters = True
         results = vector_store.query_documents(query, n_results=initial_n_results)
@@ -392,6 +460,7 @@ def retrieve_relevant_documents_with_mode(
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
 ) -> tuple[list[dict], str]:
+    """返回最终可用文档，以及 rerank 采用的模式。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=initial_n_results,
@@ -405,6 +474,7 @@ def retrieve_relevant_documents(
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
 ) -> list[dict]:
+    """兼容型包装函数，只关心最终文档列表时使用。"""
     relevant, _ = retrieve_relevant_documents_with_mode(
         query,
         initial_n_results=initial_n_results,
@@ -417,6 +487,7 @@ def build_source_payload(
     query: str,
     n_results: int = FINAL_SOURCE_LIMIT,
 ) -> tuple[list[dict], str]:
+    """把检索结果转成前端来源卡片需要的轻量结构。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
@@ -457,6 +528,7 @@ def build_source_payload_with_trace(
     query: str,
     n_results: int = FINAL_SOURCE_LIMIT,
 ) -> tuple[list[dict], dict[str, Any]]:
+    """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
@@ -492,18 +564,16 @@ def build_source_payload_with_trace(
 
 
 def build_source_summaries(query: str, n_results: int = FINAL_SOURCE_LIMIT) -> list[dict]:
+    """仅返回来源摘要列表的简化入口。"""
     summaries, _ = build_source_payload(query, n_results=n_results)
     return summaries
 
 
 def retrieve_from_knowledge_base(query: str) -> str:
-    """Retrieve relevant documents from the knowledge base.
+    """供 Agent 调用的知识库工具。
 
-    Args:
-        query: The user's question to search for in the knowledge base.
-
-    Returns:
-        Relevant context from the knowledge base, or a message indicating no results.
+    它返回的不是结构化 JSON，而是一段适合直接放进提示词上下文的文本：
+    每个来源都带有来源头和正文内容，便于模型在回答时引用具体文档。
     """
     if vector_store.collection_count() == 0:
         return "【知识库为空，尚未上传任何文档。】"
@@ -517,6 +587,7 @@ def retrieve_from_knowledge_base(query: str) -> str:
     if not relevant:
         return "【知识库中未找到与该问题相关的内容。】"
 
+    # 这里按“来源头 + 正文”的格式拼接上下文，既保留来源可解释性，也尽量减少提示词噪声。
     context_parts = []
     for i, doc in enumerate(relevant, 1):
         metadata = doc["metadata"]
@@ -531,7 +602,11 @@ def retrieve_from_knowledge_base(query: str) -> str:
 
 
 def create_rag_agent() -> Agent:
-    """Create the RAG agent with OpenRouter LLM."""
+    """创建 ADK RAG Agent。
+
+    Agent 本身只做一件事：
+    调用 retrieve_from_knowledge_base 拿上下文，再按照 SYSTEM_INSTRUCTION 输出最终答案。
+    """
     return Agent(
         name="rag_agent",
         model=_build_llm(),

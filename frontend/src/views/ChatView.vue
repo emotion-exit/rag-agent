@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
 import type { Message, SourceSummary } from '@/components/AnswerCard.vue';
+import { getApiBase } from '@/services/runtime';
 
 const messages = ref<Message[]>([]);
 const inputText = ref('');
@@ -23,7 +24,7 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 const shouldAutoScroll = ref(true);
 const showScrollBack = ref(false);
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_BASE = getApiBase();
 const CONNECTING_HINT = '正在连接知识库助手...';
 const START_HINT = '已接收问题，正在准备检索。';
 const GENERATING_HINT = '正在生成回答...';
@@ -162,8 +163,10 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
   }
 
   if (data.type === 'thought') {
-    assistantMsg.thoughtContent = data.content;
+    assistantMsg.thoughtContent =
+      (assistantMsg.thoughtContent || '') + data.content;
     assistantMsg.status = 'loading';
+    scrollToBottom();
     return;
   }
 

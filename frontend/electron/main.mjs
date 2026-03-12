@@ -1,0 +1,318 @@
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const API_HOST = '127.0.0.1';
+const API_PORT = 8765;
+const API_BASE = `http://${API_HOST}:${API_PORT}`;
+const isWindows = process.platform === 'win32';
+const allowedConfigKeys = [
+  'SILICONFLOW_API_KEY',
+  'SILICONFLOW_BASE_URL',
+  'EMBEDDING_MODEL',
+  'RERANKER_MODEL',
+  'OPENROUTER_API_KEY',
+  'OPENROUTER_BASE_URL',
+  'CHAT_MODEL',
+  'CHAT_TEMPERATURE',
+  'OPENROUTER_SITE_URL',
+  'OPENROUTER_APP_TITLE',
+  'OPENROUTER_CATEGORIES',
+  'CHROMA_PERSIST_DIR',
+  'UPLOAD_DIR',
+  'CORS_ORIGINS'
+];
+
+let mainWindow = null;
+let backendProcess = null;
+let backendReady = false;
+
+function getConfigPath() {
+  return join(app.getPath('userData'), 'config.json');
+}
+
+function createDefaultConfig() {
+  return {
+    SILICONFLOW_API_KEY: '',
+    SILICONFLOW_BASE_URL: 'https://api.siliconflow.cn/v1',
+    EMBEDDING_MODEL: 'BAAI/bge-large-zh-v1.5',
+    RERANKER_MODEL: 'BAAI/bge-reranker-v2-m3',
+    OPENROUTER_API_KEY: '',
+    OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+    CHAT_MODEL: 'anthropic/claude-3-haiku',
+    CHAT_TEMPERATURE: 0.2,
+    OPENROUTER_SITE_URL: 'https://localhost.invalid',
+    OPENROUTER_APP_TITLE: 'RAG.Agent Desktop',
+    OPENROUTER_CATEGORIES: 'general-chat',
+    CHROMA_PERSIST_DIR: './data/chroma',
+    UPLOAD_DIR: './data/uploads',
+    CORS_ORIGINS: 'http://localhost:5173,http://localhost:3000,null'
+  };
+}
+
+function normalizeTemperature(value) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) {
+    return createDefaultConfig().CHAT_TEMPERATURE;
+  }
+
+  return Math.min(1, Math.max(0, numeric));
+}
+
+async function ensureDesktopConfig() {
+  const configPath = getConfigPath();
+  await mkdir(dirname(configPath), { recursive: true });
+
+  if (!existsSync(configPath)) {
+    await writeFile(
+      configPath,
+      `${JSON.stringify(createDefaultConfig(), null, 2)}\n`,
+      'utf-8'
+    );
+  }
+
+  return configPath;
+}
+
+async function readDesktopConfig() {
+  const configPath = await ensureDesktopConfig();
+  const content = await readFile(configPath, 'utf-8');
+  const parsed = JSON.parse(content);
+  const merged = {
+    ...createDefaultConfig(),
+    ...(parsed && typeof parsed === 'object' ? parsed : {})
+  };
+
+  merged.CHAT_TEMPERATURE = normalizeTemperature(merged.CHAT_TEMPERATURE);
+  return merged;
+}
+
+async function writeDesktopConfig(nextConfig) {
+  const configPath = await ensureDesktopConfig();
+  const sanitized = createDefaultConfig();
+
+  for (const key of allowedConfigKeys) {
+    const value = nextConfig?.[key];
+    if (typeof value === 'string') {
+      sanitized[key] = value;
+      continue;
+    }
+
+    if (key === 'CHAT_TEMPERATURE') {
+      sanitized[key] = normalizeTemperature(value);
+    }
+  }
+
+  await writeFile(
+    configPath,
+    `${JSON.stringify(sanitized, null, 2)}\n`,
+    'utf-8'
+  );
+  return sanitized;
+}
+
+function getBackendEnv(configPath) {
+  return {
+    ...process.env,
+    APP_CONFIG_PATH: configPath,
+    BACKEND_HOST: API_HOST,
+    BACKEND_PORT: String(API_PORT)
+  };
+}
+
+function getPackagedBackendExecutable() {
+  const extension = isWindows ? '.exe' : '';
+  return join(
+    process.resourcesPath,
+    'backend',
+    `rag-agent-backend${extension}`
+  );
+}
+
+function spawnBackendProcess(configPath) {
+  if (app.isPackaged) {
+    const executable = getPackagedBackendExecutable();
+    return spawn(executable, [], {
+      cwd: dirname(executable),
+      env: getBackendEnv(configPath),
+      stdio: 'ignore',
+      windowsHide: true
+    });
+  }
+
+  return spawn('uv', ['run', 'python', 'run_desktop.py'], {
+    cwd: join(__dirname, '../../backend'),
+    env: getBackendEnv(configPath),
+    stdio: 'inherit',
+    windowsHide: true
+  });
+}
+
+async function waitForBackend(timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${API_BASE}/health`);
+      if (response.ok) {
+        return true;
+      }
+    } catch {
+      // Ignore startup polling errors.
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error('内置后端启动超时，请检查模型配置或端口占用情况。');
+}
+
+async function stopBackend() {
+  if (!backendProcess?.pid) {
+    backendProcess = null;
+    backendReady = false;
+    return;
+  }
+
+  const pid = backendProcess.pid;
+  backendReady = false;
+
+  if (isWindows) {
+    await new Promise((resolve) => {
+      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      killer.on('exit', resolve);
+      killer.on('error', resolve);
+    });
+  } else {
+    backendProcess.kill('SIGTERM');
+  }
+
+  backendProcess = null;
+}
+
+async function startBackend() {
+  if (backendReady) {
+    return { ready: true, apiBase: API_BASE };
+  }
+
+  await stopBackend();
+
+  const configPath = await ensureDesktopConfig();
+  backendProcess = spawnBackendProcess(configPath);
+
+  backendProcess.once('exit', () => {
+    backendReady = false;
+    backendProcess = null;
+  });
+
+  try {
+    await waitForBackend();
+    backendReady = true;
+    return { ready: true, apiBase: API_BASE };
+  } catch (error) {
+    await stopBackend();
+    throw error;
+  }
+}
+
+async function restartBackend() {
+  await stopBackend();
+  return startBackend();
+}
+
+async function createMainWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 960,
+    minWidth: 1180,
+    minHeight: 760,
+    backgroundColor: '#f4efe5',
+    show: false,
+    title: 'RAG.Agent',
+    webPreferences: {
+      preload: join(__dirname, 'preload.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else {
+    await mainWindow.loadFile(join(__dirname, '../dist/index.html'));
+  }
+}
+
+ipcMain.handle('desktop:get-config', async () => readDesktopConfig());
+ipcMain.handle('desktop:save-config', async (_event, nextConfig) => {
+  const saved = await writeDesktopConfig(nextConfig);
+  await restartBackend();
+  return saved;
+});
+ipcMain.handle('desktop:get-backend-status', async () => ({
+  ready: backendReady,
+  apiBase: API_BASE
+}));
+ipcMain.handle('desktop:restart-backend', async () => restartBackend());
+ipcMain.handle('desktop:pick-directory', async (_event, currentPath) => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    defaultPath:
+      typeof currentPath === 'string' && currentPath.trim()
+        ? currentPath
+        : app.getPath('documents')
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+ipcMain.handle('desktop:open-data-directory', async () => {
+  await ensureDesktopConfig();
+  await shell.openPath(app.getPath('userData'));
+});
+
+app.whenReady().then(async () => {
+  try {
+    await startBackend();
+    await createMainWindow();
+  } catch (error) {
+    dialog.showErrorBox(
+      'RAG.Agent 启动失败',
+      error instanceof Error ? error.message : '内置后端启动失败。'
+    );
+    app.quit();
+    return;
+  }
+
+  app.on('activate', async () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      await createMainWindow();
+    }
+  });
+});
+
+app.on('before-quit', async () => {
+  await stopBackend();
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});

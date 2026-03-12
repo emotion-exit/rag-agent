@@ -2,6 +2,12 @@
 
 基于 ADK（Google Agent Development Kit）构建的 RAG 知识库问答 Agent 系统。
 
+当前仓库已经补齐桌面版封装链路：
+
+- macOS：生成 dmg
+- Windows：生成 portable exe
+- 内置 Python 后端、ChromaDB 和本地配置文件，终端用户无需额外安装 Python、uv 或数据库
+
 - **Embedding**：[硅基流动（SiliconFlow）](https://siliconflow.cn)
 - **问答 LLM**：[OpenRouter](https://openrouter.ai)
 - **向量数据库**：ChromaDB
@@ -32,7 +38,40 @@
 - 后端依赖管理：`uv`
 - 前端包管理：`pnpm`
 
-### 2. 配置环境变量
+### 2. 桌面版一键分发
+
+桌面版使用 Electron 承载前端，并内置 PyInstaller 打包后的 Python 后端。用户首次启动应用后，会在本地用户数据目录自动生成 `config.json`，用于填写模型服务地址、模型名和 API Key。
+
+桌面版构建命令：
+
+```bash
+cd frontend
+
+# 当前宿主系统构建本机桌面包
+pnpm desktop:build
+
+# 在 macOS 上构建 dmg
+pnpm desktop:build:mac
+
+# 在 Windows 上构建 portable exe
+pnpm desktop:build:win
+```
+
+产物输出目录：
+
+- `frontend/release/*.dmg`
+- `frontend/release/*.exe`
+
+注意：由于内置 Python 后端会被编译为目标系统原生二进制，必须在对应系统上构建对应桌面包。也就是说：
+
+- dmg 需要在 macOS 上构建
+- exe 需要在 Windows 上构建
+
+如果希望自动同时生成两种产物，可以直接使用仓库内的 GitHub Actions 工作流：
+
+- `.github/workflows/desktop-release.yml`
+
+### 3. 配置环境变量
 
 先进入后端目录，并根据操作系统复制环境变量模板。
 
@@ -65,7 +104,7 @@ Copy-Item .env.example .env
 | `RERANKER_MODEL`        | 重排模型（默认 `BAAI/bge-reranker-v2-m3`）  |
 | `CHAT_MODEL`            | 对话模型（默认 `anthropic/claude-3-haiku`） |
 
-### 3. 安装与启动后端
+### 4. 安装与启动后端
 
 #### Linux
 
@@ -135,7 +174,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 
 API 文档：http://localhost:8000/docs
 
-### 4. 安装与启动前端
+### 5. 安装与启动前端
 
 #### Linux
 
@@ -183,7 +222,7 @@ npm run dev
 
 前端地址：http://localhost:5173
 
-### 5. 一次性启动顺序
+### 6. 一次性启动顺序
 
 1. 先启动后端服务，确认 http://localhost:8000/docs 可以打开。
 2. 再启动前端开发服务，打开 http://localhost:5173。
@@ -197,6 +236,8 @@ npm run dev
 rag-agent/
 ├── backend/                  # Python FastAPI 后端
 │   ├── pyproject.toml        # uv 项目配置
+│   ├── run_desktop.py        # 桌面版后端启动入口
+│   ├── rag_agent_backend.spec # PyInstaller 打包配置
 │   ├── .env.example          # 环境变量模板
 │   └── app/
 │       ├── main.py           # FastAPI 应用入口
@@ -211,10 +252,13 @@ rag-agent/
 │           ├── chat.py       # 聊天 API（SSE 流式）
 │           └── knowledge_base.py  # 知识库管理 API
 └── frontend/                 # Vue3 前端
+    ├── electron/             # Electron 主进程与 preload
+    ├── scripts/              # 桌面构建脚本
     └── src/
         ├── views/
         │   ├── ChatView.vue          # 聊天界面
-        │   └── KnowledgeBaseView.vue # 知识库管理
+        │   ├── KnowledgeBaseView.vue # 知识库管理
+        │   └── SettingsView.vue      # 桌面配置页
         └── components/
             └── AnswerCard.vue        # 美化回答卡片
 ```
