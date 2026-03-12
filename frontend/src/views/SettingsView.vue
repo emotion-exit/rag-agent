@@ -5,6 +5,7 @@ defineOptions({
 
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
+  CheckCircleOutlined,
   CloudServerOutlined,
   DownOutlined,
   FolderOpenOutlined,
@@ -26,6 +27,22 @@ const saving = ref(false);
 const health = ref<'unknown' | 'online' | 'offline' | 'restarting'>('unknown');
 const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 const advancedExpanded = ref(false);
+const providerHealthLoading = ref(false);
+const providerHealth = ref<Record<string, ProviderHealthItem>>({});
+
+interface ProviderHealthItem {
+  status: string;
+  configured: boolean;
+  message: string;
+  base_url: string;
+  model: string;
+  http_status?: number;
+}
+
+interface ProviderHealthResponse {
+  status: string;
+  providers?: Record<string, ProviderHealthItem>;
+}
 
 const healthText = computed(() => {
   if (health.value === 'online') return '后端服务运行中';
@@ -33,6 +50,44 @@ const healthText = computed(() => {
   if (health.value === 'offline') return '后端服务不可用';
   return '等待检测服务状态';
 });
+
+const providerEntries = computed(() => {
+  return [
+    {
+      key: 'embedding',
+      title: 'Embedding',
+      item: providerHealth.value.embedding
+    },
+    { key: 'reranker', title: 'Reranker', item: providerHealth.value.reranker },
+    { key: 'chat', title: 'Chat', item: providerHealth.value.chat }
+  ];
+});
+
+function getProviderStateLabel(status: string) {
+  if (status === 'ok') return '连接正常';
+  if (status === 'missing_config') return '缺少配置';
+  if (status === 'auth_error') return '鉴权失败';
+  if (status === 'timeout') return '请求超时';
+  if (status === 'network_error') return '网络异常';
+  if (status === 'upstream_error') return '上游异常';
+  return '待检测';
+}
+
+function getProviderCardClass(status: string) {
+  if (status === 'ok') return 'provider-card-ok';
+  if (status === 'missing_config') return 'provider-card-missing';
+  if (status === 'auth_error') return 'provider-card-error';
+  return 'provider-card-warning';
+}
+
+async function resolveBackendApiBase() {
+  if (!window.desktopApp) {
+    return apiBase;
+  }
+
+  const status = await window.desktopApp.getBackendStatus();
+  return status.apiBase || apiBase;
+}
 
 async function refreshHealth() {
   if (!window.desktopApp) {
@@ -54,6 +109,35 @@ async function refreshHealth() {
   }
 }
 
+async function checkProviderHealth(options?: { silent?: boolean }) {
+  providerHealthLoading.value = true;
+
+  try {
+    const backendApiBase = await resolveBackendApiBase();
+    const response = await fetch(`${backendApiBase}/health/providers`);
+    const data = (await response.json()) as ProviderHealthResponse;
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    providerHealth.value = data.providers || {};
+    if (!options?.silent) {
+      notice.value = { type: 'success', text: 'Provider 连接检测完成。' };
+    }
+  } catch (error) {
+    providerHealth.value = {};
+    if (!options?.silent) {
+      notice.value = {
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Provider 连接检测失败。'
+      };
+    }
+  } finally {
+    providerHealthLoading.value = false;
+  }
+}
+
 async function loadConfig() {
   if (!window.desktopApp) return;
 
@@ -67,6 +151,7 @@ async function loadConfig() {
       await window.desktopApp.getConfig()
     );
     await refreshHealth();
+    await checkProviderHealth({ silent: true });
   } catch (error) {
     health.value = 'offline';
     notice.value = {
@@ -90,6 +175,7 @@ async function saveConfig() {
     Object.assign(form, cloneDefaultDesktopConfig(), saved);
     notice.value = { type: 'success', text: '配置已保存，内置服务已重启。' };
     await refreshHealth();
+    await checkProviderHealth({ silent: true });
   } catch (error) {
     health.value = 'offline';
     notice.value = {
@@ -110,6 +196,7 @@ async function restartBackend() {
   try {
     await window.desktopApp.restartBackend();
     await refreshHealth();
+    await checkProviderHealth({ silent: true });
     notice.value = { type: 'success', text: '本地服务已手动重启。' };
   } catch (error) {
     health.value = 'offline';
@@ -425,6 +512,55 @@ onMounted(() => {
           {{ notice.text }}
         </div>
 
+        <section class="provider-panel">
+          <div class="provider-panel-head">
+            <div>
+              <div class="panel-headline provider-headline">Provider 检测</div>
+              <div class="provider-subtitle">
+                检查 Embedding、Reranker 和 Chat 三类上游配置是否可用。
+              </div>
+            </div>
+            <button
+              type="button"
+              class="secondary-action"
+              :disabled="loading || saving || providerHealthLoading"
+              @click="checkProviderHealth()">
+              <ReloadOutlined :class="{ spin: providerHealthLoading }" />
+              {{ providerHealthLoading ? '检测中...' : '检测 Provider 连接' }}
+            </button>
+          </div>
+
+          <div class="provider-grid">
+            <article
+              v-for="entry in providerEntries"
+              :key="entry.key"
+              :class="[
+                'provider-card',
+                getProviderCardClass(entry.item?.status || '')
+              ]">
+              <div class="provider-card-head">
+                <div class="provider-title-wrap">
+                  <div class="provider-title">{{ entry.title }}</div>
+                  <div class="provider-model">
+                    {{ entry.item?.model || '未检测' }}
+                  </div>
+                </div>
+                <div class="provider-state-chip">
+                  <CheckCircleOutlined v-if="entry.item?.status === 'ok'" />
+                  <WarningOutlined v-else />
+                  <span>
+                    {{ getProviderStateLabel(entry.item?.status || '') }}
+                  </span>
+                </div>
+              </div>
+              <div class="provider-message">
+                {{ entry.item?.message || '尚未执行检测。' }}
+              </div>
+              <div class="provider-meta">{{ entry.item?.base_url || '—' }}</div>
+            </article>
+          </div>
+        </section>
+
         <div class="action-row">
           <button
             type="button"
@@ -737,6 +873,94 @@ onMounted(() => {
   gap: 16px;
 }
 
+.provider-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.provider-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.provider-headline {
+  font-size: 18px;
+}
+
+.provider-subtitle {
+  margin-top: 6px;
+  color: #71717a;
+  font-size: 13px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.provider-card {
+  border-radius: 20px;
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provider-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.provider-title {
+  color: #18181b;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.provider-model,
+.provider-meta,
+.provider-message {
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.provider-state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.provider-card-ok .provider-state-chip {
+  background: rgba(37, 99, 65, 0.12);
+  color: #1f6b42;
+}
+
+.provider-card-missing .provider-state-chip,
+.provider-card-warning .provider-state-chip {
+  background: rgba(180, 125, 29, 0.12);
+  color: #9f670f;
+}
+
+.provider-card-error .provider-state-chip {
+  background: rgba(177, 55, 42, 0.12);
+  color: #9e3328;
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -784,6 +1008,12 @@ onMounted(() => {
 
   .field-grid,
   .path-input-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-panel-head,
+  .provider-grid {
+    display: grid;
     grid-template-columns: 1fr;
   }
 

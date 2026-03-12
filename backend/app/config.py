@@ -17,6 +17,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = BACKEND_ROOT / "config.json"
+LEGACY_ENV_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "EMBEDDING_API_KEY": ("SILICONFLOW_API_KEY",),
+    "EMBEDDING_BASE_URL": ("SILICONFLOW_BASE_URL",),
+    "RERANKER_API_KEY": ("SILICONFLOW_API_KEY",),
+    "RERANKER_BASE_URL": ("SILICONFLOW_BASE_URL",),
+    "CHAT_API_KEY": ("OPENROUTER_API_KEY",),
+    "CHAT_BASE_URL": ("OPENROUTER_BASE_URL",),
+}
 
 
 class Settings(BaseModel):
@@ -144,6 +152,11 @@ def _pick_config_value(
     env_value = os.getenv(alias, "").strip()
     if env_value:
         return env_value
+
+    for legacy_alias in LEGACY_ENV_FALLBACKS.get(alias, ()): 
+        legacy_value = os.getenv(legacy_alias, "").strip()
+        if legacy_value:
+            return legacy_value
 
     return default
 
