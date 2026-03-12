@@ -10,7 +10,9 @@ import {
 
 const route = useRoute();
 const router = useRouter();
-const isKnowledgeBaseRoute = computed(() => route.name === 'knowledge-base');
+const isScrollableRoute = computed(
+  () => route.name === 'knowledge-base' || route.name === 'settings'
+);
 const usesOverlayHeader = computed(() => route.name === 'chat');
 const keepAliveIncludes = computed(() =>
   router
@@ -60,7 +62,7 @@ const keepAliveIncludes = computed(() =>
     <main
       :class="[
         'app-main',
-        isKnowledgeBaseRoute ? 'app-main-scrollable' : '',
+        isScrollableRoute ? 'app-main-scrollable' : '',
         usesOverlayHeader ? 'app-main-overlay' : 'app-main-aligned'
       ]">
       <RouterView v-slot="{ Component, route: currentRoute }">

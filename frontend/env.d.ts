@@ -1,12 +1,14 @@
 /// <reference types="vite/client" />
 
 interface DesktopAppConfig {
-  SILICONFLOW_API_KEY: string;
-  SILICONFLOW_BASE_URL: string;
+  EMBEDDING_API_KEY: string;
+  EMBEDDING_BASE_URL: string;
   EMBEDDING_MODEL: string;
+  RERANKER_API_KEY: string;
+  RERANKER_BASE_URL: string;
   RERANKER_MODEL: string;
-  OPENROUTER_API_KEY: string;
-  OPENROUTER_BASE_URL: string;
+  CHAT_API_KEY: string;
+  CHAT_BASE_URL: string;
   CHAT_MODEL: string;
   CHAT_TEMPERATURE: number;
   OPENROUTER_SITE_URL: string;

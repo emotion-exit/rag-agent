@@ -1,24 +1,28 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed } from 'vue';
 import MarkdownIt from 'markdown-it';
 import {
   RobotOutlined,
   LoadingOutlined,
-  WarningOutlined,
-  DownOutlined
+  WarningOutlined
 } from '@ant-design/icons-vue';
-import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
+
+export interface ClarificationOption {
+  field: 'knowledge_space' | 'category';
+  value: string;
+  label: string;
+}
 
 export interface SourceSummary {
   index: number;
   doc_id: string;
   filename: string;
   chunk_index: number;
-  system_name: string;
-  module_name: string;
-  feature_name: string;
-  version_name: string;
-  doc_type: string;
+  knowledge_space: string;
+  category: string;
+  topic: string;
+  tags: string;
+  version_label: string;
   source_type: string;
   source_label: string;
   source_page: number;
@@ -38,10 +42,15 @@ export interface Message {
   timestamp?: Date;
   sources?: SourceSummary[];
   queryText?: string;
+  clarificationOptions?: ClarificationOption[];
 }
 
 const props = defineProps<{
   message: Message;
+}>();
+
+const emit = defineEmits<{
+  applyClarification: [option: ClarificationOption];
 }>();
 
 const markdown = new MarkdownIt({
@@ -53,36 +62,11 @@ const markdown = new MarkdownIt({
 const isUser = computed(() => props.message.role === 'user');
 const isLoading = computed(() => props.message.status === 'loading');
 const isError = computed(() => props.message.status === 'error');
-const loadingText = computed(
-  () => props.message.progressText || '正在处理中...'
-);
-const progressSteps = computed(() => props.message.progressSteps || []);
-const assistantThought = computed(
-  () => props.message.thoughtContent?.trim() || ''
-);
 const assistantAnswer = computed(
   () => props.message.answerContent?.trim() || props.message.content.trim()
 );
-const hasThoughtSection = computed(
-  () => props.message.role === 'assistant' && assistantThought.value.length > 0
-);
 const hasAnswerSection = computed(
   () => props.message.role === 'assistant' && assistantAnswer.value.length > 0
-);
-const hasSources = computed(
-  () =>
-    props.message.role === 'assistant' &&
-    props.message.status === 'done' &&
-    (props.message.sources?.length || 0) > 0
-);
-const showProgressFlow = computed(
-  () => props.message.role === 'assistant' && progressSteps.value.length > 0
-);
-const latestProgressStep = computed(
-  () => progressSteps.value[progressSteps.value.length - 1] || ''
-);
-const shouldCollapseProgress = computed(
-  () => props.message.status === 'done' && progressSteps.value.length > 0
 );
 const isNoResult = computed(
   () =>
@@ -91,18 +75,17 @@ const isNoResult = computed(
       assistantAnswer.value.includes('知识库为空') ||
       assistantAnswer.value.includes('未找到'))
 );
-const progressExpanded = ref(false);
-const thoughtExpanded = ref(false);
-const activeSource = ref<SourceSummary | null>(null);
+const clarificationOptions = computed(
+  () => props.message.clarificationOptions || []
+);
+const hasClarification = computed(
+  () =>
+    props.message.role === 'assistant' && clarificationOptions.value.length > 0
+);
 
 const renderedContent = computed(() => {
   if (!props.message.content) return '';
   return markdown.render(props.message.content);
-});
-
-const renderedThought = computed(() => {
-  if (!assistantThought.value) return '';
-  return markdown.render(assistantThought.value);
 });
 
 const renderedAnswer = computed(() => {
@@ -116,42 +99,8 @@ const formattedTime = computed(() => {
   return ts.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 });
 
-watch(
-  () => props.message.status,
-  (status) => {
-    progressExpanded.value = status === 'loading';
-  },
-  { immediate: true }
-);
-
-function toggleProgress() {
-  progressExpanded.value = !progressExpanded.value;
-}
-
-function toggleThought() {
-  thoughtExpanded.value = !thoughtExpanded.value;
-}
-
-async function openSource(source: SourceSummary) {
-  activeSource.value = source;
-}
-
-function closeSourceModal() {
-  activeSource.value = null;
-}
-
-function buildSourceMeta(source: SourceSummary) {
-  const sourceTypeLabel = '正文文本';
-
-  return [
-    sourceTypeLabel,
-    source.system_name,
-    source.module_name,
-    source.version_name
-  ]
-    .map((item) => item?.trim())
-    .filter(Boolean)
-    .join(' / ');
+function applyClarification(option: ClarificationOption) {
+  emit('applyClarification', option);
 }
 </script>
 
@@ -175,25 +124,6 @@ function buildSourceMeta(source: SourceSummary) {
 
       <template v-if="isLoading && !message.content">
         <div class="loading-block">
-          <div v-if="showProgressFlow" class="progress-flow">
-            <div class="progress-flow-head">
-              <div class="progress-flow-title">处理过程</div>
-            </div>
-            <div class="progress-flow-list">
-              <div
-                v-for="(step, index) in progressSteps"
-                :key="`${message.id}-loading-step-${index}`"
-                :class="[
-                  'progress-flow-item',
-                  index === progressSteps.length - 1
-                    ? 'progress-flow-item-active'
-                    : ''
-                ]">
-                <span class="progress-flow-dot"></span>
-                <span>{{ step }}</span>
-              </div>
-            </div>
-          </div>
           <div class="skeleton-line w-92" />
           <div class="skeleton-line w-84" />
           <div class="skeleton-line w-60" />
@@ -201,37 +131,6 @@ function buildSourceMeta(source: SourceSummary) {
       </template>
 
       <template v-else-if="isNoResult">
-        <div v-if="showProgressFlow" class="progress-flow answer-progress-flow">
-          <button
-            type="button"
-            class="progress-flow-head progress-flow-toggle"
-            :disabled="!shouldCollapseProgress"
-            @click="shouldCollapseProgress ? toggleProgress() : undefined">
-            <div class="progress-flow-title">处理过程</div>
-            <div class="progress-flow-summary">
-              <span class="progress-flow-summary-text">
-                {{ latestProgressStep }}
-              </span>
-              <DownOutlined
-                v-if="shouldCollapseProgress"
-                :class="[
-                  'progress-flow-arrow',
-                  progressExpanded ? 'expanded' : ''
-                ]" />
-            </div>
-          </button>
-          <div
-            v-if="!shouldCollapseProgress || progressExpanded"
-            class="progress-flow-list">
-            <div
-              v-for="(step, index) in progressSteps"
-              :key="`${message.id}-notice-step-${index}`"
-              class="progress-flow-item">
-              <span class="progress-flow-dot"></span>
-              <span>{{ step }}</span>
-            </div>
-          </div>
-        </div>
         <div class="notice-block">
           <WarningOutlined class="notice-icon" />
           <div class="notice-copy markdown-body" v-html="renderedAnswer" />
@@ -239,62 +138,19 @@ function buildSourceMeta(source: SourceSummary) {
       </template>
 
       <template v-else>
-        <div v-if="showProgressFlow" class="progress-flow answer-progress-flow">
-          <button
-            type="button"
-            class="progress-flow-head progress-flow-toggle"
-            :disabled="!shouldCollapseProgress"
-            @click="shouldCollapseProgress ? toggleProgress() : undefined">
-            <div class="progress-flow-title">处理过程</div>
-            <div class="progress-flow-summary">
-              <span class="progress-flow-summary-text">
-                {{ latestProgressStep }}
-              </span>
-              <DownOutlined
-                v-if="shouldCollapseProgress"
-                :class="[
-                  'progress-flow-arrow',
-                  progressExpanded ? 'expanded' : ''
-                ]" />
-            </div>
-          </button>
-          <div
-            v-if="!shouldCollapseProgress || progressExpanded"
-            class="progress-flow-list">
-            <div
-              v-for="(step, index) in progressSteps"
-              :key="`${message.id}-step-${index}`"
-              :class="[
-                'progress-flow-item',
-                props.message.status === 'loading' &&
-                index === progressSteps.length - 1
-                  ? 'progress-flow-item-active'
-                  : ''
-              ]">
-              <span class="progress-flow-dot"></span>
-              <span>{{ step }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="hasThoughtSection" class="thought-wrap">
-          <button class="thought-toggle" type="button" @click="toggleThought">
-            <span class="thought-label">思考过程</span>
-            <span class="thought-meta">
-              {{ thoughtExpanded ? '收起' : '展开' }}
-            </span>
-            <DownOutlined
-              :class="['thought-arrow', thoughtExpanded ? 'expanded' : '']" />
-          </button>
-          <div
-            v-if="thoughtExpanded"
-            class="thought-panel markdown-body"
-            v-html="renderedThought" />
-        </div>
-
         <section v-if="!isUser && hasAnswerSection" class="answer-wrap">
           <div class="section-kicker">答案</div>
           <div class="markdown-body answer-body" v-html="renderedAnswer" />
+          <div v-if="hasClarification" class="clarification-wrap">
+            <button
+              v-for="option in clarificationOptions"
+              :key="`${message.id}-${option.field}-${option.value}`"
+              type="button"
+              class="clarification-chip"
+              @click="applyClarification(option)">
+              {{ option.label }}
+            </button>
+          </div>
         </section>
 
         <div
@@ -303,35 +159,8 @@ function buildSourceMeta(source: SourceSummary) {
           v-html="renderedContent" />
 
         <div v-else class="user-text">{{ message.content }}</div>
-
-        <div v-if="hasSources" class="sources-inline-wrap">
-          <div class="sources-inline-label">参考来源:</div>
-          <div class="source-badges">
-            <button
-              v-for="(source, index) in message.sources"
-              :key="`${message.id}-${source.index}`"
-              type="button"
-              class="source-badge"
-              :title="`查看原文片段: ${source.filename}`"
-              @click="openSource(source)">
-              <span class="source-badge-index">{{ index + 1 }}</span>
-              <span class="source-badge-copy">
-                <span class="source-filename">{{ source.filename }}</span>
-                <span v-if="buildSourceMeta(source)" class="source-meta">
-                  {{ buildSourceMeta(source) }}
-                </span>
-              </span>
-            </button>
-          </div>
-        </div>
       </template>
     </div>
-
-    <SourceSnippetModal
-      :visible="Boolean(activeSource)"
-      :source="activeSource"
-      :query-text="message.queryText"
-      @close="closeSourceModal" />
   </div>
 </template>
 
@@ -403,9 +232,6 @@ function buildSourceMeta(source: SourceSummary) {
 
 .loading-block,
 .answer-wrap,
-.thought-wrap,
-.progress-flow,
-.sources-inline-wrap,
 .notice-block,
 .assistant-shell > .answer-body {
   margin-left: 8px;
@@ -415,6 +241,32 @@ function buildSourceMeta(source: SourceSummary) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.clarification-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.clarification-chip {
+  border: 1px solid rgba(24, 24, 27, 0.1);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #18181b;
+  padding: 9px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clarification-chip:hover {
+  border-color: rgba(37, 99, 235, 0.24);
+  background: rgba(239, 246, 255, 0.92);
+  color: #1d4ed8;
 }
 
 .progress-flow {

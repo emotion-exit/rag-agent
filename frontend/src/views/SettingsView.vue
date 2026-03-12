@@ -5,8 +5,8 @@ defineOptions({
 
 import { computed, onMounted, reactive, ref } from 'vue';
 import {
-  CheckCircleOutlined,
   CloudServerOutlined,
+  DownOutlined,
   FolderOpenOutlined,
   ReloadOutlined,
   WarningOutlined
@@ -25,6 +25,7 @@ const loading = ref(false);
 const saving = ref(false);
 const health = ref<'unknown' | 'online' | 'offline' | 'restarting'>('unknown');
 const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
+const advancedExpanded = ref(false);
 
 const healthText = computed(() => {
   if (health.value === 'online') return '后端服务运行中';
@@ -32,12 +33,6 @@ const healthText = computed(() => {
   if (health.value === 'offline') return '后端服务不可用';
   return '等待检测服务状态';
 });
-
-const desktopHints = [
-  '桌面版会在首次启动时自动生成本地配置文件，并把向量库与上传文件写入用户数据目录。',
-  '保存配置后会自动重启内置 Python 服务，无需用户额外安装 Python、uv 或数据库。',
-  'Windows 打包目标为 portable exe，macOS 打包目标为 dmg。'
-];
 
 async function refreshHealth() {
   if (!window.desktopApp) {
@@ -138,6 +133,10 @@ async function openDataDirectory() {
   await window.desktopApp?.openDataDirectory();
 }
 
+function toggleAdvanced() {
+  advancedExpanded.value = !advancedExpanded.value;
+}
+
 onMounted(() => {
   if (isDesktop) {
     loadConfig();
@@ -150,11 +149,7 @@ onMounted(() => {
     <section class="settings-hero panel-surface">
       <div>
         <div class="eyebrow">Desktop Runtime</div>
-        <h1 class="hero-title">桌面封装与本地服务配置</h1>
-        <p class="hero-copy">
-          当前桌面版采用 Electron + 内置 Python 后端 + 本地 Chroma
-          存储。用户只需打开应用，无需额外安装运行时。
-        </p>
+        <h1 class="hero-title">本地服务配置</h1>
       </div>
       <div class="hero-status">
         <div :class="['status-chip', `status-${health}`]">
@@ -177,36 +172,46 @@ onMounted(() => {
     </section>
 
     <template v-else>
-      <section class="panel-surface desktop-hints">
-        <div class="panel-headline">交付形态</div>
-        <div class="hint-list">
-          <div v-for="hint in desktopHints" :key="hint" class="hint-item">
-            <CheckCircleOutlined />
-            <span>{{ hint }}</span>
-          </div>
-        </div>
-      </section>
-
       <section class="settings-grid">
         <article class="panel-surface form-panel">
-          <div class="panel-headline">模型与服务</div>
-          <div class="field-grid">
-            <label class="field-block field-span-2">
-              <span class="field-label">OpenRouter API Key</span>
+          <div class="panel-headline">能力配置</div>
+          <div class="field-grid single-column-grid">
+            <label class="field-block">
+              <span class="field-label">对话 API Key</span>
               <input
-                v-model="form.OPENROUTER_API_KEY"
+                v-model="form.CHAT_API_KEY"
                 class="field-input"
                 type="password"
-                placeholder="用于问答模型调用" />
+                placeholder="用于对话能力调用" />
+              <span class="field-help">
+                对话模型请求使用的密钥。具体由你接入的 LiteLLM
+                后端或代理策略决定。
+              </span>
             </label>
 
             <label class="field-block">
-              <span class="field-label">对话模型</span>
+              <span class="field-label">对话 EndPoint</span>
+              <input
+                v-model="form.CHAT_BASE_URL"
+                class="field-input"
+                type="text"
+                placeholder="例如 https://openrouter.ai/api/v1" />
+              <span class="field-help">
+                对话请求发送到的接口地址。由于底层走
+                LiteLLM，这里不限定具体服务商。
+              </span>
+            </label>
+
+            <label class="field-block">
+              <span class="field-label">对话 Model</span>
               <input
                 v-model="form.CHAT_MODEL"
                 class="field-input"
                 type="text"
                 placeholder="例如 anthropic/claude-3-haiku" />
+              <span class="field-help">
+                对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。
+              </span>
             </label>
 
             <label class="field-block">
@@ -219,129 +224,198 @@ onMounted(() => {
                 max="1"
                 step="0.1"
                 placeholder="0.2" />
+              <span class="field-help">
+                控制回答稳定性与发散度。值越低越稳，越高越灵活。
+              </span>
             </label>
 
             <label class="field-block">
-              <span class="field-label">OpenRouter Base URL</span>
+              <span class="field-label">嵌入 API Key</span>
               <input
-                v-model="form.OPENROUTER_BASE_URL"
-                class="field-input"
-                type="text"
-                placeholder="https://openrouter.ai/api/v1" />
-            </label>
-
-            <label class="field-block field-span-2">
-              <span class="field-label">SiliconFlow API Key</span>
-              <input
-                v-model="form.SILICONFLOW_API_KEY"
+                v-model="form.EMBEDDING_API_KEY"
                 class="field-input"
                 type="password"
-                placeholder="用于 embedding 与 rerank" />
+                placeholder="用于嵌入能力调用" />
+              <span class="field-help">
+                文档分块和问题向量化所使用的密钥。可以与对话、重排分别使用不同提供商。
+              </span>
             </label>
 
             <label class="field-block">
-              <span class="field-label">Embedding 模型</span>
+              <span class="field-label">嵌入 EndPoint</span>
+              <input
+                v-model="form.EMBEDDING_BASE_URL"
+                class="field-input"
+                type="text"
+                placeholder="例如 https://api.siliconflow.cn/v1" />
+              <span class="field-help">
+                嵌入请求发送到的接口地址。可独立于重排和对话配置。
+              </span>
+            </label>
+
+            <label class="field-block">
+              <span class="field-label">嵌入 Model</span>
               <input
                 v-model="form.EMBEDDING_MODEL"
                 class="field-input"
                 type="text"
                 placeholder="BAAI/bge-large-zh-v1.5" />
+              <span class="field-help">
+                文档切片与问题向量化所使用的嵌入模型。
+              </span>
             </label>
 
             <label class="field-block">
-              <span class="field-label">Reranker 模型</span>
+              <span class="field-label">重排 API Key</span>
+              <input
+                v-model="form.RERANKER_API_KEY"
+                class="field-input"
+                type="password"
+                placeholder="用于重排能力调用" />
+              <span class="field-help">
+                候选片段二次排序所使用的密钥。需要与嵌入或对话分供应商时单独配置这里。
+              </span>
+            </label>
+
+            <label class="field-block">
+              <span class="field-label">重排 EndPoint</span>
+              <input
+                v-model="form.RERANKER_BASE_URL"
+                class="field-input"
+                type="text"
+                placeholder="例如 https://api.siliconflow.cn/v1" />
+              <span class="field-help">
+                重排请求发送到的接口地址。可与嵌入完全不同。
+              </span>
+            </label>
+
+            <label class="field-block">
+              <span class="field-label">重排 Model</span>
               <input
                 v-model="form.RERANKER_MODEL"
                 class="field-input"
                 type="text"
                 placeholder="BAAI/bge-reranker-v2-m3" />
-            </label>
-
-            <label class="field-block field-span-2">
-              <span class="field-label">SiliconFlow Base URL</span>
-              <input
-                v-model="form.SILICONFLOW_BASE_URL"
-                class="field-input"
-                type="text"
-                placeholder="https://api.siliconflow.cn/v1" />
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">应用标识标题</span>
-              <input
-                v-model="form.OPENROUTER_APP_TITLE"
-                class="field-input"
-                type="text"
-                placeholder="RAG.Agent Desktop" />
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">应用来源 URL</span>
-              <input
-                v-model="form.OPENROUTER_SITE_URL"
-                class="field-input"
-                type="text"
-                placeholder="https://localhost.invalid" />
+              <span class="field-help">
+                用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。
+              </span>
             </label>
           </div>
         </article>
 
         <article class="panel-surface form-panel">
-          <div class="panel-headline">本地数据</div>
-          <div class="field-grid single-column-grid">
-            <label class="field-block">
-              <span class="field-label">向量库目录</span>
-              <div class="path-input-wrap">
+          <div class="panel-headline">运行维护</div>
+          <div class="ops-stack">
+            <p class="panel-copy">
+              默认情况下只展示常用能力配置。目录、跨域和请求分类等低频参数放在高级设置里，避免干扰日常使用。
+            </p>
+            <button
+              type="button"
+              class="advanced-toggle"
+              @click="toggleAdvanced">
+              <span>高级设置</span>
+              <DownOutlined
+                :class="[
+                  'advanced-arrow',
+                  advancedExpanded ? 'expanded' : ''
+                ]" />
+            </button>
+
+            <div
+              v-if="advancedExpanded"
+              class="field-grid single-column-grid advanced-grid">
+              <label class="field-block">
+                <span class="field-label">应用来源 URL</span>
                 <input
-                  v-model="form.CHROMA_PERSIST_DIR"
+                  v-model="form.OPENROUTER_SITE_URL"
                   class="field-input"
                   type="text"
-                  placeholder="例如 ./data/chroma" />
-                <button
-                  type="button"
-                  class="path-button"
-                  @click="pickDirectory('CHROMA_PERSIST_DIR')">
-                  <FolderOpenOutlined />
-                  选择目录
-                </button>
-              </div>
-            </label>
+                  placeholder="https://localhost.invalid" />
+                <span class="field-help">
+                  当对话接口实际接入 OpenRouter
+                  时，用于标识请求来源；其他网关一般可以忽略。
+                </span>
+              </label>
 
-            <label class="field-block">
-              <span class="field-label">上传文件目录</span>
-              <div class="path-input-wrap">
+              <label class="field-block">
+                <span class="field-label">应用标识标题</span>
                 <input
-                  v-model="form.UPLOAD_DIR"
+                  v-model="form.OPENROUTER_APP_TITLE"
                   class="field-input"
                   type="text"
-                  placeholder="例如 ./data/uploads" />
-                <button
-                  type="button"
-                  class="path-button"
-                  @click="pickDirectory('UPLOAD_DIR')">
-                  <FolderOpenOutlined />
-                  选择目录
-                </button>
-              </div>
-            </label>
+                  placeholder="RAG.Agent Desktop" />
+                <span class="field-help">
+                  当上游网关需要记录请求来自哪个应用时使用。通常保持默认即可。
+                </span>
+              </label>
 
-            <label class="field-block">
-              <span class="field-label">CORS Origins</span>
-              <input
-                v-model="form.CORS_ORIGINS"
-                class="field-input"
-                type="text"
-                placeholder="http://localhost:5173,http://localhost:3000,null" />
-            </label>
+              <label class="field-block">
+                <span class="field-label">向量库目录</span>
+                <div class="path-input-wrap">
+                  <input
+                    v-model="form.CHROMA_PERSIST_DIR"
+                    class="field-input"
+                    type="text"
+                    placeholder="例如 ./data/chroma" />
+                  <button
+                    type="button"
+                    class="path-button"
+                    @click="pickDirectory('CHROMA_PERSIST_DIR')">
+                    <FolderOpenOutlined />
+                    选择目录
+                  </button>
+                </div>
+                <span class="field-help">
+                  Chroma
+                  持久化目录，保存向量索引与本地检索数据。只有在你想迁移或隔离数据时才需要修改。
+                </span>
+              </label>
 
-            <label class="field-block">
-              <span class="field-label">OpenRouter Categories</span>
-              <input
-                v-model="form.OPENROUTER_CATEGORIES"
-                class="field-input"
-                type="text"
-                placeholder="general-chat" />
-            </label>
+              <label class="field-block">
+                <span class="field-label">上传文件目录</span>
+                <div class="path-input-wrap">
+                  <input
+                    v-model="form.UPLOAD_DIR"
+                    class="field-input"
+                    type="text"
+                    placeholder="例如 ./data/uploads" />
+                  <button
+                    type="button"
+                    class="path-button"
+                    @click="pickDirectory('UPLOAD_DIR')">
+                    <FolderOpenOutlined />
+                    选择目录
+                  </button>
+                </div>
+                <span class="field-help">
+                  原始上传文档的存放目录。修改后适合把资料与应用程序分开管理。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">CORS Origins</span>
+                <input
+                  v-model="form.CORS_ORIGINS"
+                  class="field-input"
+                  type="text"
+                  placeholder="http://localhost:5173,http://localhost:3000,null" />
+                <span class="field-help">
+                  允许访问本地后端的前端来源列表。桌面版一般无需修改，联调其他前端时再调整。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">OpenRouter Categories</span>
+                <input
+                  v-model="form.OPENROUTER_CATEGORIES"
+                  class="field-input"
+                  type="text"
+                  placeholder="general-chat" />
+                <span class="field-help">
+                  请求附带的分类标记。仅在上游网关需要按类别统计、路由或审计时使用。
+                </span>
+              </label>
+            </div>
           </div>
         </article>
       </section>
@@ -387,20 +461,15 @@ onMounted(() => {
   flex-direction: column;
   gap: 20px;
   padding-top: 20px;
+  padding-bottom: 20px;
 }
 
 .panel-surface {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(24, 24, 27, 0.06);
+  box-shadow: 0 20px 50px rgba(24, 24, 27, 0.04);
   border-radius: 28px;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.92),
-      rgba(249, 246, 239, 0.9)
-    ),
-    #ffffff;
-  border: 1px solid rgba(120, 107, 74, 0.12);
-  box-shadow: 0 24px 80px -44px rgba(91, 77, 46, 0.35);
-  padding: 24px;
+  padding: 28px;
 }
 
 .settings-hero {
@@ -412,24 +481,26 @@ onMounted(() => {
 
 .eyebrow {
   font-size: 12px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8c6f3d;
-  margin-bottom: 10px;
+  color: #71717a;
+  font-weight: 700;
+  margin-bottom: 12px;
 }
 
 .hero-title {
   margin: 0;
-  font-size: 30px;
+  font-size: 34px;
   line-height: 1.1;
-  color: #2b2418;
+  letter-spacing: -0.04em;
+  color: #18181b;
 }
 
 .hero-copy {
   margin: 12px 0 0;
   max-width: 680px;
-  line-height: 1.7;
-  color: #5f533d;
+  line-height: 1.75;
+  color: #71717a;
 }
 
 .hero-status {
@@ -468,7 +539,7 @@ onMounted(() => {
 
 .status-meta {
   font-size: 13px;
-  color: #77674a;
+  color: #71717a;
 }
 
 .unsupported-panel {
@@ -482,39 +553,66 @@ onMounted(() => {
   color: #9e3328;
 }
 
-.desktop-hints {
+.panel-headline {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #18181b;
+}
+
+.panel-copy {
+  line-height: 1.7;
+  color: #71717a;
+}
+
+.ops-stack {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
-.panel-headline {
-  font-size: 16px;
-  font-weight: 700;
-  color: #2b2418;
-}
-
-.hint-list {
-  display: grid;
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
+  color: #3f3f46;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
 }
 
-.hint-item {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  color: #564a35;
-  line-height: 1.7;
+.advanced-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(24, 24, 27, 0.14);
 }
 
-.hint-item :deep(svg) {
-  margin-top: 4px;
-  color: #8c6f3d;
+.advanced-arrow {
+  transition: transform 0.2s ease;
+}
+
+.advanced-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.advanced-grid {
+  padding-top: 6px;
 }
 
 .settings-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 
@@ -547,27 +645,35 @@ onMounted(() => {
 .field-label {
   font-size: 13px;
   font-weight: 600;
-  color: #5f533d;
+  color: #3f3f46;
+}
+
+.field-help {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #71717a;
 }
 
 .field-input {
   width: 100%;
   min-height: 46px;
-  border-radius: 14px;
-  border: 1px solid rgba(120, 107, 74, 0.2);
-  background: rgba(255, 255, 255, 0.94);
-  padding: 0 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(24, 24, 27, 0.12);
+  background: #fcfcfd;
+  padding: 12px 14px;
   font-size: 14px;
-  color: #2b2418;
+  color: #18181b;
   outline: none;
   transition:
     border-color 0.2s ease,
-    box-shadow 0.2s ease;
+    box-shadow 0.2s ease,
+    background 0.2s ease;
 }
 
 .field-input:focus {
-  border-color: rgba(140, 111, 61, 0.8);
-  box-shadow: 0 0 0 4px rgba(140, 111, 61, 0.12);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  background: #ffffff;
 }
 
 .path-input-wrap {
@@ -593,11 +699,11 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 0 16px;
   min-height: 46px;
-  background: rgba(140, 111, 61, 0.1);
-  color: #5b4f37;
+  background: #f4f4f5;
+  color: #3f3f46;
   font-weight: 600;
 }
 
@@ -605,10 +711,10 @@ onMounted(() => {
   min-height: 48px;
   border-radius: 16px;
   padding: 0 20px;
-  background: linear-gradient(135deg, #8c6f3d, #b98d42);
-  color: #fffdf8;
+  background: linear-gradient(135deg, #18181b, #27272a);
+  color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 18px 40px -22px rgba(140, 111, 61, 0.7);
+  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.16);
 }
 
 .path-button:hover,

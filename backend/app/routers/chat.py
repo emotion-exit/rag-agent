@@ -13,15 +13,15 @@ from typing import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
 from app.agent.rag_agent import (
+    build_hitl_clarification,
     build_retrieval_progress_steps,
-    build_source_payload,
     build_source_payload_with_trace,
     create_rag_agent,
 )
@@ -79,6 +79,7 @@ class ChatRequest(BaseModel):
     """聊天请求体。"""
     message: str
     session_id: str = "default"
+    retrieval_filters: dict[str, str] = Field(default_factory=dict)
 
 
 class ChatResponse(BaseModel):
@@ -485,9 +486,10 @@ async def _ensure_session_exists(session_id: str) -> None:
 async def _stream_agent_response(
     message: str,
     session_id: str,
+    retrieval_filters: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """运行 Agent，并把结果转成前端可消费的 SSE 事件流。"""
-    agent = create_rag_agent()
+    agent = create_rag_agent(retrieval_filters)
     runner = Runner(
         agent=agent,
         app_name=APP_NAME,
@@ -622,20 +624,26 @@ async def _stream_agent_response(
             "\n\n"
         )
 
-        # 检索和来源摘要在真正回答前先完成，这样前端可以尽早渲染进度和来源卡片。
-        source_summaries, retrieval_trace = build_source_payload_with_trace(message)
+        # 先完成检索并判断是否需要用户进一步澄清，再决定是否继续生成答案。
+        _, retrieval_trace = build_source_payload_with_trace(
+            message,
+            explicit_metadata_filters=retrieval_filters,
+        )
+
+        clarification = build_hitl_clarification(retrieval_trace)
+        if clarification:
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'clarify', 'content': clarification['question'], 'options': clarification['options']}, ensure_ascii=False)}"
+                "\n\n"
+            )
+            yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
+            return
 
         for step in build_retrieval_progress_steps(retrieval_trace):
             yield (
                 "data: "
                 f"{json.dumps({'type': 'progress', 'content': step}, ensure_ascii=False)}"
-                "\n\n"
-            )
-
-        if source_summaries:
-            yield (
-                "data: "
-                f"{json.dumps({'type': 'sources', 'content': '', 'sources': source_summaries}, ensure_ascii=False)}"
                 "\n\n"
             )
 
@@ -665,7 +673,11 @@ async def chat_stream(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
     return StreamingResponse(
-        _stream_agent_response(request.message, request.session_id),
+        _stream_agent_response(
+            request.message,
+            request.session_id,
+            request.retrieval_filters,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -681,7 +693,15 @@ async def chat(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    agent = create_rag_agent()
+    _, retrieval_trace = build_source_payload_with_trace(
+        request.message,
+        explicit_metadata_filters=request.retrieval_filters,
+    )
+    clarification = build_hitl_clarification(retrieval_trace)
+    if clarification:
+        return ChatResponse(reply=clarification["question"], sources=[])
+
+    agent = create_rag_agent(request.retrieval_filters)
     runner = Runner(
         agent=agent,
         app_name=APP_NAME,
@@ -713,8 +733,7 @@ async def chat(request: ChatRequest):
     if _looks_like_placeholder_answer(final_reply):
         final_reply = _extract_visible_answer_text(raw_reply)
     reply = final_reply or _extract_visible_answer_text(raw_reply)
-    sources, _ = build_source_payload(request.message)
-    return ChatResponse(reply=reply, sources=sources)
+    return ChatResponse(reply=reply, sources=[])
 
 
 @router.get("/sources/{doc_id}/{chunk_index}", response_model=SourceDetailResponse)

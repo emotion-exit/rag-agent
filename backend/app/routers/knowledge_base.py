@@ -22,11 +22,11 @@ class DocumentInfo(BaseModel):
     filename: str
     chunk_count: int
     upload_time: str
-    system_name: str = ""
-    module_name: str = ""
-    feature_name: str = ""
-    version_name: str = ""
-    doc_type: str = ""
+    knowledge_space: str = ""
+    category: str = ""
+    topic: str = ""
+    tags: str = ""
+    version_label: str = ""
     image_count: int = 0
 
 
@@ -42,11 +42,11 @@ class KnowledgeBaseStats(BaseModel):
 @router.post("/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    system_name: str = Form(default=""),
-    module_name: str = Form(default=""),
-    feature_name: str = Form(default=""),
-    version_name: str = Form(default=""),
-    doc_type: str = Form(default=""),
+    knowledge_space: str = Form(default=""),
+    category: str = Form(default=""),
+    topic: str = Form(default=""),
+    tags: str = Form(default=""),
+    version_label: str = Form(default=""),
 ):
     """Upload a document to the knowledge base."""
     # Validate file extension
@@ -74,11 +74,11 @@ async def upload_document(
     saved_images = save_document_images(doc_id, document_images)
 
     upload_time = datetime.now(timezone.utc).isoformat()
-    normalized_system_name = _normalize_metadata_value(system_name)
-    normalized_module_name = _normalize_metadata_value(module_name)
-    normalized_feature_name = _normalize_metadata_value(feature_name)
-    normalized_version_name = _normalize_metadata_value(version_name)
-    normalized_doc_type = _normalize_metadata_value(doc_type)
+    normalized_knowledge_space = _normalize_metadata_value(knowledge_space)
+    normalized_category = _normalize_metadata_value(category)
+    normalized_topic = _normalize_metadata_value(topic)
+    normalized_tags = _normalize_metadata_value(tags)
+    normalized_version_label = _normalize_metadata_value(version_label)
 
     # Store in vector DB
     metadatas = [
@@ -87,11 +87,11 @@ async def upload_document(
             "filename": file.filename or "unknown",
             "chunk_index": i,
             "upload_time": upload_time,
-            "system_name": normalized_system_name,
-            "module_name": normalized_module_name,
-            "feature_name": normalized_feature_name,
-            "version_name": normalized_version_name,
-            "doc_type": normalized_doc_type,
+            "knowledge_space": normalized_knowledge_space,
+            "category": normalized_category,
+            "topic": normalized_topic,
+            "tags": normalized_tags,
+            "version_label": normalized_version_label,
             "source_type": chunk_info.get("source_type", "text"),
             "source_label": chunk_info.get("source_label", "正文文本"),
             "source_page": int(chunk_info.get("source_page", 0) or 0),
@@ -128,11 +128,11 @@ async def get_documents():
             "doc_id": doc.get("doc_id", ""),
             "filename": doc.get("filename", "未知"),
             "upload_time": doc.get("upload_time", ""),
-            "system_name": doc.get("system_name", ""),
-            "module_name": doc.get("module_name", ""),
-            "feature_name": doc.get("feature_name", ""),
-            "version_name": doc.get("version_name", ""),
-            "doc_type": doc.get("doc_type", ""),
+            "knowledge_space": doc.get("knowledge_space", ""),
+            "category": doc.get("category", ""),
+            "topic": doc.get("topic", ""),
+            "tags": doc.get("tags", ""),
+            "version_label": doc.get("version_label", ""),
             "image_count": int(doc.get("image_count", 0) or 0),
         })
     return {"documents": result, "total": len(result)}

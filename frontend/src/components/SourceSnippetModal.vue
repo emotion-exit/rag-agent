@@ -12,11 +12,11 @@ interface SourceSummary {
   doc_id: string;
   filename: string;
   chunk_index: number;
-  system_name: string;
-  module_name: string;
-  feature_name: string;
-  version_name: string;
-  doc_type: string;
+  knowledge_space: string;
+  category: string;
+  topic: string;
+  tags: string;
+  version_label: string;
   source_type: string;
   source_label: string;
   source_page: number;
@@ -99,11 +99,11 @@ const sourceMetaLines = computed(() => {
     },
     { label: '章节路径', value: props.source.heading_path || '' },
     { label: '章节标题', value: props.source.section_title || '' },
-    { label: '所属系统', value: props.source.system_name },
-    { label: '业务模块', value: props.source.module_name },
-    { label: '功能主题', value: props.source.feature_name },
-    { label: '适用版本', value: props.source.version_name },
-    { label: '文档类型', value: props.source.doc_type }
+    { label: '知识空间', value: props.source.knowledge_space },
+    { label: '分类', value: props.source.category },
+    { label: '主题', value: props.source.topic },
+    { label: '标签', value: props.source.tags },
+    { label: '版本/时效', value: props.source.version_label }
   ].filter((item) => item.value?.trim());
 });
 

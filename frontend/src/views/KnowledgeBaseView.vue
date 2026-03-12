@@ -22,11 +22,11 @@ interface DocumentInfo {
   doc_id: string;
   filename: string;
   upload_time: string;
-  system_name: string;
-  module_name: string;
-  feature_name: string;
-  version_name: string;
-  doc_type: string;
+  knowledge_space: string;
+  category: string;
+  topic: string;
+  tags: string;
+  version_label: string;
   image_count: number;
 }
 
@@ -36,23 +36,24 @@ interface Stats {
 }
 
 interface UploadMetadataForm {
-  system_name: string;
-  module_name: string;
-  feature_name: string;
-  version_name: string;
-  doc_type: string;
+  knowledge_space: string;
+  category: string;
+  topic: string;
+  tags: string[];
+  version_label: string;
 }
 
 type ToastType = 'success' | 'error';
 type KnowledgeBaseTab = 'upload' | 'documents';
 
 const API_BASE = getApiBase();
-const DOC_TYPE_OPTIONS = [
-  '用户手册',
-  '操作指南',
+const CATEGORY_OPTIONS = [
+  '制度规范',
+  '操作手册',
   '常见问题',
-  '故障排查',
-  '发布说明',
+  '方案资料',
+  '报告分析',
+  '会议纪要',
   '其他'
 ];
 
@@ -63,25 +64,18 @@ const uploading = ref(false);
 const isDragOver = ref(false);
 const activeTab = ref<KnowledgeBaseTab>('upload');
 const uploadForm = ref<UploadMetadataForm>({
-  system_name: '',
-  module_name: '',
-  feature_name: '',
-  version_name: '',
-  doc_type: DOC_TYPE_OPTIONS[0] ?? '用户手册'
+  knowledge_space: '',
+  category: CATEGORY_OPTIONS[0] ?? '制度规范',
+  topic: '',
+  tags: [],
+  version_label: ''
 });
+const tagDraft = ref('');
 const toast = ref<{ visible: boolean; type: ToastType; message: string }>({
   visible: false,
   type: 'success',
   message: ''
 });
-
-const uploadMetadataPreview = computed(() => [
-  { label: '所属系统', value: uploadForm.value.system_name || '未填写' },
-  { label: '业务模块', value: uploadForm.value.module_name || '未填写' },
-  { label: '功能主题', value: uploadForm.value.feature_name || '未填写' },
-  { label: '适用版本', value: uploadForm.value.version_name || '未填写' },
-  { label: '文档类型', value: uploadForm.value.doc_type || '未填写' }
-]);
 
 const knowledgeTabs = [
   {
@@ -129,6 +123,64 @@ function formatMetadata(value: string) {
   return value?.trim() || '未设置';
 }
 
+function splitTagList(value: string) {
+  return value
+    .split(/[，,、]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function buildUniqueTagList(values: string[]) {
+  const seen = new Set<string>();
+
+  return values.reduce<string[]>((result, value) => {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      return result;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+    return result;
+  }, []);
+}
+
+function commitTagDraft() {
+  uploadForm.value.tags = buildUniqueTagList([
+    ...uploadForm.value.tags,
+    ...splitTagList(tagDraft.value)
+  ]);
+  tagDraft.value = '';
+}
+
+function handleTagInputKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
+    event.preventDefault();
+    commitTagDraft();
+    return;
+  }
+
+  if (
+    event.key === 'Backspace' &&
+    !tagDraft.value &&
+    uploadForm.value.tags.length > 0
+  ) {
+    uploadForm.value.tags = uploadForm.value.tags.slice(0, -1);
+  }
+}
+
+function removeTag(tag: string) {
+  uploadForm.value.tags = uploadForm.value.tags.filter((item) => item !== tag);
+}
+
+function selectCategory(option: string) {
+  uploadForm.value.category = option;
+}
+
+function formatTagList(value: string) {
+  return buildUniqueTagList(splitTagList(value));
+}
+
 function formatImageCount(value: number) {
   return value > 0 ? `附图 ${value} 张` : '无附图';
 }
@@ -156,24 +208,20 @@ async function fetchDocuments() {
 
 async function processFiles(fileList: FileList | File[]) {
   if (fileList.length === 0) return;
-
-  const maxSize = 20 * 1024 * 1024;
   uploading.value = true;
 
   try {
     for (const file of Array.from(fileList)) {
-      if (file.size > maxSize) {
-        showToast(`文件“${file.name}”过大，最大支持 20 MB`, 'error');
-        continue;
-      }
-
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('system_name', uploadForm.value.system_name.trim());
-      formData.append('module_name', uploadForm.value.module_name.trim());
-      formData.append('feature_name', uploadForm.value.feature_name.trim());
-      formData.append('version_name', uploadForm.value.version_name.trim());
-      formData.append('doc_type', uploadForm.value.doc_type.trim());
+      formData.append(
+        'knowledge_space',
+        uploadForm.value.knowledge_space.trim()
+      );
+      formData.append('category', uploadForm.value.category.trim());
+      formData.append('topic', uploadForm.value.topic.trim());
+      formData.append('tags', uploadForm.value.tags.join(','));
+      formData.append('version_label', uploadForm.value.version_label.trim());
 
       const response = await fetch(`${API_BASE}/api/knowledge-base/upload`, {
         method: 'POST',
@@ -270,85 +318,93 @@ onMounted(() => {
         <div>
           <div class="panel-title">上传文档</div>
           <div class="panel-subtitle">
-            支持 PDF、Word、TXT、Markdown、CSV，单文件 20MB 以内。
+            支持
+            PDF、Word、TXT、Markdown、CSV。元数据全部为可选项，用于后续整理、筛选和二次确认。
           </div>
         </div>
       </div>
 
-      <div class="metadata-grid">
-        <label class="field-block">
-          <span class="field-label">所属系统</span>
-          <input
-            v-model="uploadForm.system_name"
-            class="field-input"
-            type="text"
-            maxlength="40"
-            placeholder="例如：CRM、ERP、客服中台"
-            :disabled="uploading" />
-        </label>
+      <div class="upload-workbench">
+        <div class="upload-form-panel">
+          <div class="metadata-grid">
+            <label class="field-block">
+              <span class="field-label">知识空间</span>
+              <input
+                v-model="uploadForm.knowledge_space"
+                class="field-input"
+                type="text"
+                placeholder="例如：法务知识库、销售资料、研发规范"
+                :disabled="uploading" />
+            </label>
 
-        <label class="field-block">
-          <span class="field-label">业务模块</span>
-          <input
-            v-model="uploadForm.module_name"
-            class="field-input"
-            type="text"
-            maxlength="40"
-            placeholder="例如：权限管理、订单中心"
-            :disabled="uploading" />
-        </label>
+            <label class="field-block">
+              <span class="field-label">分类</span>
+              <div class="category-recommendations">
+                <button
+                  v-for="option in CATEGORY_OPTIONS"
+                  :key="option"
+                  type="button"
+                  :class="[
+                    'recommendation-chip',
+                    uploadForm.category === option
+                      ? 'recommendation-chip-active'
+                      : ''
+                  ]"
+                  :disabled="uploading"
+                  @click="selectCategory(option)">
+                  {{ option }}
+                </button>
+              </div>
+            </label>
 
-        <label class="field-block">
-          <span class="field-label">功能主题</span>
-          <input
-            v-model="uploadForm.feature_name"
-            class="field-input"
-            type="text"
-            maxlength="60"
-            placeholder="例如：新增角色、导入订单"
-            :disabled="uploading" />
-        </label>
+            <label class="field-block">
+              <span class="field-label">主题</span>
+              <input
+                v-model="uploadForm.topic"
+                class="field-input"
+                type="text"
+                placeholder="例如：合同审批、调宿、开票流程"
+                :disabled="uploading" />
+            </label>
 
-        <label class="field-block">
-          <span class="field-label">适用版本</span>
-          <input
-            v-model="uploadForm.version_name"
-            class="field-input"
-            type="text"
-            maxlength="30"
-            placeholder="例如：V3.2、2026 春季版"
-            :disabled="uploading" />
-        </label>
+            <label class="field-block">
+              <span class="field-label">标签</span>
+              <div
+                :class="['tag-editor', uploading ? 'tag-editor-disabled' : '']">
+                <button
+                  v-for="tag in uploadForm.tags"
+                  :key="tag"
+                  type="button"
+                  class="editable-tag"
+                  :disabled="uploading"
+                  @click="removeTag(tag)">
+                  <span>{{ tag }}</span>
+                  <span class="editable-tag-remove">×</span>
+                </button>
+                <input
+                  v-model="tagDraft"
+                  class="tag-input"
+                  type="text"
+                  placeholder="输入标签后回车或逗号拆分"
+                  :disabled="uploading"
+                  @keydown="handleTagInputKeydown"
+                  @blur="commitTagDraft" />
+              </div>
+              <span class="field-help">
+                按回车、逗号或失焦即可拆分标签，不做数量限制。
+              </span>
+            </label>
 
-        <label class="field-block field-block-wide">
-          <span class="field-label">文档类型</span>
-          <select
-            v-model="uploadForm.doc_type"
-            class="field-input field-select"
-            :disabled="uploading">
-            <option
-              v-for="option in DOC_TYPE_OPTIONS"
-              :key="option"
-              :value="option">
-              {{ option }}
-            </option>
-          </select>
-        </label>
-      </div>
-
-      <div class="metadata-preview">
-        <div
-          v-for="item in uploadMetadataPreview"
-          :key="item.label"
-          class="metadata-chip">
-          <span class="metadata-chip-label">{{ item.label }}</span>
-          <span
-            :class="[
-              'metadata-chip-value',
-              item.value === '未填写' ? 'metadata-chip-value-missing' : ''
-            ]">
-            {{ item.value }}
-          </span>
+            <label class="field-block">
+              <span class="field-label">版本 / 时效</span>
+              <input
+                v-model="uploadForm.version_label"
+                class="field-input"
+                type="text"
+                placeholder="例如：V2.1、2026Q1、长期有效"
+                :disabled="uploading" />
+            </label>
+          </div>
         </div>
       </div>
 
@@ -369,7 +425,7 @@ onMounted(() => {
           <UploadOutlined class="upload-icon" />
           <div class="upload-title">点击选择文件，或将文件拖放到这里</div>
           <div class="upload-hint">
-            上传后会自动抽取正文文本；文档图片会保留在引用详情中展示，但不参与检索
+            上传后会自动抽取正文文本；图片会保留在引用详情中展示，但不参与检索
           </div>
         </div>
         <div v-else class="upload-inner">
@@ -385,7 +441,7 @@ onMounted(() => {
         <div>
           <div class="panel-title">已收录文档</div>
           <div class="panel-subtitle">
-            这里展示可被聊天问答检索到的文档资产与分类元数据。
+            这里展示可被聊天问答检索到的文档资产，以及通用知识元数据。
           </div>
         </div>
         <button
@@ -446,20 +502,28 @@ onMounted(() => {
 
             <div class="doc-tags">
               <span class="doc-tag type-tag">
-                {{ formatMetadata(doc.doc_type) }}
+                {{ formatMetadata(doc.category) }}
               </span>
-              <span class="doc-tag" v-if="doc.system_name || doc.module_name">
-                {{ formatMetadata(doc.system_name) }}
+              <span class="doc-tag" v-if="doc.knowledge_space || doc.topic">
+                {{ formatMetadata(doc.knowledge_space) }}
                 <span
-                  v-if="doc.system_name && doc.module_name"
+                  v-if="doc.knowledge_space && doc.topic"
                   class="tag-divider">
                   /
                 </span>
-                {{ formatMetadata(doc.module_name) }}
+                {{ formatMetadata(doc.topic) }}
               </span>
-              <span class="doc-tag version-tag" v-if="doc.version_name">
+              <template v-if="doc.tags">
+                <span
+                  v-for="tag in formatTagList(doc.tags)"
+                  :key="`${doc.doc_id}-${tag}`"
+                  class="doc-tag inline-tag">
+                  {{ tag }}
+                </span>
+              </template>
+              <span class="doc-tag version-tag" v-if="doc.version_label">
                 <span class="tag-dot"></span>
-                {{ doc.version_name }}
+                {{ doc.version_label }}
               </span>
             </div>
 
@@ -676,21 +740,48 @@ onMounted(() => {
   font-size: 13px;
 }
 
+.upload-workbench {
+  margin-bottom: 20px;
+}
+
+.upload-form-panel {
+  border-radius: 24px;
+  background: linear-gradient(
+    180deg,
+    rgba(252, 252, 253, 0.96) 0%,
+    rgba(245, 245, 245, 0.96) 100%
+  );
+  border: 1px solid rgba(24, 24, 27, 0.06);
+  padding: 18px;
+}
+
+.metadata-note {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(24, 24, 27, 0.06);
+}
+
+.metadata-note-title {
+  color: #18181b;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.metadata-note-copy {
+  margin-top: 6px;
+  color: #71717a;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .metadata-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
-  margin-bottom: 18px;
-}
-
-.field-block {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.field-block-wide {
-  grid-column: span 2;
+  margin-bottom: 0;
 }
 
 .field-label {
@@ -729,38 +820,97 @@ onMounted(() => {
   appearance: none;
 }
 
-.metadata-preview {
+.field-help {
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.category-recommendations {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.metadata-chip {
-  display: inline-flex;
-  align-items: center;
   gap: 8px;
-  min-height: 38px;
-  padding: 8px 12px;
+}
+
+.recommendation-chip {
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  background: #f4f4f5;
+  color: #52525b;
   border-radius: 999px;
-  background: #f5f8ff;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-}
-
-.metadata-chip-label {
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.metadata-chip-value {
-  color: #1f2937;
+  padding: 8px 12px;
   font-size: 12px;
   font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 
-.metadata-chip-value-missing {
-  color: #dc2626;
+.recommendation-chip:hover {
+  transform: translateY(-1px);
+}
+
+.recommendation-chip-active {
+  background: #18181b;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid rgba(24, 24, 27, 0.12);
+  border-radius: 16px;
+  background: #fcfcfd;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.tag-editor:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  background: #ffffff;
+}
+
+.tag-editor-disabled {
+  opacity: 0.72;
+}
+
+.editable-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #2563eb;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.editable-tag-remove {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.tag-input {
+  flex: 1;
+  min-width: 140px;
+  border: 0;
+  background: transparent;
+  color: #18181b;
+  font: inherit;
+  outline: none;
+  padding: 6px 0;
 }
 
 .upload-zone {
@@ -949,6 +1099,7 @@ onMounted(() => {
 .doc-tag {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 4px 10px;
   background: #f4f4f5;
   color: #52525b;
@@ -961,6 +1112,10 @@ onMounted(() => {
 .type-tag {
   background: #eff6ff;
   color: #2563eb;
+}
+
+.inline-tag {
+  background: #f5f5f5;
 }
 
 .version-tag {
@@ -1116,12 +1271,12 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .field-block-wide {
-    grid-column: span 1;
-  }
-
   .panel-head {
     flex-direction: column;
+  }
+
+  .category-recommendations {
+    gap: 6px;
   }
 }
 </style>

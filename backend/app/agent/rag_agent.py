@@ -25,8 +25,10 @@ FINAL_SOURCE_LIMIT = 3
 # 限制单文档最多贡献多少个 chunk，避免某一份文档完全垄断上下文窗口。
 MAX_CHUNKS_PER_DOCUMENT = 2
 SOURCE_SUMMARY_LENGTH = 140
+HITL_OPTION_LIMIT = 4
+HITL_DISTANCE_THRESHOLD = 0.42
 # 这些字段既用于元数据过滤，也用于给检索结果补充上下文头信息。
-QUERY_FILTER_FIELDS = ("system_name", "module_name", "feature_name", "version_name")
+QUERY_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
 # 中文问题里常见但没有判别力的停用词，避免它们干扰关键词匹配和本地 rerank。
 QUERY_STOPWORDS = {
     "请问",
@@ -44,6 +46,7 @@ QUERY_STOPWORDS = {
 }
 RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
+ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
 
 SYSTEM_INSTRUCTION = """你是一个中文知识库问答助手，只能基于知识库作答。
 
@@ -96,10 +99,10 @@ def _build_llm() -> LiteLlm:
     """
     return LiteLlm(
         model=f"openai/{settings.chat_model}",
-        api_key=settings.openrouter_api_key,
-        api_base=settings.openrouter_base_url,
+        api_key=settings.chat_api_key,
+        api_base=settings.chat_base_url,
         temperature=settings.chat_temperature,
-        headers=settings.get_openrouter_headers(),
+        headers=settings.get_chat_headers(),
     )
 
 
@@ -158,6 +161,32 @@ def _normalize_metadata_value(value: str) -> str:
     return re.sub(r"\s+", "", value.lower())
 
 
+def _normalize_explicit_metadata_filters(
+    metadata_filters: dict[str, str] | None,
+) -> dict[str, str]:
+    """清洗前端传入的显式过滤条件，只保留受支持字段。"""
+    if not metadata_filters:
+        return {}
+
+    normalized_filters: dict[str, str] = {}
+    for field in ALLOWED_METADATA_FILTER_FIELDS:
+        value = str(metadata_filters.get(field, "") or "").strip()
+        if value:
+            normalized_filters[field] = value
+
+    return normalized_filters
+
+
+def _merge_metadata_filters(
+    inferred_filters: dict[str, str],
+    explicit_filters: dict[str, str] | None,
+) -> dict[str, str]:
+    """合并推断过滤与显式过滤，显式过滤优先。"""
+    merged = dict(inferred_filters)
+    merged.update(_normalize_explicit_metadata_filters(explicit_filters))
+    return merged
+
+
 def _collect_filter_candidates() -> dict[str, set[str]]:
     """从现有知识库文档中收集所有可用于过滤的元数据候选值。"""
     candidates: dict[str, set[str]] = {field: set() for field in QUERY_FILTER_FIELDS}
@@ -195,15 +224,15 @@ def _format_context_header(metadata: dict) -> str:
     """把文档元数据整理成上下文头。
 
     这段头信息会和正文 chunk 一起送给模型，
-    帮助模型理解内容来自哪个系统、模块、功能或章节。
+    帮助模型理解内容来自哪个知识空间、主题或章节。
     """
     header_parts = []
     for label, key in (
-        ("系统", "system_name"),
-        ("模块", "module_name"),
-        ("功能", "feature_name"),
-        ("版本", "version_name"),
-        ("类型", "doc_type"),
+        ("知识空间", "knowledge_space"),
+        ("分类", "category"),
+        ("主题", "topic"),
+        ("标签", "tags"),
+        ("版本/时效", "version_label"),
     ):
         value = str(metadata.get(key, "")).strip()
         if value:
@@ -279,7 +308,9 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
     """根据检索 trace 生成用户可见的进度步骤。"""
     steps: list[str] = []
 
-    if trace.get("used_metadata_filters"):
+    if trace.get("used_explicit_filters"):
+        steps.append("已按你指定的知识范围限定检索。")
+    elif trace.get("used_metadata_filters"):
         steps.append("已识别问题中的文档范围，正在限定检索范围。")
     else:
         steps.append("已完成问题理解，正在检索相关内容。")
@@ -311,6 +342,92 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
         steps.append("未找到可直接作答的参考内容，正在整理说明。")
 
     return steps
+
+
+def _collect_hitl_options(documents: list[dict], field: str) -> list[str]:
+    """按命中频次和距离为澄清问题收集候选选项。"""
+    ranked: dict[str, tuple[int, float]] = {}
+
+    for doc in documents:
+        metadata = doc.get("metadata", {})
+        value = str(metadata.get(field, "") or "").strip()
+        if not value:
+            continue
+
+        distance = float(doc.get("distance", 1.0))
+        current = ranked.get(value)
+        if current is None:
+            ranked[value] = (1, distance)
+            continue
+
+        count, best_distance = current
+        ranked[value] = (count + 1, min(best_distance, distance))
+
+    ordered = sorted(
+        ranked.items(),
+        key=lambda item: (-item[1][0], item[1][1], item[0]),
+    )
+    return [value for value, _ in ordered[:HITL_OPTION_LIMIT]]
+
+
+def build_hitl_clarification(trace: dict[str, Any]) -> dict[str, Any] | None:
+    """当检索来源存在歧义时，生成需要用户二次确认的澄清问题。"""
+    documents = list(trace.get("documents", []))
+    if len(documents) <= 1:
+        return None
+
+    metadata_filters = trace.get("metadata_filters", {}) or {}
+    if metadata_filters.get("knowledge_space") and metadata_filters.get("category"):
+        return None
+
+    best_distance = min(float(doc.get("distance", 1.0)) for doc in documents)
+    knowledge_space_options = _collect_hitl_options(documents, "knowledge_space")
+    category_options = _collect_hitl_options(documents, "category")
+
+    missing_space_filter = not str(metadata_filters.get("knowledge_space", "")).strip()
+    missing_category_filter = not str(metadata_filters.get("category", "")).strip()
+
+    ambiguous_space = missing_space_filter and len(knowledge_space_options) > 1
+    ambiguous_category = missing_category_filter and len(category_options) > 1
+
+    if not ambiguous_space and not ambiguous_category:
+        return None
+
+    if best_distance <= HITL_DISTANCE_THRESHOLD and not (ambiguous_space and ambiguous_category):
+        return None
+
+    if ambiguous_space and ambiguous_category:
+        question = "我检索到的内容分散在多个知识空间和分类里，暂时无法确认你要问的是哪一类。请先选择更具体的范围。"
+    elif ambiguous_space:
+        question = "当前命中的内容来自多个知识空间，我暂时无法确认应该使用哪一个知识空间。请先选择范围。"
+    else:
+        question = "当前命中的内容落在多个分类里，我暂时无法确认应该采用哪一类资料。请先选择分类。"
+
+    options: list[dict[str, str]] = []
+    if ambiguous_space:
+        options.extend(
+            {
+                "field": "knowledge_space",
+                "value": option,
+                "label": f"知识空间：{option}",
+            }
+            for option in knowledge_space_options
+        )
+
+    if ambiguous_category:
+        options.extend(
+            {
+                "field": "category",
+                "value": option,
+                "label": f"分类：{option}",
+            }
+            for option in category_options
+        )
+
+    return {
+        "question": question,
+        "options": options[: HITL_OPTION_LIMIT * 2],
+    }
 
 
 def _fallback_rerank_documents(query: str, documents: list[dict]) -> list[dict]:
@@ -399,12 +516,15 @@ def retrieve_relevant_documents_trace(
     query: str,
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """执行完整检索流程，并返回可追踪的中间状态。
 
     这个 trace 会被聊天流式接口复用，用于展示“已召回多少条、过滤后还剩多少条”等进度信息。
     """
-    metadata_filters = _infer_metadata_filters(query)
+    inferred_metadata_filters = _infer_metadata_filters(query)
+    explicit_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
+    metadata_filters = _merge_metadata_filters(inferred_metadata_filters, explicit_filters)
     results = vector_store.query_documents(
         query,
         n_results=initial_n_results,
@@ -413,7 +533,7 @@ def retrieve_relevant_documents_trace(
     fallback_without_filters = False
 
     # 如果基于元数据过滤没有召回结果，就自动回退到无过滤检索，避免误过滤导致完全答不出来。
-    if not results and metadata_filters:
+    if not results and metadata_filters and not explicit_filters:
         fallback_without_filters = True
         results = vector_store.query_documents(query, n_results=initial_n_results)
 
@@ -426,6 +546,7 @@ def retrieve_relevant_documents_trace(
             "final_hit_count": 0,
             "metadata_filters": metadata_filters,
             "used_metadata_filters": bool(metadata_filters),
+            "used_explicit_filters": bool(explicit_filters),
             "fallback_without_filters": fallback_without_filters,
         }
 
@@ -439,6 +560,7 @@ def retrieve_relevant_documents_trace(
             "final_hit_count": 0,
             "metadata_filters": metadata_filters,
             "used_metadata_filters": bool(metadata_filters),
+            "used_explicit_filters": bool(explicit_filters),
             "fallback_without_filters": fallback_without_filters,
         }
 
@@ -451,6 +573,7 @@ def retrieve_relevant_documents_trace(
         "final_hit_count": len(reranked),
         "metadata_filters": metadata_filters,
         "used_metadata_filters": bool(metadata_filters),
+        "used_explicit_filters": bool(explicit_filters),
         "fallback_without_filters": fallback_without_filters,
     }
 
@@ -459,12 +582,14 @@ def retrieve_relevant_documents_with_mode(
     query: str,
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
 ) -> tuple[list[dict], str]:
     """返回最终可用文档，以及 rerank 采用的模式。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=initial_n_results,
         final_n_results=final_n_results,
+        explicit_metadata_filters=explicit_metadata_filters,
     )
     return list(trace["documents"]), str(trace["rerank_mode"])
 
@@ -473,12 +598,14 @@ def retrieve_relevant_documents(
     query: str,
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
 ) -> list[dict]:
     """兼容型包装函数，只关心最终文档列表时使用。"""
     relevant, _ = retrieve_relevant_documents_with_mode(
         query,
         initial_n_results=initial_n_results,
         final_n_results=final_n_results,
+        explicit_metadata_filters=explicit_metadata_filters,
     )
     return relevant
 
@@ -486,12 +613,14 @@ def retrieve_relevant_documents(
 def build_source_payload(
     query: str,
     n_results: int = FINAL_SOURCE_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
 ) -> tuple[list[dict], str]:
     """把检索结果转成前端来源卡片需要的轻量结构。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
         final_n_results=n_results,
+        explicit_metadata_filters=explicit_metadata_filters,
     )
     relevant = list(trace["documents"])
     rerank_mode = str(trace["rerank_mode"])
@@ -506,11 +635,11 @@ def build_source_payload(
                 "doc_id": metadata.get("doc_id", ""),
                 "filename": metadata.get("filename", "未知文档"),
                 "chunk_index": metadata.get("chunk_index", 0),
-                "system_name": metadata.get("system_name", ""),
-                "module_name": metadata.get("module_name", ""),
-                "feature_name": metadata.get("feature_name", ""),
-                "version_name": metadata.get("version_name", ""),
-                "doc_type": metadata.get("doc_type", ""),
+                "knowledge_space": metadata.get("knowledge_space", ""),
+                "category": metadata.get("category", ""),
+                "topic": metadata.get("topic", ""),
+                "tags": metadata.get("tags", ""),
+                "version_label": metadata.get("version_label", ""),
                 "source_type": metadata.get("source_type", "text"),
                 "source_label": metadata.get("source_label", "正文文本"),
                 "source_page": metadata.get("source_page", 0),
@@ -527,12 +656,14 @@ def build_source_payload(
 def build_source_payload_with_trace(
     query: str,
     n_results: int = FINAL_SOURCE_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
         final_n_results=n_results,
+        explicit_metadata_filters=explicit_metadata_filters,
     )
 
     summaries = []
@@ -545,11 +676,11 @@ def build_source_payload_with_trace(
                 "doc_id": metadata.get("doc_id", ""),
                 "filename": metadata.get("filename", "未知文档"),
                 "chunk_index": metadata.get("chunk_index", 0),
-                "system_name": metadata.get("system_name", ""),
-                "module_name": metadata.get("module_name", ""),
-                "feature_name": metadata.get("feature_name", ""),
-                "version_name": metadata.get("version_name", ""),
-                "doc_type": metadata.get("doc_type", ""),
+                "knowledge_space": metadata.get("knowledge_space", ""),
+                "category": metadata.get("category", ""),
+                "topic": metadata.get("topic", ""),
+                "tags": metadata.get("tags", ""),
+                "version_label": metadata.get("version_label", ""),
                 "source_type": metadata.get("source_type", "text"),
                 "source_label": metadata.get("source_label", "正文文本"),
                 "source_page": metadata.get("source_page", 0),
@@ -563,13 +694,24 @@ def build_source_payload_with_trace(
     return summaries, trace
 
 
-def build_source_summaries(query: str, n_results: int = FINAL_SOURCE_LIMIT) -> list[dict]:
+def build_source_summaries(
+    query: str,
+    n_results: int = FINAL_SOURCE_LIMIT,
+    explicit_metadata_filters: dict[str, str] | None = None,
+) -> list[dict]:
     """仅返回来源摘要列表的简化入口。"""
-    summaries, _ = build_source_payload(query, n_results=n_results)
+    summaries, _ = build_source_payload(
+        query,
+        n_results=n_results,
+        explicit_metadata_filters=explicit_metadata_filters,
+    )
     return summaries
 
 
-def retrieve_from_knowledge_base(query: str) -> str:
+def retrieve_from_knowledge_base(
+    query: str,
+    explicit_metadata_filters: dict[str, str] | None = None,
+) -> str:
     """供 Agent 调用的知识库工具。
 
     它返回的不是结构化 JSON，而是一段适合直接放进提示词上下文的文本：
@@ -582,6 +724,7 @@ def retrieve_from_knowledge_base(query: str) -> str:
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
         final_n_results=FINAL_CONTEXT_LIMIT,
+        explicit_metadata_filters=explicit_metadata_filters,
     )
 
     if not relevant:
@@ -601,16 +744,24 @@ def retrieve_from_knowledge_base(query: str) -> str:
     return "\n\n---\n\n".join(context_parts)
 
 
-def create_rag_agent() -> Agent:
+def create_rag_agent(explicit_metadata_filters: dict[str, str] | None = None) -> Agent:
     """创建 ADK RAG Agent。
 
     Agent 本身只做一件事：
     调用 retrieve_from_knowledge_base 拿上下文，再按照 SYSTEM_INSTRUCTION 输出最终答案。
     """
+    normalized_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
+
+    def retrieval_tool(query: str) -> str:
+        return retrieve_from_knowledge_base(
+            query,
+            explicit_metadata_filters=normalized_filters,
+        )
+
     return Agent(
         name="rag_agent",
         model=_build_llm(),
         description="Knowledge base Q&A agent that only answers based on uploaded documents.",
         instruction=SYSTEM_INSTRUCTION,
-        tools=[retrieve_from_knowledge_base],
+        tools=[retrieval_tool],
     )

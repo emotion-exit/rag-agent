@@ -30,15 +30,16 @@ class Settings(BaseModel):
 
     app_config_path: str = Field(default="", alias="APP_CONFIG_PATH")
 
-    # SiliconFlow
-    siliconflow_api_key: str = Field(default="", alias="SILICONFLOW_API_KEY")
-    siliconflow_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="SILICONFLOW_BASE_URL")
+    # Model endpoints
+    embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
+    embedding_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="EMBEDDING_BASE_URL")
     embedding_model: str = Field(default="BAAI/bge-large-zh-v1.5", alias="EMBEDDING_MODEL")
+    reranker_api_key: str = Field(default="", alias="RERANKER_API_KEY")
+    reranker_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="RERANKER_BASE_URL")
     reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
 
-    # OpenRouter
-    openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
-    openrouter_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL")
+    chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
+    chat_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="CHAT_BASE_URL")
     chat_model: str = Field(default="anthropic/claude-3-haiku", alias="CHAT_MODEL")
     chat_temperature: float = Field(default=0.2, alias="CHAT_TEMPERATURE")
     openrouter_site_url: str = Field(default="https://localhost.invalid", alias="OPENROUTER_SITE_URL")
@@ -60,12 +61,15 @@ class Settings(BaseModel):
         values = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
         return list(dict.fromkeys(values))
 
-    def get_openrouter_headers(self) -> dict[str, str]:
-        """构建 OpenRouter 请求头。
+    def get_chat_headers(self) -> dict[str, str]:
+        """构建对话请求头。
 
-        这些头不是调用必须项，但会影响 OpenRouter 侧的来源识别、应用标识和分类统计。
+        当前只有当对话 endpoint 指向 OpenRouter 时，才下发这些可选请求头。
         只有在值非空时才下发，避免产生无意义的空头。
         """
+        if "openrouter.ai" not in self.chat_base_url.lower():
+            return {}
+
         headers: dict[str, str] = {}
 
         if self.openrouter_site_url.strip():
@@ -109,7 +113,12 @@ def _load_json_config(config_path: Path) -> dict[str, Any]:
     return {str(key): value for key, value in payload.items()}
 
 
-def _pick_config_value(field_name: str, alias: str, json_config: dict[str, Any], default: Any) -> Any:
+def _pick_config_value(
+    field_name: str,
+    alias: str,
+    json_config: dict[str, Any],
+    default: Any,
+) -> Any:
     """按统一优先级挑选单个配置值。
 
     查找顺序：

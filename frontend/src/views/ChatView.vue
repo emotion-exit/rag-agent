@@ -3,7 +3,7 @@ defineOptions({
   name: 'ChatView'
 });
 
-import { ref, reactive, nextTick } from 'vue';
+import { nextTick, reactive, ref } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import {
   SendOutlined,
@@ -12,7 +12,11 @@ import {
   VerticalAlignBottomOutlined
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
-import type { Message, SourceSummary } from '@/components/AnswerCard.vue';
+import type {
+  ClarificationOption,
+  Message,
+  SourceSummary
+} from '@/components/AnswerCard.vue';
 import { getApiBase } from '@/services/runtime';
 
 const messages = ref<Message[]>([]);
@@ -33,6 +37,26 @@ interface StreamEventPayload {
   type: string;
   content: string;
   sources?: SourceSummary[];
+  options?: ClarificationOption[];
+}
+
+interface RetrievalFilters {
+  knowledge_space: string;
+  category: string;
+}
+
+const retrievalFilters = reactive<RetrievalFilters>({
+  knowledge_space: '',
+  category: ''
+});
+
+function buildRetrievalFiltersPayload() {
+  const payload = {
+    knowledge_space: retrievalFilters.knowledge_space.trim(),
+    category: retrievalFilters.category.trim()
+  };
+
+  return Object.values(payload).some(Boolean) ? payload : undefined;
 }
 
 function pushProgressStep(message: Message, step: string) {
@@ -80,7 +104,8 @@ function parseStreamEventBlock(block: string): StreamEventPayload | null {
           typeof parsed.content === 'string'
             ? parsed.content
             : JSON.stringify(parsed.content),
-        sources: Array.isArray(parsed.sources) ? parsed.sources : undefined
+        sources: Array.isArray(parsed.sources) ? parsed.sources : undefined,
+        options: Array.isArray(parsed.options) ? parsed.options : undefined
       };
     }
   } catch {
@@ -146,6 +171,18 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
     return;
   }
 
+  if (data.type === 'clarify') {
+    assistantMsg.answerContent = data.content;
+    assistantMsg.content = data.content;
+    assistantMsg.clarificationOptions = Array.isArray(data.options)
+      ? data.options
+      : [];
+    assistantMsg.status = 'done';
+    assistantMsg.progressText = undefined;
+    scrollToBottom(true);
+    return;
+  }
+
   if (data.type === 'progress' || data.type === 'retrieval') {
     assistantMsg.status = 'loading';
     pushProgressStep(assistantMsg, data.content);
@@ -200,6 +237,12 @@ async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isLoading.value) return;
 
+  await submitMessage(text);
+}
+
+async function submitMessage(text: string) {
+  if (!text.trim() || isLoading.value) return;
+
   shouldAutoScroll.value = true;
   showScrollBack.value = false;
 
@@ -211,7 +254,9 @@ async function sendMessage() {
     timestamp: new Date()
   };
   messages.value.push(userMsg);
-  inputText.value = '';
+  if (inputText.value.trim() === text.trim()) {
+    inputText.value = '';
+  }
   resetTextareaHeight();
   isLoading.value = true;
   scrollToBottom(true);
@@ -224,6 +269,7 @@ async function sendMessage() {
     answerContent: '',
     queryText: text,
     sources: [],
+    clarificationOptions: [],
     status: 'loading',
     progressSteps: [],
     progressText: CONNECTING_HINT,
@@ -236,7 +282,11 @@ async function sendMessage() {
     const response = await fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, session_id: sessionId.value })
+      body: JSON.stringify({
+        message: text,
+        session_id: sessionId.value,
+        retrieval_filters: buildRetrievalFiltersPayload()
+      })
     });
 
     if (!response.ok) {
@@ -286,6 +336,19 @@ async function sendMessage() {
   }
 }
 
+async function applyClarificationOption(
+  message: Message,
+  option: ClarificationOption
+) {
+  if (isLoading.value) return;
+
+  retrievalFilters[option.field] = option.value;
+  const queryText = message.queryText?.trim();
+  if (!queryText) return;
+
+  await submitMessage(queryText);
+}
+
 function clearMessages() {
   messages.value = [];
   sessionId.value = uuidv4();
@@ -313,7 +376,7 @@ function handleKeyDown(e: KeyboardEvent) {
           <h2>有什么我可以帮您的？</h2>
         </div>
         <p class="welcome-subtitle">
-          基于您的私有知识库，直接给出简洁答案与引用摘要。
+          基于您的私有知识库直接作答；范围不明确时会先向您确认。
         </p>
         <div class="suggestions">
           <div class="suggestion-item">
@@ -327,7 +390,9 @@ function handleKeyDown(e: KeyboardEvent) {
             <span>02</span>
             <div>
               <strong>直接提问</strong>
-              <p>我会优先返回结论，再附上可阅读的引用摘要。</p>
+              <p>
+                我会优先返回结论；命中范围不明确时先请您选择知识空间或分类。
+              </p>
             </div>
           </div>
         </div>
@@ -335,7 +400,9 @@ function handleKeyDown(e: KeyboardEvent) {
 
       <div v-else class="messages-stack">
         <template v-for="msg in messages" :key="msg.id">
-          <AnswerCard :message="msg" />
+          <AnswerCard
+            :message="msg"
+            @apply-clarification="applyClarificationOption(msg, $event)" />
         </template>
       </div>
     </div>
@@ -387,15 +454,14 @@ function handleKeyDown(e: KeyboardEvent) {
   flex: 1;
   min-height: 0;
   position: relative;
-  padding-top: 78px;
+  padding-top: 0;
 }
 
 .messages-area {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 42px 8px 20px;
-  margin-top: -78px;
+  padding: 24px 8px 20px;
   display: flex;
   flex-direction: column;
   scrollbar-width: thin;

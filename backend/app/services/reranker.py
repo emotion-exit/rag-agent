@@ -4,14 +4,14 @@ from app.config import settings
 
 
 def rerank_documents(query: str, documents: list[str]) -> list[dict]:
-    """Rerank candidate documents using SiliconFlow's reranker endpoint."""
+    """Rerank candidate documents using the configured reranker endpoint."""
     if not query.strip() or not documents:
         return []
 
     response = httpx.post(
-        f"{settings.siliconflow_base_url.rstrip('/')}/rerank",
+        f"{settings.reranker_base_url.rstrip('/')}/rerank",
         headers={
-            "Authorization": f"Bearer {settings.siliconflow_api_key}",
+            "Authorization": f"Bearer {settings.reranker_api_key}",
             "Content-Type": "application/json",
         },
         json={
