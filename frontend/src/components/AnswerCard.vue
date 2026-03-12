@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import MarkdownIt from 'markdown-it';
 import {
   RobotOutlined,
@@ -34,6 +34,7 @@ export interface Message {
   answerContent?: string;
   status?: 'loading' | 'done' | 'error';
   progressText?: string;
+  progressSteps?: string[];
   timestamp?: Date;
   sources?: SourceSummary[];
   queryText?: string;
@@ -55,6 +56,7 @@ const isError = computed(() => props.message.status === 'error');
 const loadingText = computed(
   () => props.message.progressText || '正在处理中...'
 );
+const progressSteps = computed(() => props.message.progressSteps || []);
 const assistantThought = computed(
   () => props.message.thoughtContent?.trim() || ''
 );
@@ -73,11 +75,14 @@ const hasSources = computed(
     props.message.status === 'done' &&
     (props.message.sources?.length || 0) > 0
 );
-const showStatusLine = computed(
-  () =>
-    props.message.role === 'assistant' &&
-    props.message.status === 'loading' &&
-    (Boolean(props.message.content) || hasThoughtSection.value)
+const showProgressFlow = computed(
+  () => props.message.role === 'assistant' && progressSteps.value.length > 0
+);
+const latestProgressStep = computed(
+  () => progressSteps.value[progressSteps.value.length - 1] || ''
+);
+const shouldCollapseProgress = computed(
+  () => props.message.status === 'done' && progressSteps.value.length > 0
 );
 const isNoResult = computed(
   () =>
@@ -86,6 +91,7 @@ const isNoResult = computed(
       assistantAnswer.value.includes('知识库为空') ||
       assistantAnswer.value.includes('未找到'))
 );
+const progressExpanded = ref(false);
 const thoughtExpanded = ref(false);
 const activeSource = ref<SourceSummary | null>(null);
 
@@ -109,6 +115,18 @@ const formattedTime = computed(() => {
   if (!ts) return '';
   return ts.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 });
+
+watch(
+  () => props.message.status,
+  (status) => {
+    progressExpanded.value = status === 'loading';
+  },
+  { immediate: true }
+);
+
+function toggleProgress() {
+  progressExpanded.value = !progressExpanded.value;
+}
 
 function toggleThought() {
   thoughtExpanded.value = !thoughtExpanded.value;
@@ -155,9 +173,27 @@ function buildSourceMeta(source: SourceSummary) {
         <span v-if="formattedTime" class="msg-time">{{ formattedTime }}</span>
       </div>
 
-      <template v-if="isLoading && !message.content && !hasThoughtSection">
+      <template v-if="isLoading && !message.content">
         <div class="loading-block">
-          <div class="loading-copy">{{ loadingText }}</div>
+          <div v-if="showProgressFlow" class="progress-flow">
+            <div class="progress-flow-head">
+              <div class="progress-flow-title">处理过程</div>
+            </div>
+            <div class="progress-flow-list">
+              <div
+                v-for="(step, index) in progressSteps"
+                :key="`${message.id}-loading-step-${index}`"
+                :class="[
+                  'progress-flow-item',
+                  index === progressSteps.length - 1
+                    ? 'progress-flow-item-active'
+                    : ''
+                ]">
+                <span class="progress-flow-dot"></span>
+                <span>{{ step }}</span>
+              </div>
+            </div>
+          </div>
           <div class="skeleton-line w-92" />
           <div class="skeleton-line w-84" />
           <div class="skeleton-line w-60" />
@@ -165,6 +201,37 @@ function buildSourceMeta(source: SourceSummary) {
       </template>
 
       <template v-else-if="isNoResult">
+        <div v-if="showProgressFlow" class="progress-flow answer-progress-flow">
+          <button
+            type="button"
+            class="progress-flow-head progress-flow-toggle"
+            :disabled="!shouldCollapseProgress"
+            @click="shouldCollapseProgress ? toggleProgress() : undefined">
+            <div class="progress-flow-title">处理过程</div>
+            <div class="progress-flow-summary">
+              <span class="progress-flow-summary-text">
+                {{ latestProgressStep }}
+              </span>
+              <DownOutlined
+                v-if="shouldCollapseProgress"
+                :class="[
+                  'progress-flow-arrow',
+                  progressExpanded ? 'expanded' : ''
+                ]" />
+            </div>
+          </button>
+          <div
+            v-if="!shouldCollapseProgress || progressExpanded"
+            class="progress-flow-list">
+            <div
+              v-for="(step, index) in progressSteps"
+              :key="`${message.id}-notice-step-${index}`"
+              class="progress-flow-item">
+              <span class="progress-flow-dot"></span>
+              <span>{{ step }}</span>
+            </div>
+          </div>
+        </div>
         <div class="notice-block">
           <WarningOutlined class="notice-icon" />
           <div class="notice-copy markdown-body" v-html="renderedAnswer" />
@@ -172,9 +239,47 @@ function buildSourceMeta(source: SourceSummary) {
       </template>
 
       <template v-else>
-        <div v-if="!isUser && hasThoughtSection" class="thought-wrap">
+        <div v-if="showProgressFlow" class="progress-flow answer-progress-flow">
+          <button
+            type="button"
+            class="progress-flow-head progress-flow-toggle"
+            :disabled="!shouldCollapseProgress"
+            @click="shouldCollapseProgress ? toggleProgress() : undefined">
+            <div class="progress-flow-title">处理过程</div>
+            <div class="progress-flow-summary">
+              <span class="progress-flow-summary-text">
+                {{ latestProgressStep }}
+              </span>
+              <DownOutlined
+                v-if="shouldCollapseProgress"
+                :class="[
+                  'progress-flow-arrow',
+                  progressExpanded ? 'expanded' : ''
+                ]" />
+            </div>
+          </button>
+          <div
+            v-if="!shouldCollapseProgress || progressExpanded"
+            class="progress-flow-list">
+            <div
+              v-for="(step, index) in progressSteps"
+              :key="`${message.id}-step-${index}`"
+              :class="[
+                'progress-flow-item',
+                props.message.status === 'loading' &&
+                index === progressSteps.length - 1
+                  ? 'progress-flow-item-active'
+                  : ''
+              ]">
+              <span class="progress-flow-dot"></span>
+              <span>{{ step }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="hasThoughtSection" class="thought-wrap">
           <button class="thought-toggle" type="button" @click="toggleThought">
-            <span class="thought-label">检索思路</span>
+            <span class="thought-label">思考过程</span>
             <span class="thought-meta">
               {{ thoughtExpanded ? '收起' : '展开' }}
             </span>
@@ -220,10 +325,6 @@ function buildSourceMeta(source: SourceSummary) {
           </div>
         </div>
       </template>
-
-      <div v-if="showStatusLine" class="status-line">
-        {{ loadingText }}
-      </div>
     </div>
 
     <SourceSnippetModal
@@ -303,17 +404,11 @@ function buildSourceMeta(source: SourceSummary) {
 .loading-block,
 .answer-wrap,
 .thought-wrap,
+.progress-flow,
 .sources-inline-wrap,
 .notice-block,
-.status-line,
 .assistant-shell > .answer-body {
   margin-left: 8px;
-}
-
-.loading-copy,
-.status-line {
-  font-size: 13px;
-  color: #71717a;
 }
 
 .loading-block {
@@ -322,24 +417,103 @@ function buildSourceMeta(source: SourceSummary) {
   gap: 10px;
 }
 
-.skeleton-line {
-  height: 12px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #f4f4f5 0%, #e4e4e7 50%, #f4f4f5 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.3s linear infinite;
+.progress-flow {
+  margin-top: 2px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(24, 24, 27, 0.06);
 }
 
-.w-92 {
-  width: 92%;
+.answer-progress-flow {
+  margin-top: 16px;
+  margin-bottom: 16px;
 }
 
-.w-84 {
-  width: 84%;
+.progress-flow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.w-60 {
-  width: 60%;
+.progress-flow-toggle {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: default;
+}
+
+.progress-flow-toggle:not(:disabled) {
+  cursor: pointer;
+}
+
+.progress-flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #52525b;
+}
+
+.progress-flow-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.progress-flow-summary-text {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #71717a;
+  font-size: 12px;
+}
+
+.progress-flow-arrow {
+  font-size: 12px;
+  color: #71717a;
+  transition: transform 0.2s ease;
+}
+
+.progress-flow-arrow.expanded {
+  transform: rotate(180deg);
+}
+
+.progress-flow-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.progress-flow-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #71717a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.progress-flow-item-active {
+  color: #18181b;
+}
+
+.progress-flow-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #d4d4d8;
+}
+
+.progress-flow-item-active .progress-flow-dot {
+  background: #18181b;
+  box-shadow: 0 0 0 4px rgba(24, 24, 27, 0.08);
 }
 
 .thought-toggle {
@@ -387,6 +561,26 @@ function buildSourceMeta(source: SourceSummary) {
   background: #fafafa;
   border: 1px solid #ededed;
   color: #71717a;
+}
+
+.skeleton-line {
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f4f4f5 0%, #e4e4e7 50%, #f4f4f5 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+
+.w-92 {
+  width: 92%;
+}
+
+.w-84 {
+  width: 84%;
+}
+
+.w-60 {
+  width: 60%;
 }
 
 .answer-wrap {
@@ -627,10 +821,28 @@ function buildSourceMeta(source: SourceSummary) {
   .thought-wrap,
   .sources-inline-wrap,
   .notice-block,
-  .status-line,
   .assistant-shell > .answer-body,
   .loading-block {
     margin-left: 0;
+  }
+
+  .progress-flow {
+    margin-left: 0;
+  }
+
+  .progress-flow-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .progress-flow-summary {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .progress-flow-summary-text {
+    max-width: none;
+    white-space: normal;
   }
 
   .message-head {

@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from typing import Any
 
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
@@ -42,7 +43,28 @@ SYSTEM_INSTRUCTION = """你是一个知识库问答助手。你的职责是：
 7. 不要输出多余的前言、中文分析过程、重复表述或与答案无关的自言自语。
 8. 中文给出结论，如果给出结论，尽量直接给结论，再补充必要依据，不要先写长篇铺垫。
 9. 不要向用户暴露任何内部实现细节，包括但不限于工具名、函数名、接口路径、类名、文件名、变量名、代码片段或“我调用了某个工具”这类描述。
-10. 如果需要描述检索过程，只能用自然语言概括，例如“我已检索知识库并核对相关内容”，不要出现代码风格标识。"""
+10. 如果需要描述检索过程，只能用自然语言概括，例如“我已检索知识库并核对相关内容”，不要出现代码风格标识。
+11. 不要输出你的思考过程、计划、推理步骤、自我提醒或工具调用痕迹。
+12. 不要写“我现在需要”“接下来我会”“根据之前的工具调用”“让我分析一下”“我已经调用了”等第一人称过程描述。
+13. 回答应直接从结论开始，除非知识库没有答案，否则不要复述用户问题，不要解释你如何得到答案。
+14. 最终输出必须严格使用以下结构，不要添加结构外的内容：
+<analysis_summary>
+最多 3 条简短要点，概括候选依据或整理结果。
+不要使用第一人称，不要写工具调用、检索过程、计划、自我思考。
+</analysis_summary>
+<final_answer>
+直接填写最终答案本身，不要写说明文字，不要写“直接给用户的最终答案”这类模板句。
+</final_answer>
+15. 绝对不要照抄上面的结构说明文字，标签内部必须填写真实内容。
+16. 如果已知答案，请直接在 <final_answer> 中填写真实结论，例如：
+<analysis_summary>
+- 文档中明确出现“初始密码为666”。
+- 相关内容来自《宿舍管理.docx》的登录说明。
+</analysis_summary>
+<final_answer>
+默认密码为 666（引自《宿舍管理.docx》）。
+</final_answer>
+17. 如果知识库中没有答案，也必须按相同结构输出，不要省略标签。"""
 
 
 def _build_llm() -> LiteLlm:
@@ -190,8 +212,45 @@ def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
 
 def _build_rerank_status(mode: str) -> str:
     if mode == RERANK_MODE_MODEL:
-        return f"已完成候选片段重排，当前使用 {settings.reranker_model}。"
-    return "重排模型暂不可用，已切换为本地轻量重排。"
+        return "已完成候选片段排序。"
+    return "已完成候选片段排序。"
+
+
+def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
+    steps: list[str] = []
+
+    if trace.get("used_metadata_filters"):
+        steps.append("已识别问题中的文档范围，正在限定检索范围。")
+    else:
+        steps.append("已完成问题理解，正在检索相关内容。")
+
+    initial_hit_count = int(trace.get("initial_hit_count", 0) or 0)
+    filtered_hit_count = int(trace.get("filtered_hit_count", 0) or 0)
+    final_hit_count = int(trace.get("final_hit_count", 0) or 0)
+
+    if initial_hit_count <= 0:
+        steps.append("初步召回未找到相关片段。")
+        steps.append("正在整理检索结果并生成说明。")
+        return steps
+
+    steps.append(f"已完成初步召回，找到 {initial_hit_count} 个候选片段。")
+
+    if filtered_hit_count > 0:
+        steps.append(f"已完成相关度过滤，保留 {filtered_hit_count} 个候选片段。")
+    else:
+        steps.append("候选片段相关度不足，未保留可用内容。")
+        steps.append("正在整理检索结果并生成说明。")
+        return steps
+
+    if filtered_hit_count > 1:
+        steps.append(_build_rerank_status(str(trace.get("rerank_mode", RERANK_MODE_LOCAL))))
+
+    if final_hit_count > 0:
+        steps.append(f"已选取 {final_hit_count} 个片段用于生成答案。")
+    else:
+        steps.append("未找到可直接作答的参考内容，正在整理说明。")
+
+    return steps
 
 
 def _fallback_rerank_documents(query: str, documents: list[dict]) -> list[dict]:
@@ -273,29 +332,72 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
     return reranked, rerank_mode
 
 
-def retrieve_relevant_documents_with_mode(
+def retrieve_relevant_documents_trace(
     query: str,
     initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
     final_n_results: int = FINAL_CONTEXT_LIMIT,
-) -> tuple[list[dict], str]:
+) -> dict[str, Any]:
     metadata_filters = _infer_metadata_filters(query)
     results = vector_store.query_documents(
         query,
         n_results=initial_n_results,
         metadata_filters=metadata_filters,
     )
+    fallback_without_filters = False
 
     if not results and metadata_filters:
+        fallback_without_filters = True
         results = vector_store.query_documents(query, n_results=initial_n_results)
 
     if not results:
-        return [], RERANK_MODE_LOCAL
+        return {
+            "documents": [],
+            "rerank_mode": RERANK_MODE_LOCAL,
+            "initial_hit_count": 0,
+            "filtered_hit_count": 0,
+            "final_hit_count": 0,
+            "metadata_filters": metadata_filters,
+            "used_metadata_filters": bool(metadata_filters),
+            "fallback_without_filters": fallback_without_filters,
+        }
 
     filtered = [result for result in results if result["distance"] < RETRIEVAL_THRESHOLD]
     if not filtered:
-        return [], RERANK_MODE_LOCAL
+        return {
+            "documents": [],
+            "rerank_mode": RERANK_MODE_LOCAL,
+            "initial_hit_count": len(results),
+            "filtered_hit_count": 0,
+            "final_hit_count": 0,
+            "metadata_filters": metadata_filters,
+            "used_metadata_filters": bool(metadata_filters),
+            "fallback_without_filters": fallback_without_filters,
+        }
 
-    return _rerank_documents(query, filtered, limit=final_n_results)
+    reranked, rerank_mode = _rerank_documents(query, filtered, limit=final_n_results)
+    return {
+        "documents": reranked,
+        "rerank_mode": rerank_mode,
+        "initial_hit_count": len(results),
+        "filtered_hit_count": len(filtered),
+        "final_hit_count": len(reranked),
+        "metadata_filters": metadata_filters,
+        "used_metadata_filters": bool(metadata_filters),
+        "fallback_without_filters": fallback_without_filters,
+    }
+
+
+def retrieve_relevant_documents_with_mode(
+    query: str,
+    initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
+    final_n_results: int = FINAL_CONTEXT_LIMIT,
+) -> tuple[list[dict], str]:
+    trace = retrieve_relevant_documents_trace(
+        query,
+        initial_n_results=initial_n_results,
+        final_n_results=final_n_results,
+    )
+    return list(trace["documents"]), str(trace["rerank_mode"])
 
 
 def retrieve_relevant_documents(
@@ -315,11 +417,13 @@ def build_source_payload(
     query: str,
     n_results: int = FINAL_SOURCE_LIMIT,
 ) -> tuple[list[dict], str]:
-    relevant, rerank_mode = retrieve_relevant_documents_with_mode(
+    trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=INITIAL_RETRIEVAL_LIMIT,
         final_n_results=n_results,
     )
+    relevant = list(trace["documents"])
+    rerank_mode = str(trace["rerank_mode"])
     summaries = []
 
     for index, doc in enumerate(relevant, 1):
@@ -347,6 +451,44 @@ def build_source_payload(
         )
 
     return summaries, rerank_mode
+
+
+def build_source_payload_with_trace(
+    query: str,
+    n_results: int = FINAL_SOURCE_LIMIT,
+) -> tuple[list[dict], dict[str, Any]]:
+    trace = retrieve_relevant_documents_trace(
+        query,
+        initial_n_results=INITIAL_RETRIEVAL_LIMIT,
+        final_n_results=n_results,
+    )
+
+    summaries = []
+    for index, doc in enumerate(trace["documents"], 1):
+        metadata = doc.get("metadata", {})
+        content = doc.get("content", "")
+        summaries.append(
+            {
+                "index": index,
+                "doc_id": metadata.get("doc_id", ""),
+                "filename": metadata.get("filename", "未知文档"),
+                "chunk_index": metadata.get("chunk_index", 0),
+                "system_name": metadata.get("system_name", ""),
+                "module_name": metadata.get("module_name", ""),
+                "feature_name": metadata.get("feature_name", ""),
+                "version_name": metadata.get("version_name", ""),
+                "doc_type": metadata.get("doc_type", ""),
+                "source_type": metadata.get("source_type", "text"),
+                "source_label": metadata.get("source_label", "正文文本"),
+                "source_page": metadata.get("source_page", 0),
+                "section_title": metadata.get("section_title", ""),
+                "heading_path": metadata.get("heading_path", ""),
+                "image_count": int(metadata.get("image_count", 0) or 0),
+                "summary": _summarize_excerpt(content),
+            }
+        )
+
+    return summaries, trace
 
 
 def build_source_summaries(query: str, n_results: int = FINAL_SOURCE_LIMIT) -> list[dict]:

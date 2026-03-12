@@ -1,4 +1,8 @@
 <script setup lang="ts">
+defineOptions({
+  name: 'KnowledgeBaseView'
+});
+
 import { computed, onMounted, ref } from 'vue';
 import {
   UploadOutlined,
@@ -39,6 +43,7 @@ interface UploadMetadataForm {
 }
 
 type ToastType = 'success' | 'error';
+type KnowledgeBaseTab = 'upload' | 'documents';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const DOC_TYPE_OPTIONS = [
@@ -55,6 +60,7 @@ const stats = ref<Stats>({ total_chunks: 0, total_documents: 0 });
 const loading = ref(false);
 const uploading = ref(false);
 const isDragOver = ref(false);
+const activeTab = ref<KnowledgeBaseTab>('upload');
 const uploadForm = ref<UploadMetadataForm>({
   system_name: '',
   module_name: '',
@@ -75,6 +81,19 @@ const uploadMetadataPreview = computed(() => [
   { label: '适用版本', value: uploadForm.value.version_name || '未填写' },
   { label: '文档类型', value: uploadForm.value.doc_type || '未填写' }
 ]);
+
+const knowledgeTabs = [
+  {
+    key: 'upload' as const,
+    label: '上传文档',
+    description: '录入新知识并附带分类元数据'
+  },
+  {
+    key: 'documents' as const,
+    label: '文档列表',
+    description: '浏览、刷新和删除当前知识库资产'
+  }
+];
 
 function showToast(message: string, type: ToastType = 'success') {
   toast.value = { visible: true, type, message };
@@ -229,24 +248,23 @@ onMounted(() => {
 
 <template>
   <div class="kb-container">
-    <section class="stats-grid">
-      <article class="stat-card">
-        <div class="stat-icon blue"><DatabaseOutlined /></div>
-        <div>
-          <div class="stat-value">{{ stats.total_documents }}</div>
-          <div class="stat-label">文档总数</div>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon green"><FileTextOutlined /></div>
-        <div>
-          <div class="stat-value">{{ stats.total_chunks }}</div>
-          <div class="stat-label">分块</div>
-        </div>
-      </article>
+    <section class="panel-block panel-tabs-block">
+      <div class="tab-strip" role="tablist" aria-label="知识库功能切换">
+        <button
+          v-for="tab in knowledgeTabs"
+          :key="tab.key"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab.key"
+          :class="['tab-pill', activeTab === tab.key ? 'tab-pill-active' : '']"
+          @click="activeTab = tab.key">
+          <span class="tab-pill-title">{{ tab.label }}</span>
+          <span class="tab-pill-desc">{{ tab.description }}</span>
+        </button>
+      </div>
     </section>
 
-    <section class="panel-block">
+    <section v-show="activeTab === 'upload'" class="panel-block">
       <div class="panel-head">
         <div>
           <div class="panel-title">上传文档</div>
@@ -361,7 +379,7 @@ onMounted(() => {
       </label>
     </section>
 
-    <section class="panel-block">
+    <section v-show="activeTab === 'documents'" class="panel-block">
       <div class="panel-head">
         <div>
           <div class="panel-title">已收录文档</div>
@@ -379,68 +397,90 @@ onMounted(() => {
         </button>
       </div>
 
-      <div class="table-shell">
-        <table class="docs-table">
-          <thead>
-            <tr>
-              <th>文档名称</th>
-              <th>所属系统</th>
-              <th>业务模块</th>
-              <th>适用版本</th>
-              <th>文档类型</th>
-              <th>附图</th>
-              <th>上传时间</th>
-              <th class="action-cell">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loading && documents.length === 0">
-              <td colspan="8" class="empty-row">
-                <LoadingOutlined class="spin" />
-                正在加载文档列表...
-              </td>
-            </tr>
-            <tr v-else-if="documents.length === 0">
-              <td colspan="8" class="empty-row">暂无文档，请先上传文件。</td>
-            </tr>
-            <tr v-for="doc in documents" :key="doc.doc_id">
-              <td>
-                <div class="filename-cell">
-                  <component
-                    :is="getFileIcon(doc.filename)"
-                    class="file-icon" />
-                  <span class="filename-text">{{ doc.filename }}</span>
+      <section class="stats-grid section-stats-grid">
+        <article class="stat-card">
+          <div class="stat-icon blue"><DatabaseOutlined /></div>
+          <div>
+            <div class="stat-value">{{ stats.total_documents }}</div>
+            <div class="stat-label">文档总数</div>
+          </div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-icon green"><FileTextOutlined /></div>
+          <div>
+            <div class="stat-value">{{ stats.total_chunks }}</div>
+            <div class="stat-label">分块</div>
+          </div>
+        </article>
+      </section>
+
+      <div class="docs-grid">
+        <div v-if="loading && documents.length === 0" class="empty-state">
+          <LoadingOutlined class="spin empty-icon" />
+          <p>正在加载文档列表...</p>
+        </div>
+        <div v-else-if="documents.length === 0" class="empty-state">
+          <DatabaseOutlined class="empty-icon" />
+          <p>暂无文档，请先上传文件收录知识。</p>
+        </div>
+        <TransitionGroup name="list">
+          <article v-for="doc in documents" :key="doc.doc_id" class="doc-card">
+            <div class="doc-card-header">
+              <div class="doc-title-wrapper">
+                <div class="doc-icon-box">
+                  <component :is="getFileIcon(doc.filename)" class="doc-icon" />
                 </div>
-              </td>
-              <td>{{ formatMetadata(doc.system_name) }}</td>
-              <td>
-                <div class="meta-stack-cell">
-                  <span>{{ formatMetadata(doc.module_name) }}</span>
-                </div>
-              </td>
-              <td>{{ formatMetadata(doc.version_name) }}</td>
-              <td>{{ formatMetadata(doc.doc_type) }}</td>
-              <td>
+                <h3 class="doc-title" :title="doc.filename">
+                  {{ doc.filename }}
+                </h3>
+              </div>
+              <button
+                class="icon-action-btn delete-btn"
+                type="button"
+                title="删除文档"
+                @click="deleteDocument(doc)">
+                <DeleteOutlined />
+              </button>
+            </div>
+
+            <div class="doc-tags">
+              <span class="doc-tag type-tag">
+                {{ formatMetadata(doc.doc_type) }}
+              </span>
+              <span class="doc-tag" v-if="doc.system_name || doc.module_name">
+                {{ formatMetadata(doc.system_name) }}
+                <span
+                  v-if="doc.system_name && doc.module_name"
+                  class="tag-divider">
+                  /
+                </span>
+                {{ formatMetadata(doc.module_name) }}
+              </span>
+              <span class="doc-tag version-tag" v-if="doc.version_name">
+                <span class="tag-dot"></span>
+                {{ doc.version_name }}
+              </span>
+            </div>
+
+            <div class="doc-card-footer">
+              <div class="doc-meta-item">
+                <span class="meta-label">上传于</span>
+                <span class="meta-value">
+                  {{ formatDate(doc.upload_time) }}
+                </span>
+              </div>
+              <div class="doc-meta-item">
                 <span
                   :class="[
-                    'image-count-badge',
+                    'image-badge',
                     doc.image_count > 0 ? 'has-images' : 'no-images'
                   ]">
                   {{ formatImageCount(doc.image_count) }}
                 </span>
-              </td>
-              <td class="upload-time">{{ formatDate(doc.upload_time) }}</td>
-              <td class="action-cell">
-                <button
-                  class="delete-btn"
-                  type="button"
-                  @click="deleteDocument(doc)">
-                  <DeleteOutlined />
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </div>
+          </article>
+        </TransitionGroup>
       </div>
     </section>
 
@@ -507,6 +547,10 @@ onMounted(() => {
   margin-bottom: 22px;
 }
 
+.section-stats-grid {
+  margin-bottom: 24px;
+}
+
 .stat-card {
   border-radius: 24px;
   padding: 22px;
@@ -553,6 +597,61 @@ onMounted(() => {
   border-radius: 28px;
   padding: 28px;
   margin-bottom: 22px;
+}
+
+.panel-tabs-block {
+  padding: 14px;
+}
+
+.tab-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.tab-pill {
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
+  color: #52525b;
+  border-radius: 22px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.tab-pill:hover {
+  transform: translateY(-1px);
+  border-color: rgba(24, 24, 27, 0.14);
+}
+
+.tab-pill-active {
+  background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.16);
+}
+
+.tab-pill-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.tab-pill-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: inherit;
+  opacity: 0.82;
 }
 
 .panel-head {
@@ -731,106 +830,217 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.table-shell {
-  overflow-x: auto;
-  margin: 0 -6px;
-  padding: 0 6px 8px;
-  scrollbar-gutter: stable both-edges;
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  position: relative;
 }
 
-.docs-table {
-  width: 100%;
-  min-width: 1080px;
-  border-collapse: collapse;
-}
-
-.docs-table th,
-.docs-table td {
-  padding: 16px 10px;
-  border-bottom: 1px solid #f4f4f5;
-  text-align: left;
-  vertical-align: top;
-}
-
-.docs-table th {
-  color: #71717a;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.filename-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.file-icon {
-  color: #71717a;
-  font-size: 18px;
-}
-
-.filename-text {
-  color: #18181b;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.meta-stack-cell {
+.empty-state {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.meta-subtext,
-.upload-time {
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  background: rgba(250, 250, 250, 0.5);
+  border: 1px dashed rgba(24, 24, 27, 0.1);
+  border-radius: 20px;
   color: #71717a;
-  font-size: 13px;
+  text-align: center;
 }
 
-.image-count-badge {
+.empty-icon {
+  font-size: 32px;
+  color: #a1a1aa;
+  margin-bottom: 12px;
+}
+
+.doc-card {
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.08);
+  border-radius: 20px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.doc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgba(24, 24, 27, 0.06);
+  border-color: rgba(37, 99, 235, 0.3);
+}
+
+.doc-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.doc-title-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-icon-box {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #f4f4f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #52525b;
+  font-size: 20px;
+}
+
+.doc-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #18181b;
+  line-height: 1.4;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+  padding-top: 2px;
+}
+
+.icon-action-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
-  min-height: 30px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.image-count-badge.has-images {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid rgba(37, 99, 235, 0.14);
-}
-
-.image-count-badge.no-images {
-  color: #71717a;
-  background: #f4f4f5;
-  border: 1px solid rgba(113, 113, 122, 0.12);
-}
-
-.action-cell {
-  width: 80px;
-  text-align: right;
-}
-
-.delete-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
+  justify-content: center;
   background: transparent;
+  color: #a1a1aa;
+  transition: all 0.2s ease;
+}
+
+.icon-action-btn:hover.delete-btn {
+  background: #fef2f2;
   color: #dc2626;
 }
 
-.delete-btn:hover {
-  background: #fef2f2;
+.doc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
 }
 
-.empty-row {
-  text-align: center !important;
+.doc-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: #f4f4f5;
+  color: #52525b;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.type-tag {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.version-tag {
+  background: #f0fdf4;
+  color: #059669;
+}
+
+.tag-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  margin-right: 6px;
+}
+
+.tag-divider {
+  margin: 0 4px;
   color: #a1a1aa;
+}
+
+.doc-card-footer {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(24, 24, 27, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.doc-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.meta-label {
+  font-size: 11px;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.meta-value {
+  font-size: 13px;
+  color: #52525b;
+  font-weight: 500;
+}
+
+.image-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.image-badge.has-images {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.image-badge.no-images {
+  color: #a1a1aa;
+  background: #f4f4f5;
+}
+
+/* 列表动画 */
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.3s ease;
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(15px);
+}
+.list-leave-active {
+  position: absolute;
 }
 
 .toast {
@@ -898,6 +1108,10 @@ onMounted(() => {
 
   .stats-grid,
   .metadata-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tab-strip {
     grid-template-columns: 1fr;
   }
 

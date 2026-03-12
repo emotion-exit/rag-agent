@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import {
   MessageOutlined,
   BookOutlined,
@@ -8,8 +8,17 @@ import {
 } from '@ant-design/icons-vue';
 
 const route = useRoute();
+const router = useRouter();
 const isKnowledgeBaseRoute = computed(() => route.name === 'knowledge-base');
 const usesOverlayHeader = computed(() => route.name === 'chat');
+const keepAliveIncludes = computed(() =>
+  router
+    .getRoutes()
+    .map((item) => item.meta.keepAliveName)
+    .filter(
+      (item): item is string => typeof item === 'string' && item.length > 0
+    )
+);
 </script>
 
 <template>
@@ -46,7 +55,18 @@ const usesOverlayHeader = computed(() => route.name === 'chat');
         isKnowledgeBaseRoute ? 'app-main-scrollable' : '',
         usesOverlayHeader ? 'app-main-overlay' : 'app-main-aligned'
       ]">
-      <RouterView />
+      <RouterView v-slot="{ Component, route: currentRoute }">
+        <KeepAlive :include="keepAliveIncludes">
+          <component
+            :is="Component"
+            v-if="currentRoute.meta.keepAlive"
+            :key="String(currentRoute.name ?? currentRoute.path)" />
+        </KeepAlive>
+        <component
+          :is="Component"
+          v-if="!currentRoute.meta.keepAlive"
+          :key="String(currentRoute.name ?? currentRoute.path)" />
+      </RouterView>
     </main>
   </div>
 </template>

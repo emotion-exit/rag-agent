@@ -11,7 +11,12 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
-from app.agent.rag_agent import build_source_payload, create_rag_agent, _build_rerank_status
+from app.agent.rag_agent import (
+    build_retrieval_progress_steps,
+    build_source_payload,
+    build_source_payload_with_trace,
+    create_rag_agent,
+)
 from app.services.document_assets import get_document_image, list_document_images
 from app.services.vector_store import get_document_chunk
 
@@ -19,7 +24,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 APP_NAME = "rag_agent_app"
 session_service = InMemorySessionService()
-GENERIC_THOUGHT_TEXT = "正在检索知识库并整理相关内容。"
+GENERIC_THOUGHT_TEXT = "正在结合检索结果整理答案。"
 INTERNAL_IDENTIFIER_PATTERNS = (
     r"\bretrieve_from_knowledge_base\b",
     r"\bbuild_source_payload\b",
@@ -28,6 +33,22 @@ INTERNAL_IDENTIFIER_PATTERNS = (
     r"\bapp\.[a-zA-Z0-9_\.]+\b",
     r"/api/[a-zA-Z0-9_\-/{}]+",
     r"\b[a-zA-Z_][a-zA-Z0-9_]*\.[a-zA-Z_][a-zA-Z0-9_]*\b",
+)
+INTERNAL_REASONING_LINE_PATTERNS = (
+    r"^(好的[，。,:：\s]*)?(我现在需要|我需要先|接下来我会|接下来需要|让我|我先|首先我会)",
+    r"^(根据|结合)之前的(工具调用|检索结果|分析)",
+    r"^为了回答.*(我会|需要)",
+    r"^这里(提到|说明|显示).*(让我|我再)",
+    r"^现在我需要",
+)
+STRUCTURED_RESPONSE_TAGS = ("analysis_summary", "final_answer")
+PLACEHOLDER_ANSWER_PATTERNS = (
+    r"^direct answer to the user",
+    r"short and precise",
+    r"source hint",
+    r"直接给用户的最终答案",
+    r"填写最终答案",
+    r"模板句",
 )
 
 
@@ -134,7 +155,7 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
     return related_images
 
 
-def _sanitize_user_visible_text(text: str) -> str:
+def _sanitize_user_visible_text(text: str, *, strip_reasoning: bool = True) -> str:
     sanitized = text
     replacements = {
         "retrieve_from_knowledge_base": "知识库检索",
@@ -151,7 +172,54 @@ def _sanitize_user_visible_text(text: str) -> str:
 
     sanitized = re.sub(r"`[^`]+`", "知识库检索", sanitized)
     sanitized = re.sub(r"\s+", " ", sanitized).strip()
+
+    if strip_reasoning:
+        filtered_lines = []
+        for raw_line in sanitized.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if any(re.search(pattern, line) for pattern in INTERNAL_REASONING_LINE_PATTERNS):
+                continue
+            filtered_lines.append(line)
+
+        if filtered_lines:
+            sanitized = "\n".join(filtered_lines)
+
     return sanitized
+
+
+def _extract_tag_content(text: str, tag_name: str) -> str:
+    match = re.search(
+        rf"<{tag_name}>\s*(.*?)\s*</{tag_name}>",
+        text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _split_structured_response(text: str) -> tuple[str, str]:
+    normalized = (text or "").strip()
+    if not normalized:
+        return "", ""
+
+    analysis_summary = _extract_tag_content(normalized, "analysis_summary")
+    final_answer = _extract_tag_content(normalized, "final_answer")
+
+    if analysis_summary or final_answer:
+        return analysis_summary, final_answer or normalized
+
+    return "", normalized
+
+
+def _looks_like_placeholder_answer(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not normalized:
+        return False
+
+    return any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in PLACEHOLDER_ANSWER_PATTERNS)
 
 
 async def _ensure_session_exists(session_id: str) -> None:
@@ -183,19 +251,16 @@ async def _stream_agent_response(
 
     await _ensure_session_exists(session_id)
 
-    source_summaries, rerank_mode = build_source_payload(message)
-
     user_content = genai_types.Content(
         role="user",
         parts=[genai_types.Part(text=message)],
     )
 
     event_queue: asyncio.Queue[str | None] = asyncio.Queue()
-    thought_sent = False
 
     async def produce_events() -> None:
-        nonlocal thought_sent
         try:
+            response_parts: list[str] = []
             async for event in runner.run_async(
                 user_id="user",
                 session_id=session_id,
@@ -206,18 +271,38 @@ async def _stream_agent_response(
                     for part in event.content.parts:
                         if part.text:
                             if event_type == "thought":
-                                if thought_sent:
-                                    continue
-                                thought_sent = True
-                                payload = GENERIC_THOUGHT_TEXT
-                            else:
-                                payload = _sanitize_user_visible_text(part.text)
+                                continue
 
-                            await event_queue.put(
-                                f"data: {json.dumps({'type': event_type, 'content': payload}, ensure_ascii=False)}\n\n"
-                            )
+                            response_parts.append(part.text)
                 if event.is_final_response():
                     break
+
+            raw_response = "".join(response_parts).strip()
+            thought_summary, final_answer = _split_structured_response(raw_response)
+
+            if _looks_like_placeholder_answer(final_answer):
+                thought_summary = ""
+                final_answer = raw_response
+
+            sanitized_thought = _sanitize_user_visible_text(
+                thought_summary,
+                strip_reasoning=False,
+            )
+            if sanitized_thought:
+                await event_queue.put(
+                    f"data: {json.dumps({'type': 'thought', 'content': sanitized_thought}, ensure_ascii=False)}\n\n"
+                )
+
+            await event_queue.put(
+                f"data: {json.dumps({'type': 'progress', 'content': '已完成结果整理，正在输出答案。'}, ensure_ascii=False)}\n\n"
+            )
+
+            payload = _sanitize_user_visible_text(final_answer or raw_response)
+            if payload:
+                await event_queue.put(
+                    f"data: {json.dumps({'type': 'answer', 'content': payload}, ensure_ascii=False)}\n\n"
+                )
+
             await event_queue.put(f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n")
         except Exception as exc:
             await event_queue.put(
@@ -229,12 +314,21 @@ async def _stream_agent_response(
     producer = asyncio.create_task(produce_events())
 
     try:
-        yield f"data: {json.dumps({'type': 'start', 'content': ''})}\n\n"
         yield (
             "data: "
-            f"{json.dumps({'type': 'retrieval', 'content': _build_rerank_status(rerank_mode)}, ensure_ascii=False)}"
+            f"{json.dumps({'type': 'start', 'content': '已接收问题，正在准备检索。'}, ensure_ascii=False)}"
             "\n\n"
         )
+
+        source_summaries, retrieval_trace = build_source_payload_with_trace(message)
+
+        for step in build_retrieval_progress_steps(retrieval_trace):
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'progress', 'content': step}, ensure_ascii=False)}"
+                "\n\n"
+            )
+
         if source_summaries:
             yield (
                 "data: "
@@ -306,8 +400,11 @@ async def chat(request: ChatRequest):
                     reply_parts.append(part.text)
             break
 
-    reply = "".join(reply_parts)
-    reply = _sanitize_user_visible_text(reply)
+    raw_reply = "".join(reply_parts)
+    _, final_reply = _split_structured_response(raw_reply)
+    if _looks_like_placeholder_answer(final_reply):
+        final_reply = raw_reply
+    reply = _sanitize_user_visible_text(final_reply or raw_reply)
     sources, _ = build_source_payload(request.message)
     return ChatResponse(reply=reply, sources=sources)
 

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+defineOptions({
+  name: 'ChatView'
+});
+
 import { ref, reactive, nextTick } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -21,14 +25,31 @@ const showScrollBack = ref(false);
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 const CONNECTING_HINT = '正在连接知识库助手...';
-const START_HINT = '已建立流连接，开始检索相关资料...';
-const THINKING_HINT = '正在整理答案...';
+const START_HINT = '已接收问题，正在准备检索。';
 const GENERATING_HINT = '正在生成回答...';
 
 interface StreamEventPayload {
   type: string;
   content: string;
   sources?: SourceSummary[];
+}
+
+function pushProgressStep(message: Message, step: string) {
+  const normalized = step.trim();
+  if (!normalized) return;
+
+  const nextSteps = [...(message.progressSteps || [])];
+  if (nextSteps[nextSteps.length - 1] === normalized) {
+    message.progressText = normalized;
+    return;
+  }
+
+  if (!nextSteps.includes(normalized)) {
+    nextSteps.push(normalized);
+  }
+
+  message.progressSteps = nextSteps;
+  message.progressText = normalized;
 }
 
 function parseStreamEventBlock(block: string): StreamEventPayload | null {
@@ -114,10 +135,8 @@ function resizeTextarea() {
 
 function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
   if (data.type === 'start') {
-    if (!assistantMsg.content) {
-      assistantMsg.progressText = START_HINT;
-      scrollToBottom();
-    }
+    pushProgressStep(assistantMsg, data.content || START_HINT);
+    scrollToBottom();
     return;
   }
 
@@ -126,9 +145,9 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
     return;
   }
 
-  if (data.type === 'retrieval') {
+  if (data.type === 'progress' || data.type === 'retrieval') {
     assistantMsg.status = 'loading';
-    assistantMsg.progressText = data.content;
+    pushProgressStep(assistantMsg, data.content);
     return;
   }
 
@@ -137,16 +156,14 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
       (assistantMsg.answerContent || '') + data.content;
     assistantMsg.content = assistantMsg.answerContent;
     assistantMsg.status = 'loading';
-    assistantMsg.progressText = GENERATING_HINT;
+    pushProgressStep(assistantMsg, GENERATING_HINT);
     scrollToBottom();
     return;
   }
 
   if (data.type === 'thought') {
-    assistantMsg.thoughtContent =
-      (assistantMsg.thoughtContent || '') + data.content;
+    assistantMsg.thoughtContent = data.content;
     assistantMsg.status = 'loading';
-    assistantMsg.progressText = THINKING_HINT;
     return;
   }
 
@@ -155,13 +172,14 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
       (assistantMsg.answerContent || '') + data.content;
     assistantMsg.content = assistantMsg.answerContent;
     assistantMsg.status = 'loading';
-    assistantMsg.progressText = GENERATING_HINT;
+    pushProgressStep(assistantMsg, GENERATING_HINT);
     scrollToBottom();
     return;
   }
 
   if (data.type === 'done') {
     assistantMsg.status = 'done';
+    pushProgressStep(assistantMsg, '回答已生成完成。');
     assistantMsg.progressText = undefined;
     scrollToBottom();
     return;
@@ -204,6 +222,7 @@ async function sendMessage() {
     queryText: text,
     sources: [],
     status: 'loading',
+    progressSteps: [],
     progressText: CONNECTING_HINT,
     timestamp: new Date()
   });
