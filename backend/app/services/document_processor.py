@@ -2,6 +2,7 @@ import io
 import os
 import re
 import zipfile
+from importlib import import_module
 
 import chardet
 
@@ -11,8 +12,8 @@ from docx.text.paragraph import Paragraph
 
 
 TEXT_SOURCE_TYPE = "text"
-DEFAULT_CHUNK_SIZE = 320
-DEFAULT_CHUNK_OVERLAP = 40
+DEFAULT_CHUNK_SIZE = 240
+DEFAULT_CHUNK_OVERLAP = 24
 TITLE_MAX_LENGTH = 80
 DOCX_IMAGE_PROXIMITY = 2
 PDF_BLOCK_PROXIMITY = 2
@@ -177,7 +178,7 @@ def _extract_docx_sections(file_bytes: bytes) -> list[dict]:
 
 
 def _extract_pdf_sections(file_bytes: bytes) -> list[dict]:
-    import fitz
+    fitz = _load_pymupdf()
 
     document = fitz.open(stream=file_bytes, filetype="pdf")
     sections: list[dict] = []
@@ -320,7 +321,7 @@ def _extract_docx_images(file_bytes: bytes) -> list[dict]:
 
 
 def _extract_pdf_images(file_bytes: bytes) -> list[dict]:
-    import fitz
+    fitz = _load_pymupdf()
 
     document = fitz.open(stream=file_bytes, filetype="pdf")
     images: list[dict] = []
@@ -531,7 +532,11 @@ def _chunk_section_blocks(
 
         if current_units and candidate_length > chunk_size:
             chunks.append(_build_chunk_payload(current_units))
-            current_units = _collect_overlap_units(current_units, chunk_overlap)
+            current_units = _fit_overlap_units(
+                _collect_overlap_units(current_units, chunk_overlap),
+                next_unit=unit,
+                chunk_size=chunk_size,
+            )
 
         current_units.append(unit)
 
@@ -606,6 +611,23 @@ def _collect_overlap_units(units: list[Block], overlap_chars: int) -> list[Block
             break
 
     return overlap
+
+
+def _fit_overlap_units(
+    overlap_units: list[Block],
+    next_unit: Block,
+    chunk_size: int,
+) -> list[Block]:
+    fitted = list(overlap_units)
+    next_text = str(next_unit.get("text", ""))
+
+    while fitted:
+        candidate_texts = [str(unit.get("text", "")) for unit in fitted] + [next_text]
+        if len(_join_blocks(candidate_texts)) <= chunk_size:
+            break
+        fitted.pop(0)
+
+    return fitted
 
 
 def _find_meaningful_paragraph(sequence: list[dict], index: int, direction: int) -> dict | None:
@@ -746,3 +768,16 @@ def _update_heading_stack(stack: list[str], heading: str, level: int) -> list[st
     next_stack = list(stack[: max(level - 1, 0)])
     next_stack.append(normalized_heading)
     return next_stack
+
+
+def _load_pymupdf():
+    for module_name in ("fitz", "pymupdf"):
+        try:
+            return import_module(module_name)
+        except ModuleNotFoundError:
+            continue
+
+    raise RuntimeError(
+        "PDF 解析依赖未安装，请在 backend 环境中执行 `pip install pymupdf` "
+        "或重新同步 `pyproject.toml` 依赖后再试。"
+    )

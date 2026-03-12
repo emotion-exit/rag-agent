@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import MarkdownIt from 'markdown-it';
 import {
   RobotOutlined,
   LoadingOutlined,
-  WarningOutlined
+  WarningOutlined,
+  DownOutlined
 } from '@ant-design/icons-vue';
 
 export interface ClarificationOption {
@@ -51,6 +52,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   applyClarification: [option: ClarificationOption];
+  selectSource: [source: SourceSummary];
 }>();
 
 const markdown = new MarkdownIt({
@@ -65,8 +67,26 @@ const isError = computed(() => props.message.status === 'error');
 const assistantAnswer = computed(
   () => props.message.answerContent?.trim() || props.message.content.trim()
 );
+const assistantThought = computed(
+  () => props.message.thoughtContent?.trim() || ''
+);
+const progressSteps = computed(() => props.message.progressSteps || []);
+const progressSummary = computed(
+  () =>
+    props.message.progressText?.trim() ||
+    progressSteps.value[progressSteps.value.length - 1] ||
+    ''
+);
 const hasAnswerSection = computed(
   () => props.message.role === 'assistant' && assistantAnswer.value.length > 0
+);
+const hasThoughtSection = computed(
+  () => props.message.role === 'assistant' && assistantThought.value.length > 0
+);
+const hasProgressSection = computed(
+  () =>
+    props.message.role === 'assistant' &&
+    (progressSummary.value.length > 0 || progressSteps.value.length > 0)
 );
 const isNoResult = computed(
   () =>
@@ -82,6 +102,10 @@ const hasClarification = computed(
   () =>
     props.message.role === 'assistant' && clarificationOptions.value.length > 0
 );
+const sourceItems = computed(() => props.message.sources || []);
+const hasSources = computed(
+  () => props.message.role === 'assistant' && sourceItems.value.length > 0
+);
 
 const renderedContent = computed(() => {
   if (!props.message.content) return '';
@@ -93,6 +117,14 @@ const renderedAnswer = computed(() => {
   return markdown.render(assistantAnswer.value);
 });
 
+const renderedThought = computed(() => {
+  if (!assistantThought.value) return '';
+  return markdown.render(assistantThought.value);
+});
+
+const progressExpanded = ref(true);
+const thoughtExpanded = ref(false);
+
 const formattedTime = computed(() => {
   const ts = props.message.timestamp;
   if (!ts) return '';
@@ -101,6 +133,26 @@ const formattedTime = computed(() => {
 
 function applyClarification(option: ClarificationOption) {
   emit('applyClarification', option);
+}
+
+function selectSource(source: SourceSummary) {
+  emit('selectSource', source);
+}
+
+function buildSourceMeta(source: SourceSummary) {
+  const parts = [source.source_label, source.version_label, source.category]
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+  return parts.join(' · ');
+}
+
+function toggleProgress() {
+  if (progressSteps.value.length <= 1) return;
+  progressExpanded.value = !progressExpanded.value;
+}
+
+function toggleThought() {
+  thoughtExpanded.value = !thoughtExpanded.value;
 }
 </script>
 
@@ -122,6 +174,65 @@ function applyClarification(option: ClarificationOption) {
         <span v-if="formattedTime" class="msg-time">{{ formattedTime }}</span>
       </div>
 
+      <section
+        v-if="!isUser && hasProgressSection"
+        :class="[
+          'progress-flow',
+          hasAnswerSection ? 'answer-progress-flow' : ''
+        ]">
+        <div class="progress-flow-head">
+          <button
+            type="button"
+            class="progress-flow-toggle"
+            :disabled="progressSteps.length <= 1"
+            @click="toggleProgress">
+            <div class="progress-flow-title">过程</div>
+            <div class="progress-flow-summary">
+              <span class="progress-flow-summary-text">
+                {{ progressSummary }}
+              </span>
+              <DownOutlined
+                v-if="progressSteps.length > 1"
+                :class="[
+                  'progress-flow-arrow',
+                  progressExpanded ? 'expanded' : ''
+                ]" />
+            </div>
+          </button>
+        </div>
+        <div
+          v-if="progressExpanded && progressSteps.length > 0"
+          class="progress-flow-list">
+          <div
+            v-for="(step, index) in progressSteps"
+            :key="`${message.id}-progress-${index}`"
+            :class="[
+              'progress-flow-item',
+              index === progressSteps.length - 1
+                ? 'progress-flow-item-active'
+                : ''
+            ]">
+            <span class="progress-flow-dot" />
+            <span>{{ step }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="!isUser && hasThoughtSection" class="thought-wrap">
+        <button type="button" class="thought-toggle" @click="toggleThought">
+          <span class="thought-label">思考过程</span>
+          <span class="thought-meta">
+            {{ thoughtExpanded ? '收起' : '展开' }}
+          </span>
+          <DownOutlined
+            :class="['thought-arrow', thoughtExpanded ? 'expanded' : '']" />
+        </button>
+        <div
+          v-if="thoughtExpanded"
+          class="markdown-body thought-panel"
+          v-html="renderedThought" />
+      </section>
+
       <template v-if="isLoading && !message.content">
         <div class="loading-block">
           <div class="skeleton-line w-92" />
@@ -141,6 +252,25 @@ function applyClarification(option: ClarificationOption) {
         <section v-if="!isUser && hasAnswerSection" class="answer-wrap">
           <div class="section-kicker">答案</div>
           <div class="markdown-body answer-body" v-html="renderedAnswer" />
+          <div v-if="hasSources" class="sources-inline-wrap">
+            <div class="sources-inline-label">引用来源</div>
+            <div class="source-badges">
+              <button
+                v-for="source in sourceItems"
+                :key="`${message.id}-${source.doc_id}-${source.chunk_index}`"
+                type="button"
+                class="source-badge"
+                @click="selectSource(source)">
+                <span class="source-badge-index">{{ source.index }}</span>
+                <span class="source-badge-copy">
+                  <span class="source-filename">{{ source.filename }}</span>
+                  <span v-if="buildSourceMeta(source)" class="source-meta">
+                    {{ buildSourceMeta(source) }}
+                  </span>
+                </span>
+              </button>
+            </div>
+          </div>
           <div v-if="hasClarification" class="clarification-wrap">
             <button
               v-for="option in clarificationOptions"
@@ -158,7 +288,29 @@ function applyClarification(option: ClarificationOption) {
           class="markdown-body answer-body"
           v-html="renderedContent" />
 
-        <div v-else class="user-text">{{ message.content }}</div>
+        <div
+          v-if="!isUser && !hasAnswerSection && hasSources"
+          class="sources-inline-wrap">
+          <div class="sources-inline-label">引用来源</div>
+          <div class="source-badges">
+            <button
+              v-for="source in sourceItems"
+              :key="`${message.id}-fallback-${source.doc_id}-${source.chunk_index}`"
+              type="button"
+              class="source-badge"
+              @click="selectSource(source)">
+              <span class="source-badge-index">{{ source.index }}</span>
+              <span class="source-badge-copy">
+                <span class="source-filename">{{ source.filename }}</span>
+                <span v-if="buildSourceMeta(source)" class="source-meta">
+                  {{ buildSourceMeta(source) }}
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="isUser" class="user-text">{{ message.content }}</div>
       </template>
     </div>
   </div>
@@ -232,6 +384,7 @@ function applyClarification(option: ClarificationOption) {
 
 .loading-block,
 .answer-wrap,
+.thought-wrap,
 .notice-block,
 .assistant-shell > .answer-body {
   margin-left: 8px;

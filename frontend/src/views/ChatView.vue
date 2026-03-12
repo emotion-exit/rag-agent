@@ -12,6 +12,7 @@ import {
   VerticalAlignBottomOutlined
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
+import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
 import type {
   ClarificationOption,
   Message,
@@ -27,6 +28,8 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const shouldAutoScroll = ref(true);
 const showScrollBack = ref(false);
+const selectedSource = ref<SourceSummary | null>(null);
+const sourceModalVisible = ref(false);
 
 const API_BASE = getApiBase();
 const CONNECTING_HINT = '正在连接知识库助手...';
@@ -356,6 +359,16 @@ function clearMessages() {
   showScrollBack.value = false;
 }
 
+function openSourceModal(source: SourceSummary) {
+  selectedSource.value = source;
+  sourceModalVisible.value = true;
+}
+
+function closeSourceModal() {
+  sourceModalVisible.value = false;
+  selectedSource.value = null;
+}
+
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -402,10 +415,17 @@ function handleKeyDown(e: KeyboardEvent) {
         <template v-for="msg in messages" :key="msg.id">
           <AnswerCard
             :message="msg"
-            @apply-clarification="applyClarificationOption(msg, $event)" />
+            @apply-clarification="applyClarificationOption(msg, $event)"
+            @select-source="openSourceModal" />
         </template>
       </div>
     </div>
+
+    <SourceSnippetModal
+      :visible="sourceModalVisible"
+      :source="selectedSource"
+      :query-text="selectedSource?.summary || selectedSource?.filename || ''"
+      @close="closeSourceModal" />
 
     <button
       v-if="showScrollBack"

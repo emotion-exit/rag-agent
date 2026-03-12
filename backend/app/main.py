@@ -2,11 +2,16 @@ import os
 from typing import Any
 
 import httpx
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.routers import chat_router, knowledge_base_router
+
+logger = logging.getLogger(__name__)
 
 # Ensure data directories exist
 os.makedirs(settings.chroma_persist_dir, exist_ok=True)
@@ -30,6 +35,59 @@ app.add_middleware(
 # Routers
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "detail": detail,
+            "error_type": "http_error",
+            "path": request.url.path,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    message = "请求参数校验失败"
+    if errors:
+        first_error = errors[0]
+        location = " -> ".join(str(item) for item in first_error.get("loc", ()))
+        error_message = str(first_error.get("msg", "参数不合法"))
+        if location:
+            message = f"请求参数校验失败：{location}，{error_message}"
+        else:
+            message = f"请求参数校验失败：{error_message}"
+
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "detail": message,
+            "error_type": "validation_error",
+            "path": request.url.path,
+            "errors": errors,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception on %s", request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "detail": f"服务器内部错误：{exc}",
+            "error_type": exc.__class__.__name__,
+            "path": request.url.path,
+        },
+    )
 
 
 @app.get("/")

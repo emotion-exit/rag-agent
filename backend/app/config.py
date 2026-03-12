@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -40,16 +41,18 @@ class Settings(BaseModel):
 
     # Model endpoints
     embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
-    embedding_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="EMBEDDING_BASE_URL")
-    embedding_model: str = Field(default="BAAI/bge-large-zh-v1.5", alias="EMBEDDING_MODEL")
+    embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
+    embedding_model: str = Field(default="", alias="EMBEDDING_MODEL")
+    embedding_request_timeout: float = Field(default=120.0, alias="EMBEDDING_REQUEST_TIMEOUT")
+    embedding_connect_timeout: float = Field(default=20.0, alias="EMBEDDING_CONNECT_TIMEOUT")
     reranker_api_key: str = Field(default="", alias="RERANKER_API_KEY")
-    reranker_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="RERANKER_BASE_URL")
-    reranker_model: str = Field(default="BAAI/bge-reranker-v2-m3", alias="RERANKER_MODEL")
+    reranker_base_url: str = Field(default="", alias="RERANKER_BASE_URL")
+    reranker_model: str = Field(default="", alias="RERANKER_MODEL")
 
     chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
-    chat_base_url: str = Field(default="https://openrouter.ai/api/v1", alias="CHAT_BASE_URL")
-    chat_model: str = Field(default="anthropic/claude-3-haiku", alias="CHAT_MODEL")
-    chat_temperature: float = Field(default=0.2, alias="CHAT_TEMPERATURE")
+    chat_base_url: str = Field(default="", alias="CHAT_BASE_URL")
+    chat_model: str = Field(default="", alias="CHAT_MODEL")
+    chat_temperature: float = Field(default=0.0, alias="CHAT_TEMPERATURE")
     openrouter_site_url: str = Field(default="https://localhost.invalid", alias="OPENROUTER_SITE_URL")
     openrouter_app_title: str = Field(default="RAG.Agent Desktop", alias="OPENROUTER_APP_TITLE")
     openrouter_categories: str = Field(default="general-chat", alias="OPENROUTER_CATEGORIES")
@@ -88,6 +91,12 @@ class Settings(BaseModel):
             headers["X-OpenRouter-Categories"] = self.openrouter_categories.strip()
 
         return headers
+
+    def get_embedding_timeout(self) -> httpx.Timeout:
+        """构建 embedding 请求的细粒度超时配置。"""
+        total_timeout = max(float(self.embedding_request_timeout), 1.0)
+        connect_timeout = max(float(self.embedding_connect_timeout), 1.0)
+        return httpx.Timeout(total_timeout, connect=connect_timeout)
 
 
 def _resolve_config_path() -> Path:

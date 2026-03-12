@@ -282,7 +282,7 @@ onMounted(() => {
                 v-model="form.CHAT_BASE_URL"
                 class="field-input"
                 type="text"
-                placeholder="例如 https://openrouter.ai/api/v1" />
+                placeholder="请输入对话接口地址" />
               <span class="field-help">
                 对话请求发送到的接口地址。由于底层走
                 LiteLLM，这里不限定具体服务商。
@@ -295,7 +295,7 @@ onMounted(() => {
                 v-model="form.CHAT_MODEL"
                 class="field-input"
                 type="text"
-                placeholder="例如 anthropic/claude-3-haiku" />
+                placeholder="请输入对话模型标识" />
               <span class="field-help">
                 对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。
               </span>
@@ -310,7 +310,7 @@ onMounted(() => {
                 min="0"
                 max="1"
                 step="0.1"
-                placeholder="0.2" />
+                placeholder="请输入 0 到 1" />
               <span class="field-help">
                 控制回答稳定性与发散度。值越低越稳，越高越灵活。
               </span>
@@ -334,7 +334,7 @@ onMounted(() => {
                 v-model="form.EMBEDDING_BASE_URL"
                 class="field-input"
                 type="text"
-                placeholder="例如 https://api.siliconflow.cn/v1" />
+                placeholder="请输入嵌入接口地址" />
               <span class="field-help">
                 嵌入请求发送到的接口地址。可独立于重排和对话配置。
               </span>
@@ -346,7 +346,7 @@ onMounted(() => {
                 v-model="form.EMBEDDING_MODEL"
                 class="field-input"
                 type="text"
-                placeholder="BAAI/bge-large-zh-v1.5" />
+                placeholder="请输入嵌入模型标识" />
               <span class="field-help">
                 文档切片与问题向量化所使用的嵌入模型。
               </span>
@@ -370,7 +370,7 @@ onMounted(() => {
                 v-model="form.RERANKER_BASE_URL"
                 class="field-input"
                 type="text"
-                placeholder="例如 https://api.siliconflow.cn/v1" />
+                placeholder="请输入重排接口地址" />
               <span class="field-help">
                 重排请求发送到的接口地址。可与嵌入完全不同。
               </span>
@@ -382,7 +382,7 @@ onMounted(() => {
                 v-model="form.RERANKER_MODEL"
                 class="field-input"
                 type="text"
-                placeholder="BAAI/bge-reranker-v2-m3" />
+                placeholder="请输入重排模型标识" />
               <span class="field-help">
                 用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。
               </span>

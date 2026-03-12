@@ -1,4 +1,6 @@
+import logging
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -11,10 +13,14 @@ from app.services.document_processor import extract_document_chunks, extract_doc
 from app.services.vector_store import add_documents, delete_document, list_documents, collection_count
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
+logger = logging.getLogger(__name__)
 
 # Supported MIME types and extensions
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".rst", ".csv"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+PDF_IMAGE_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+EMBEDDING_SAFE_CHUNK_SIZE = 180
+EMBEDDING_SAFE_CHUNK_OVERLAP = 20
 
 
 class DocumentInfo(BaseModel):
@@ -34,6 +40,82 @@ def _normalize_metadata_value(value: str | None) -> str:
     return (value or "").strip()
 
 
+def _split_text_for_embedding(text: str) -> list[str]:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if not normalized:
+        return []
+
+    if len(normalized) <= EMBEDDING_SAFE_CHUNK_SIZE:
+        return [normalized]
+
+    sentences = [
+        segment.strip()
+        for segment in re.split(r"(?<=[。！？!?；;：:])\s*", normalized)
+        if segment.strip()
+    ]
+    if len(sentences) <= 1:
+        sentences = [normalized]
+
+    pieces: list[str] = []
+    current = ""
+
+    for sentence in sentences:
+        if len(sentence) > EMBEDDING_SAFE_CHUNK_SIZE:
+            if current:
+                pieces.append(current.strip())
+                current = ""
+
+            start = 0
+            step = max(EMBEDDING_SAFE_CHUNK_SIZE - EMBEDDING_SAFE_CHUNK_OVERLAP, 1)
+            while start < len(sentence):
+                part = sentence[start : start + EMBEDDING_SAFE_CHUNK_SIZE].strip()
+                if part:
+                    pieces.append(part)
+                start += step
+            continue
+
+        candidate = f"{current} {sentence}".strip() if current else sentence
+        if current and len(candidate) > EMBEDDING_SAFE_CHUNK_SIZE:
+            pieces.append(current.strip())
+            overlap = current[-EMBEDDING_SAFE_CHUNK_OVERLAP :].strip()
+            current = f"{overlap} {sentence}".strip() if overlap else sentence
+            if len(current) > EMBEDDING_SAFE_CHUNK_SIZE:
+                pieces.append(current[:EMBEDDING_SAFE_CHUNK_SIZE].strip())
+                current = current[EMBEDDING_SAFE_CHUNK_SIZE - EMBEDDING_SAFE_CHUNK_OVERLAP :].strip()
+        else:
+            current = candidate
+
+    if current:
+        pieces.append(current.strip())
+
+    deduplicated: list[str] = []
+    for piece in pieces:
+        cleaned = piece.strip()
+        if cleaned:
+            deduplicated.append(cleaned)
+
+    return deduplicated
+
+
+def _prepare_embedding_chunks(chunks_with_sources: list[dict]) -> list[dict]:
+    normalized_chunks: list[dict] = []
+
+    for chunk_info in chunks_with_sources:
+        content = str(chunk_info.get("content", "")).strip()
+        if not content:
+            continue
+
+        split_contents = _split_text_for_embedding(content)
+        if len(split_contents) <= 1:
+            normalized_chunks.append({**chunk_info, "content": content})
+            continue
+
+        for split_content in split_contents:
+            normalized_chunks.append({**chunk_info, "content": split_content})
+
+    return normalized_chunks
+
+
 class KnowledgeBaseStats(BaseModel):
     total_chunks: int
     total_documents: int
@@ -49,73 +131,102 @@ async def upload_document(
     version_label: str = Form(default=""),
 ):
     """Upload a document to the knowledge base."""
-    # Validate file extension
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+    try:
+        # Validate file extension
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+            )
+
+        # Read file content
+        file_bytes = await file.read()
+        if len(file_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail="File too large (max 20 MB)")
+        if len(file_bytes) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+
+        doc_id = str(uuid.uuid4())
+        chunks_with_sources = extract_document_chunks(file_bytes, file.filename or "")
+        chunks_with_sources = _prepare_embedding_chunks(chunks_with_sources)
+        if not chunks_with_sources:
+            raise HTTPException(status_code=400, detail="Could not extract text content from file")
+
+        chunks = [item["content"] for item in chunks_with_sources]
+        image_warning = ""
+        if ext == ".pdf" and len(file_bytes) > PDF_IMAGE_EXTRACTION_MAX_BYTES:
+            document_images = []
+            image_warning = "文件较大，已跳过 PDF 图片提取以加快上传。"
+        else:
+            document_images = extract_document_images(file_bytes, file.filename or "")
+        saved_images = save_document_images(doc_id, document_images)
+
+        upload_time = datetime.now(timezone.utc).isoformat()
+        normalized_knowledge_space = _normalize_metadata_value(knowledge_space)
+        normalized_category = _normalize_metadata_value(category)
+        normalized_topic = _normalize_metadata_value(topic)
+        normalized_tags = _normalize_metadata_value(tags)
+        normalized_version_label = _normalize_metadata_value(version_label)
+
+        # Store in vector DB
+        metadatas = [
+            {
+                "doc_id": doc_id,
+                "filename": file.filename or "unknown",
+                "chunk_index": i,
+                "upload_time": upload_time,
+                "knowledge_space": normalized_knowledge_space,
+                "category": normalized_category,
+                "topic": normalized_topic,
+                "tags": normalized_tags,
+                "version_label": normalized_version_label,
+                "source_type": chunk_info.get("source_type", "text"),
+                "source_label": chunk_info.get("source_label", "正文文本"),
+                "source_page": int(chunk_info.get("source_page", 0) or 0),
+                "section_title": chunk_info.get("section_title", ""),
+                "heading_path": chunk_info.get("heading_path", ""),
+                "paragraph_index_start": int(chunk_info.get("paragraph_index_start", 0) or 0),
+                "paragraph_index_end": int(chunk_info.get("paragraph_index_end", 0) or 0),
+                "block_index_start": int(chunk_info.get("block_index_start", 0) or 0),
+                "block_index_end": int(chunk_info.get("block_index_end", 0) or 0),
+                "image_count": len(saved_images),
+            }
+            for i, chunk_info in enumerate(chunks_with_sources)
+        ]
+
+        count = add_documents(chunks, metadatas, doc_id)
+
+        success_message = (
+            f"成功上传 '{file.filename}'，共创建 {count} 个文本块，检测到 {len(saved_images)} 张文档图片（仅引用展示，不参与检索）"
         )
+        if image_warning:
+            success_message = f"{success_message}。{image_warning}"
 
-    # Read file content
-    file_bytes = await file.read()
-    if len(file_bytes) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large (max 20 MB)")
-    if len(file_bytes) == 0:
-        raise HTTPException(status_code=400, detail="File is empty")
-
-    doc_id = str(uuid.uuid4())
-    chunks_with_sources = extract_document_chunks(file_bytes, file.filename or "")
-    if not chunks_with_sources:
-        raise HTTPException(status_code=400, detail="Could not extract text content from file")
-
-    chunks = [item["content"] for item in chunks_with_sources]
-    document_images = extract_document_images(file_bytes, file.filename or "")
-    saved_images = save_document_images(doc_id, document_images)
-
-    upload_time = datetime.now(timezone.utc).isoformat()
-    normalized_knowledge_space = _normalize_metadata_value(knowledge_space)
-    normalized_category = _normalize_metadata_value(category)
-    normalized_topic = _normalize_metadata_value(topic)
-    normalized_tags = _normalize_metadata_value(tags)
-    normalized_version_label = _normalize_metadata_value(version_label)
-
-    # Store in vector DB
-    metadatas = [
-        {
+        return {
+            "success": True,
             "doc_id": doc_id,
-            "filename": file.filename or "unknown",
-            "chunk_index": i,
-            "upload_time": upload_time,
-            "knowledge_space": normalized_knowledge_space,
-            "category": normalized_category,
-            "topic": normalized_topic,
-            "tags": normalized_tags,
-            "version_label": normalized_version_label,
-            "source_type": chunk_info.get("source_type", "text"),
-            "source_label": chunk_info.get("source_label", "正文文本"),
-            "source_page": int(chunk_info.get("source_page", 0) or 0),
-            "section_title": chunk_info.get("section_title", ""),
-            "heading_path": chunk_info.get("heading_path", ""),
-            "paragraph_index_start": int(chunk_info.get("paragraph_index_start", 0) or 0),
-            "paragraph_index_end": int(chunk_info.get("paragraph_index_end", 0) or 0),
-            "block_index_start": int(chunk_info.get("block_index_start", 0) or 0),
-            "block_index_end": int(chunk_info.get("block_index_end", 0) or 0),
+            "filename": file.filename,
+            "chunks_created": count,
             "image_count": len(saved_images),
+            "message": success_message,
+            "warning": image_warning,
         }
-        for i, chunk_info in enumerate(chunks_with_sources)
-    ]
-
-    count = add_documents(chunks, metadatas, doc_id)
-
-    return {
-        "success": True,
-        "doc_id": doc_id,
-        "filename": file.filename,
-        "chunks_created": count,
-        "image_count": len(saved_images),
-        "message": f"成功上传 '{file.filename}'，共创建 {count} 个文本块，检测到 {len(saved_images)} 张文档图片（仅引用展示，不参与检索）",
-    }
+    except HTTPException:
+        raise
+    except ModuleNotFoundError as exc:
+        missing_module = getattr(exc, "name", "") or "unknown"
+        logger.exception("Document upload failed due to missing dependency: %s", missing_module)
+        raise HTTPException(
+            status_code=500,
+            detail=f"文档解析依赖缺失：{missing_module}，请检查后端运行环境依赖是否已正确安装。",
+        ) from exc
+    except Exception as exc:
+        logger.exception("Document upload failed for file '%s'", file.filename)
+        raise HTTPException(
+            status_code=500,
+            detail=f"文档上传失败：{exc}",
+        ) from exc
 
 
 @router.get("/documents")

@@ -512,8 +512,20 @@ async def _stream_agent_response(
         try:
             raw_response = ""
             answer_progress_emitted = False
+            sources_emitted = False
             emitted_thought_text = ""
             emitted_answer_text = ""
+
+            async def emit_sources_if_needed() -> None:
+                nonlocal sources_emitted
+
+                if sources_emitted or not source_summaries:
+                    return
+
+                await event_queue.put(
+                    f"data: {json.dumps({'type': 'sources', 'content': '', 'sources': source_summaries}, ensure_ascii=False)}\n\n"
+                )
+                sources_emitted = True
 
             async def emit_thought_chunks(thought_text: str) -> None:
                 """增量发出 thought 事件，只推送尚未发过的新增部分。"""
@@ -564,10 +576,13 @@ async def _stream_agent_response(
                     answer_progress_emitted = True
 
                 emitted_answer_text = visible_answer
-                for chunk in _split_stream_chunks(delta):
+                answer_chunks = _split_stream_chunks(delta)
+                for index, chunk in enumerate(answer_chunks):
                     await event_queue.put(
                         f"data: {json.dumps({'type': 'answer', 'content': chunk}, ensure_ascii=False)}\n\n"
                     )
+                    if index == 0:
+                        await emit_sources_if_needed()
                     await asyncio.sleep(STREAM_CHUNK_DELAY_SECONDS)
 
             async for event in runner.run_async(
@@ -607,6 +622,7 @@ async def _stream_agent_response(
                 final_answer = _extract_visible_answer_text(raw_response)
 
             await emit_answer_chunks(final_answer or raw_response)
+            await emit_sources_if_needed()
 
             await event_queue.put(f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n")
         except Exception as exc:
@@ -625,7 +641,7 @@ async def _stream_agent_response(
         )
 
         # 先完成检索并判断是否需要用户进一步澄清，再决定是否继续生成答案。
-        _, retrieval_trace = build_source_payload_with_trace(
+        source_summaries, retrieval_trace = build_source_payload_with_trace(
             message,
             explicit_metadata_filters=retrieval_filters,
         )
@@ -693,7 +709,7 @@ async def chat(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
-    _, retrieval_trace = build_source_payload_with_trace(
+    source_summaries, retrieval_trace = build_source_payload_with_trace(
         request.message,
         explicit_metadata_filters=request.retrieval_filters,
     )
@@ -733,7 +749,7 @@ async def chat(request: ChatRequest):
     if _looks_like_placeholder_answer(final_reply):
         final_reply = _extract_visible_answer_text(raw_reply)
     reply = final_reply or _extract_visible_answer_text(raw_reply)
-    return ChatResponse(reply=reply, sources=[])
+    return ChatResponse(reply=reply, sources=source_summaries)
 
 
 @router.get("/sources/{doc_id}/{chunk_index}", response_model=SourceDetailResponse)

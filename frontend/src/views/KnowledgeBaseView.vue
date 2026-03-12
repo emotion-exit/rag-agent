@@ -227,9 +227,9 @@ async function processFiles(fileList: FileList | File[]) {
         method: 'POST',
         body: formData
       });
-      const data = await response.json();
+      const data = await parseApiResponse(response);
       if (!response.ok) {
-        throw new Error(data.detail || `HTTP ${response.status}`);
+        throw new Error(extractApiErrorMessage(data, response.status));
       }
       showToast(data.message || '上传成功');
     }
@@ -241,6 +241,33 @@ async function processFiles(fileList: FileList | File[]) {
   } finally {
     uploading.value = false;
   }
+}
+
+async function parseApiResponse(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return { detail: text.trim() };
+}
+
+function extractApiErrorMessage(payload: unknown, status: number): string {
+  if (payload && typeof payload === 'object') {
+    const detail = Reflect.get(payload, 'detail');
+    if (typeof detail === 'string' && detail.trim()) {
+      return detail.trim();
+    }
+
+    const message = Reflect.get(payload, 'message');
+    if (typeof message === 'string' && message.trim()) {
+      return message.trim();
+    }
+  }
+
+  return `HTTP ${status}`;
 }
 
 function handleFileSelect(event: Event) {

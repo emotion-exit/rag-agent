@@ -3,7 +3,7 @@ import uuid
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from app.config import settings
-from app.services.embedding import get_embedding
+from app.services.embedding import get_embedding, get_embeddings
 
 # Singleton ChromaDB client
 _client: chromadb.ClientAPI | None = None
@@ -54,7 +54,7 @@ def add_documents(
     """Embed and store document chunks in the vector store."""
     collection = _get_collection()
     ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-    embeddings = [get_embedding(chunk) for chunk in chunks]
+    embeddings = get_embeddings(chunks)
     collection.add(
         ids=ids,
         documents=chunks,
