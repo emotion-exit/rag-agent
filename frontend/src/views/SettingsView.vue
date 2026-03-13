@@ -33,9 +33,12 @@ const providerHealth = ref<Record<string, ProviderHealthItem>>({});
 interface ProviderHealthItem {
   status: string;
   configured: boolean;
-  message: string;
+  message?: string;
   base_url: string;
   model: string;
+  provider?: string;
+  probe_mode?: string;
+  token_usage?: string;
   http_status?: number;
 }
 
@@ -78,6 +81,26 @@ function getProviderCardClass(status: string) {
   if (status === 'missing_config') return 'provider-card-missing';
   if (status === 'auth_error') return 'provider-card-error';
   return 'provider-card-warning';
+}
+
+function formatProviderLabel(provider?: string) {
+  if (!provider) return '未标记';
+  if (provider === 'openai' || provider === 'openai-compatible') {
+    return 'OpenAI 兼容接口';
+  }
+  return provider;
+}
+
+function formatProbeMode(mode?: string) {
+  if (!mode) return '未执行检测';
+  if (mode === 'http_get_models') return 'GET /models 轻量探测';
+  return mode;
+}
+
+function formatTokenUsage(tokenUsage?: string) {
+  if (!tokenUsage) return '未知';
+  if (tokenUsage === 'none_expected') return '默认不消耗 token';
+  return tokenUsage;
 }
 
 async function resolveBackendApiBase() {
@@ -437,6 +460,90 @@ onMounted(() => {
               </label>
 
               <label class="field-block">
+                <span class="field-label">Embedding Provider</span>
+                <input
+                  v-model="form.EMBEDDING_PROVIDER"
+                  class="field-input"
+                  type="text"
+                  placeholder="openai" />
+                <span class="field-help">
+                  LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI
+                  兼容网关通常填 openai；只有接入其他原生 provider 时再调整。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Embedding 最大输入 Token</span>
+                <input
+                  v-model.number="form.EMBEDDING_MAX_INPUT_TOKENS"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="512" />
+                <span class="field-help">
+                  嵌入请求允许的单段最大 token
+                  数。这个值是硬上限，超过后会自动继续切分。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Embedding 目标分块 Token</span>
+                <input
+                  v-model.number="form.EMBEDDING_TARGET_CHUNK_TOKENS"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="384" />
+                <span class="field-help">
+                  embedding 前二次切分时的目标大小。建议小于最大输入
+                  token，上调会减少 chunk 数，下调会更稳。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Embedding 重叠 Token</span>
+                <input
+                  v-model.number="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
+                  class="field-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="48" />
+                <span class="field-help">
+                  相邻 embedding 分块之间保留的上下文 token
+                  数，用于降低切分边界造成的信息断裂。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Embedding Tokenizer Model</span>
+                <input
+                  v-model="form.EMBEDDING_TOKENIZER_MODEL"
+                  class="field-input"
+                  type="text"
+                  placeholder="留空时跟随 EMBEDDING_MODEL" />
+                <span class="field-help">
+                  用于 token 计数的模型标识。留空时默认跟随当前 embedding
+                  model，适合多数 OpenAI 兼容接口。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">Embedding Tokenizer Encoding</span>
+                <input
+                  v-model="form.EMBEDDING_TOKENIZER_ENCODING"
+                  class="field-input"
+                  type="text"
+                  placeholder="cl100k_base" />
+                <span class="field-help">
+                  当 tokenizer model 无法直接识别时使用的编码兜底值。默认
+                  cl100k_base，适合大多数通用模型。
+                </span>
+              </label>
+
+              <label class="field-block">
                 <span class="field-label">向量库目录</span>
                 <div class="path-input-wrap">
                   <input
@@ -502,6 +609,20 @@ onMounted(() => {
                   请求附带的分类标记。仅在上游网关需要按类别统计、路由或审计时使用。
                 </span>
               </label>
+
+              <label class="field-block">
+                <span class="field-label">Reranker Timeout</span>
+                <input
+                  v-model.number="form.RERANKER_REQUEST_TIMEOUT"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="20" />
+                <span class="field-help">
+                  重排请求超时时间，单位秒。用于控制直连 rerank 接口的等待上限。
+                </span>
+              </label>
             </div>
           </div>
         </article>
@@ -555,6 +676,26 @@ onMounted(() => {
               </div>
               <div class="provider-message">
                 {{ entry.item?.message || '尚未执行检测。' }}
+              </div>
+              <div class="provider-kv-list">
+                <div class="provider-kv-item">
+                  <span class="provider-kv-label">Provider</span>
+                  <span class="provider-kv-value">
+                    {{ formatProviderLabel(entry.item?.provider) }}
+                  </span>
+                </div>
+                <div class="provider-kv-item">
+                  <span class="provider-kv-label">探测方式</span>
+                  <span class="provider-kv-value">
+                    {{ formatProbeMode(entry.item?.probe_mode) }}
+                  </span>
+                </div>
+                <div class="provider-kv-item">
+                  <span class="provider-kv-label">Token</span>
+                  <span class="provider-kv-value">
+                    {{ formatTokenUsage(entry.item?.token_usage) }}
+                  </span>
+                </div>
               </div>
               <div class="provider-meta">{{ entry.item?.base_url || '—' }}</div>
             </article>
@@ -932,6 +1073,32 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.6;
   word-break: break-all;
+}
+
+.provider-kv-list {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-kv-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding-top: 8px;
+  border-top: 1px solid rgba(24, 24, 27, 0.06);
+}
+
+.provider-kv-label {
+  color: #71717a;
+  font-size: 12px;
+}
+
+.provider-kv-value {
+  color: #27272a;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
 }
 
 .provider-state-chip {

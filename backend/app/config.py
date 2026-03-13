@@ -43,11 +43,18 @@ class Settings(BaseModel):
     embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
     embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
     embedding_model: str = Field(default="", alias="EMBEDDING_MODEL")
+    embedding_provider: str = Field(default="openai", alias="EMBEDDING_PROVIDER")
+    embedding_max_input_tokens: int = Field(default=512, alias="EMBEDDING_MAX_INPUT_TOKENS")
+    embedding_target_chunk_tokens: int = Field(default=384, alias="EMBEDDING_TARGET_CHUNK_TOKENS")
+    embedding_chunk_overlap_tokens: int = Field(default=48, alias="EMBEDDING_CHUNK_OVERLAP_TOKENS")
+    embedding_tokenizer_model: str = Field(default="", alias="EMBEDDING_TOKENIZER_MODEL")
+    embedding_tokenizer_encoding: str = Field(default="cl100k_base", alias="EMBEDDING_TOKENIZER_ENCODING")
     embedding_request_timeout: float = Field(default=120.0, alias="EMBEDDING_REQUEST_TIMEOUT")
     embedding_connect_timeout: float = Field(default=20.0, alias="EMBEDDING_CONNECT_TIMEOUT")
     reranker_api_key: str = Field(default="", alias="RERANKER_API_KEY")
     reranker_base_url: str = Field(default="", alias="RERANKER_BASE_URL")
     reranker_model: str = Field(default="", alias="RERANKER_MODEL")
+    reranker_request_timeout: float = Field(default=20.0, alias="RERANKER_REQUEST_TIMEOUT")
 
     chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
     chat_base_url: str = Field(default="", alias="CHAT_BASE_URL")
@@ -97,6 +104,52 @@ class Settings(BaseModel):
         total_timeout = max(float(self.embedding_request_timeout), 1.0)
         connect_timeout = max(float(self.embedding_connect_timeout), 1.0)
         return httpx.Timeout(total_timeout, connect=connect_timeout)
+
+    def get_embedding_tokenizer_model(self) -> str:
+        """返回 embedding 使用的 tokenizer model 标识。"""
+        return self.embedding_tokenizer_model.strip() or self.embedding_model.strip()
+
+    def get_reranker_timeout(self) -> float:
+        """返回 reranker 请求超时时间。"""
+        return max(float(self.reranker_request_timeout), 1.0)
+
+    def get_embedding_litellm_kwargs(self) -> dict[str, Any]:
+        """构建 embedding 的 LiteLLM 调用参数。"""
+        return {
+            "model": self.embedding_model,
+            "custom_llm_provider": self.embedding_provider.strip() or "openai",
+            "api_key": self.embedding_api_key,
+            "api_base": self.embedding_base_url,
+            "timeout": self.get_embedding_timeout(),
+        }
+
+    def get_provider_status_summary(self) -> dict[str, dict[str, Any]]:
+        """返回轻量 provider 状态，不发起外网请求。"""
+        return {
+            "embedding": {
+                "status": "ok" if self.embedding_api_key.strip() else "missing_config",
+                "configured": bool(self.embedding_api_key.strip()),
+                "base_url": self.embedding_base_url,
+                "model": self.embedding_model,
+                "provider": self.embedding_provider.strip() or "openai",
+                "tokenizer_model": self.get_embedding_tokenizer_model(),
+                "tokenizer_encoding": self.embedding_tokenizer_encoding,
+            },
+            "reranker": {
+                "status": "ok" if self.reranker_api_key.strip() else "missing_config",
+                "configured": bool(self.reranker_api_key.strip()),
+                "base_url": self.reranker_base_url,
+                "model": self.reranker_model,
+                "provider": "siliconflow-rerank-http",
+            },
+            "chat": {
+                "status": "ok" if self.chat_api_key.strip() else "missing_config",
+                "configured": bool(self.chat_api_key.strip()),
+                "base_url": self.chat_base_url,
+                "model": self.chat_model,
+                "provider": "openai-compatible",
+            },
+        }
 
 
 def _resolve_config_path() -> Path:

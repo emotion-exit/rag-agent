@@ -111,33 +111,15 @@ async def health():
 
 def _build_provider_status_summary() -> dict[str, dict[str, Any]]:
     """返回轻量 provider 状态，不发起外网请求。"""
-    return {
-        "embedding": {
-            "status": "ok" if settings.embedding_api_key.strip() else "missing_config",
-            "configured": bool(settings.embedding_api_key.strip()),
-            "base_url": settings.embedding_base_url,
-            "model": settings.embedding_model,
-        },
-        "reranker": {
-            "status": "ok" if settings.reranker_api_key.strip() else "missing_config",
-            "configured": bool(settings.reranker_api_key.strip()),
-            "base_url": settings.reranker_base_url,
-            "model": settings.reranker_model,
-        },
-        "chat": {
-            "status": "ok" if settings.chat_api_key.strip() else "missing_config",
-            "configured": bool(settings.chat_api_key.strip()),
-            "base_url": settings.chat_base_url,
-            "model": settings.chat_model,
-        },
-    }
+    return settings.get_provider_status_summary()
 
 
-def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> dict[str, Any]:
+def _live_probe_provider(name: str, base_url: str, api_key: str, model: str, provider: str) -> dict[str, Any]:
     """对上游 provider 做一次轻量鉴权探测，区分缺配置与认证失败。"""
     normalized_key = api_key.strip()
     normalized_base_url = base_url.strip().rstrip("/")
     normalized_model = model.strip()
+    normalized_provider = provider.strip()
 
     if not normalized_key:
         return {
@@ -146,6 +128,9 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 未配置 API Key",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
 
     if not normalized_base_url:
@@ -155,6 +140,9 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 未配置 Base URL",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
 
     try:
@@ -170,6 +158,9 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 健康检查超时",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
     except httpx.HTTPError as exc:
         return {
@@ -178,6 +169,9 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 健康检查失败：{exc}",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
 
     if response.status_code in (401, 403):
@@ -187,7 +181,10 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 鉴权失败，请检查 API Key 是否有效",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
             "http_status": response.status_code,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
 
     if response.status_code >= 400:
@@ -197,7 +194,10 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
             "message": f"{name} 上游返回异常状态码 {response.status_code}",
             "base_url": normalized_base_url,
             "model": normalized_model,
+            "provider": normalized_provider,
             "http_status": response.status_code,
+            "probe_mode": "http_get_models",
+            "token_usage": "none_expected",
         }
 
     return {
@@ -206,7 +206,10 @@ def _live_probe_provider(name: str, base_url: str, api_key: str, model: str) -> 
         "message": f"{name} 可用",
         "base_url": normalized_base_url,
         "model": normalized_model,
+        "provider": normalized_provider,
         "http_status": response.status_code,
+        "probe_mode": "http_get_models",
+        "token_usage": "none_expected",
     }
 
 
@@ -218,18 +221,21 @@ async def health_providers():
             settings.embedding_base_url,
             settings.embedding_api_key,
             settings.embedding_model,
+            settings.embedding_provider,
         ),
         "reranker": _live_probe_provider(
             "Reranker",
             settings.reranker_base_url,
             settings.reranker_api_key,
             settings.reranker_model,
+            "siliconflow-rerank-http",
         ),
         "chat": _live_probe_provider(
             "Chat",
             settings.chat_base_url,
             settings.chat_api_key,
             settings.chat_model,
+            "openai-compatible",
         ),
     }
 

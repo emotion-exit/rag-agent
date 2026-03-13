@@ -20,6 +20,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
 from app.agent.rag_agent import (
+    NO_KNOWLEDGE_BASE_ANSWER,
     build_hitl_clarification,
     build_retrieval_progress_steps,
     build_source_payload_with_trace,
@@ -663,6 +664,20 @@ async def _stream_agent_response(
                 "\n\n"
             )
 
+        if int(retrieval_trace.get("final_hit_count", 0) or 0) <= 0:
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'progress', 'content': '未找到可用知识库内容，停止生成答案。'}, ensure_ascii=False)}"
+                "\n\n"
+            )
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'answer', 'content': NO_KNOWLEDGE_BASE_ANSWER}, ensure_ascii=False)}"
+                "\n\n"
+            )
+            yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
+            return
+
         # 检索阶段信息发完后，再启动真正的模型回答流，避免 answer 事件积压后一起冲出来。
         producer = asyncio.create_task(produce_events())
 
@@ -716,6 +731,9 @@ async def chat(request: ChatRequest):
     clarification = build_hitl_clarification(retrieval_trace)
     if clarification:
         return ChatResponse(reply=clarification["question"], sources=[])
+
+    if int(retrieval_trace.get("final_hit_count", 0) or 0) <= 0:
+        return ChatResponse(reply=NO_KNOWLEDGE_BASE_ANSWER, sources=[])
 
     agent = create_rag_agent(request.retrieval_filters)
     runner = Runner(

@@ -15,9 +15,16 @@ const allowedConfigKeys = [
   'EMBEDDING_API_KEY',
   'EMBEDDING_BASE_URL',
   'EMBEDDING_MODEL',
+  'EMBEDDING_PROVIDER',
+  'EMBEDDING_MAX_INPUT_TOKENS',
+  'EMBEDDING_TARGET_CHUNK_TOKENS',
+  'EMBEDDING_CHUNK_OVERLAP_TOKENS',
+  'EMBEDDING_TOKENIZER_MODEL',
+  'EMBEDDING_TOKENIZER_ENCODING',
   'RERANKER_API_KEY',
   'RERANKER_BASE_URL',
   'RERANKER_MODEL',
+  'RERANKER_REQUEST_TIMEOUT',
   'CHAT_API_KEY',
   'CHAT_BASE_URL',
   'CHAT_MODEL',
@@ -43,9 +50,16 @@ function createDefaultConfig() {
     EMBEDDING_API_KEY: '',
     EMBEDDING_BASE_URL: '',
     EMBEDDING_MODEL: '',
+    EMBEDDING_PROVIDER: 'openai',
+    EMBEDDING_MAX_INPUT_TOKENS: 512,
+    EMBEDDING_TARGET_CHUNK_TOKENS: 384,
+    EMBEDDING_CHUNK_OVERLAP_TOKENS: 48,
+    EMBEDDING_TOKENIZER_MODEL: '',
+    EMBEDDING_TOKENIZER_ENCODING: 'cl100k_base',
     RERANKER_API_KEY: '',
     RERANKER_BASE_URL: '',
     RERANKER_MODEL: '',
+    RERANKER_REQUEST_TIMEOUT: 20,
     CHAT_API_KEY: '',
     CHAT_BASE_URL: '',
     CHAT_MODEL: '',
@@ -66,6 +80,33 @@ function normalizeTemperature(value) {
   }
 
   return Math.min(1, Math.max(0, numeric));
+}
+
+function normalizePositiveNumber(value, fallback) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+
+  return numeric;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
+  }
+
+  return Math.max(1, Math.round(numeric));
+}
+
+function normalizeNonNegativeInteger(value, fallback) {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.round(numeric));
 }
 
 async function ensureDesktopConfig() {
@@ -93,6 +134,22 @@ async function readDesktopConfig() {
   };
 
   merged.CHAT_TEMPERATURE = normalizeTemperature(merged.CHAT_TEMPERATURE);
+  merged.EMBEDDING_MAX_INPUT_TOKENS = normalizePositiveInteger(
+    merged.EMBEDDING_MAX_INPUT_TOKENS,
+    createDefaultConfig().EMBEDDING_MAX_INPUT_TOKENS
+  );
+  merged.EMBEDDING_TARGET_CHUNK_TOKENS = normalizePositiveInteger(
+    merged.EMBEDDING_TARGET_CHUNK_TOKENS,
+    createDefaultConfig().EMBEDDING_TARGET_CHUNK_TOKENS
+  );
+  merged.EMBEDDING_CHUNK_OVERLAP_TOKENS = normalizeNonNegativeInteger(
+    merged.EMBEDDING_CHUNK_OVERLAP_TOKENS,
+    createDefaultConfig().EMBEDDING_CHUNK_OVERLAP_TOKENS
+  );
+  merged.RERANKER_REQUEST_TIMEOUT = normalizePositiveNumber(
+    merged.RERANKER_REQUEST_TIMEOUT,
+    createDefaultConfig().RERANKER_REQUEST_TIMEOUT
+  );
   return merged;
 }
 
@@ -109,6 +166,39 @@ async function writeDesktopConfig(nextConfig) {
 
     if (key === 'CHAT_TEMPERATURE') {
       sanitized[key] = normalizeTemperature(value);
+      continue;
+    }
+
+    if (key === 'EMBEDDING_MAX_INPUT_TOKENS') {
+      sanitized[key] = normalizePositiveInteger(
+        value,
+        createDefaultConfig().EMBEDDING_MAX_INPUT_TOKENS
+      );
+      continue;
+    }
+
+    if (key === 'EMBEDDING_TARGET_CHUNK_TOKENS') {
+      sanitized[key] = normalizePositiveInteger(
+        value,
+        createDefaultConfig().EMBEDDING_TARGET_CHUNK_TOKENS
+      );
+      continue;
+    }
+
+    if (key === 'EMBEDDING_CHUNK_OVERLAP_TOKENS') {
+      sanitized[key] = normalizeNonNegativeInteger(
+        value,
+        createDefaultConfig().EMBEDDING_CHUNK_OVERLAP_TOKENS
+      );
+      continue;
+    }
+
+    if (key === 'RERANKER_REQUEST_TIMEOUT') {
+      sanitized[key] = normalizePositiveNumber(
+        value,
+        createDefaultConfig().RERANKER_REQUEST_TIMEOUT
+      );
+      continue;
     }
   }
 

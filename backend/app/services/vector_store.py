@@ -11,6 +11,21 @@ _collection: chromadb.Collection | None = None
 COLLECTION_NAME = "knowledge_base"
 
 
+def _get_chroma_max_batch_size(collection: chromadb.Collection) -> int:
+    client = getattr(collection, "_client", None)
+    getter = getattr(client, "get_max_batch_size", None)
+
+    if callable(getter):
+        try:
+            value = int(getter())
+            if value > 0:
+                return value
+        except Exception:
+            pass
+
+    return 5000
+
+
 def _build_where_clause(metadata_filters: dict[str, str] | None) -> dict | None:
     if not metadata_filters:
         return None
@@ -55,12 +70,17 @@ def add_documents(
     collection = _get_collection()
     ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
     embeddings = get_embeddings(chunks)
-    collection.add(
-        ids=ids,
-        documents=chunks,
-        embeddings=embeddings,
-        metadatas=metadatas,
-    )
+    max_batch_size = _get_chroma_max_batch_size(collection)
+
+    for start in range(0, len(chunks), max_batch_size):
+        end = start + max_batch_size
+        collection.add(
+            ids=ids[start:end],
+            documents=chunks[start:end],
+            embeddings=embeddings[start:end],
+            metadatas=metadatas[start:end],
+        )
+
     return len(chunks)
 
 

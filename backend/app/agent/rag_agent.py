@@ -27,6 +27,9 @@ MAX_CHUNKS_PER_DOCUMENT = 2
 SOURCE_SUMMARY_LENGTH = 140
 HITL_OPTION_LIMIT = 4
 HITL_DISTANCE_THRESHOLD = 0.42
+EVIDENCE_STRONG_DISTANCE_THRESHOLD = 0.38
+EVIDENCE_MAX_DISTANCE_THRESHOLD = 0.55
+EVIDENCE_MIN_COVERAGE = 0.5
 # 这些字段既用于元数据过滤，也用于给检索结果补充上下文头信息。
 QUERY_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
 # 中文问题里常见但没有判别力的停用词，避免它们干扰关键词匹配和本地 rerank。
@@ -47,6 +50,7 @@ QUERY_STOPWORDS = {
 RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
 ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
+NO_KNOWLEDGE_BASE_ANSWER = "当前知识库中没有找到相关资料，无法回答您的问题。"
 
 SYSTEM_INSTRUCTION = """你是一个中文知识库问答助手，只能基于知识库作答。
 
@@ -150,6 +154,58 @@ def _extract_query_terms(query: str) -> list[str]:
     seen: set[str] = set()
     deduped: list[str] = []
     for term in sorted(terms, key=len, reverse=True):
+        if term not in seen:
+            deduped.append(term)
+            seen.add(term)
+    return deduped
+
+
+def _extract_core_query_terms(query: str) -> list[str]:
+    """提取用于证据充分性判断的核心词，不再展开中文子串。"""
+    normalized = _normalize_text(query)
+    if not normalized:
+        return []
+
+    terms: list[str] = []
+    for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized):
+        if token in QUERY_STOPWORDS:
+            continue
+        if re.fullmatch(r"[a-z0-9]+", token):
+            if len(token) >= 2:
+                terms.append(token)
+            continue
+
+        if len(token) >= 2:
+            terms.append(token)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for term in sorted(terms, key=len, reverse=True):
+        if term not in seen:
+            deduped.append(term)
+            seen.add(term)
+    return deduped
+
+
+def _extract_explicit_identifier_terms(query: str) -> list[str]:
+    """提取问题中的显式标识词。
+
+    这类词通常是人名、产品名、语言名、型号、缩写、编号等，
+    一旦问题里明确写出，证据中至少应出现一次，否则说明答非所问风险很高。
+    """
+    normalized = _normalize_text(query)
+    if not normalized:
+        return []
+
+    identifiers = [
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9_+#\.-]*", normalized)
+        if len(token) >= 2
+    ]
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for term in sorted(identifiers, key=len, reverse=True):
         if term not in seen:
             deduped.append(term)
             seen.add(term)
@@ -271,6 +327,66 @@ def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
         ]
     )
     return sum(1 for term in query_terms if any(term in value for value in values if value))
+
+
+def _document_match_count(query_terms: list[str], doc: dict) -> int:
+    """统计单个候选片段对问题核心词的覆盖数。"""
+    if not query_terms:
+        return 0
+
+    metadata = doc.get("metadata", {})
+    combined = "\n".join(
+        [
+            str(doc.get("content", "") or ""),
+            str(metadata.get("filename", "") or ""),
+            str(metadata.get("knowledge_space", "") or ""),
+            str(metadata.get("category", "") or ""),
+            str(metadata.get("topic", "") or ""),
+            str(metadata.get("tags", "") or ""),
+            str(metadata.get("section_title", "") or ""),
+            str(metadata.get("heading_path", "") or ""),
+            str(metadata.get("source_label", "") or ""),
+        ]
+    )
+    normalized = _normalize_text(combined)
+    return sum(1 for term in query_terms if term in normalized)
+
+
+def _has_sufficient_evidence(query: str, documents: list[dict]) -> bool:
+    """判断当前召回证据是否足以支持继续作答。
+
+    这里不依赖特定领域词表，只看两个通用信号：
+    1. 最佳语义距离是否足够近。
+    2. 问题核心词在最终证据中的覆盖是否足够。
+    """
+    if not documents:
+        return False
+
+    best_distance = min(float(doc.get("distance", 1.0)) for doc in documents)
+    core_terms = _extract_core_query_terms(query)
+    identifier_terms = _extract_explicit_identifier_terms(query)
+
+    if identifier_terms:
+        missing_identifiers = [
+            term for term in identifier_terms if not any(_document_match_count([term], doc) > 0 for doc in documents)
+        ]
+        if missing_identifiers:
+            return False
+
+    if not core_terms:
+        return best_distance <= EVIDENCE_STRONG_DISTANCE_THRESHOLD
+
+    matched_terms = {
+        term
+        for term in core_terms
+        if any(_document_match_count([term], doc) > 0 for doc in documents)
+    }
+    coverage = len(matched_terms) / max(len(core_terms), 1)
+
+    if best_distance <= EVIDENCE_STRONG_DISTANCE_THRESHOLD:
+        return True
+
+    return best_distance <= EVIDENCE_MAX_DISTANCE_THRESHOLD and coverage >= EVIDENCE_MIN_COVERAGE
 
 
 def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
@@ -551,6 +667,7 @@ def retrieve_relevant_documents_trace(
         }
 
     filtered = [result for result in results if result["distance"] < RETRIEVAL_THRESHOLD]
+
     if not filtered:
         return {
             "documents": [],
@@ -565,6 +682,19 @@ def retrieve_relevant_documents_trace(
         }
 
     reranked, rerank_mode = _rerank_documents(query, filtered, limit=final_n_results)
+    if not _has_sufficient_evidence(query, reranked):
+        return {
+            "documents": [],
+            "rerank_mode": rerank_mode,
+            "initial_hit_count": len(results),
+            "filtered_hit_count": len(filtered),
+            "final_hit_count": 0,
+            "metadata_filters": metadata_filters,
+            "used_metadata_filters": bool(metadata_filters),
+            "used_explicit_filters": bool(explicit_filters),
+            "fallback_without_filters": fallback_without_filters,
+        }
+
     return {
         "documents": reranked,
         "rerank_mode": rerank_mode,

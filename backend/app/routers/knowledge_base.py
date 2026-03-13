@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import uuid
 from datetime import datetime, timezone
 
@@ -10,6 +9,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.services.document_assets import delete_document_assets, save_document_images
 from app.services.document_processor import extract_document_chunks, extract_document_images
+from app.services.embedding_text_splitter import split_text_for_embedding
 from app.services.vector_store import add_documents, delete_document, list_documents, collection_count
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".rst", ".csv"}
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 PDF_IMAGE_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-EMBEDDING_SAFE_CHUNK_SIZE = 180
-EMBEDDING_SAFE_CHUNK_OVERLAP = 20
 
 
 class DocumentInfo(BaseModel):
@@ -41,60 +39,14 @@ def _normalize_metadata_value(value: str | None) -> str:
 
 
 def _split_text_for_embedding(text: str) -> list[str]:
-    normalized = re.sub(r"\s+", " ", text).strip()
-    if not normalized:
-        return []
-
-    if len(normalized) <= EMBEDDING_SAFE_CHUNK_SIZE:
-        return [normalized]
-
-    sentences = [
-        segment.strip()
-        for segment in re.split(r"(?<=[。！？!?；;：:])\s*", normalized)
-        if segment.strip()
-    ]
-    if len(sentences) <= 1:
-        sentences = [normalized]
-
-    pieces: list[str] = []
-    current = ""
-
-    for sentence in sentences:
-        if len(sentence) > EMBEDDING_SAFE_CHUNK_SIZE:
-            if current:
-                pieces.append(current.strip())
-                current = ""
-
-            start = 0
-            step = max(EMBEDDING_SAFE_CHUNK_SIZE - EMBEDDING_SAFE_CHUNK_OVERLAP, 1)
-            while start < len(sentence):
-                part = sentence[start : start + EMBEDDING_SAFE_CHUNK_SIZE].strip()
-                if part:
-                    pieces.append(part)
-                start += step
-            continue
-
-        candidate = f"{current} {sentence}".strip() if current else sentence
-        if current and len(candidate) > EMBEDDING_SAFE_CHUNK_SIZE:
-            pieces.append(current.strip())
-            overlap = current[-EMBEDDING_SAFE_CHUNK_OVERLAP :].strip()
-            current = f"{overlap} {sentence}".strip() if overlap else sentence
-            if len(current) > EMBEDDING_SAFE_CHUNK_SIZE:
-                pieces.append(current[:EMBEDDING_SAFE_CHUNK_SIZE].strip())
-                current = current[EMBEDDING_SAFE_CHUNK_SIZE - EMBEDDING_SAFE_CHUNK_OVERLAP :].strip()
-        else:
-            current = candidate
-
-    if current:
-        pieces.append(current.strip())
-
-    deduplicated: list[str] = []
-    for piece in pieces:
-        cleaned = piece.strip()
-        if cleaned:
-            deduplicated.append(cleaned)
-
-    return deduplicated
+    return split_text_for_embedding(
+        text,
+        max_tokens=settings.embedding_max_input_tokens,
+        target_tokens=settings.embedding_target_chunk_tokens,
+        overlap_tokens=settings.embedding_chunk_overlap_tokens,
+        tokenizer_model=settings.get_embedding_tokenizer_model(),
+        tokenizer_encoding=settings.embedding_tokenizer_encoding,
+    )
 
 
 def _prepare_embedding_chunks(chunks_with_sources: list[dict]) -> list[dict]:
