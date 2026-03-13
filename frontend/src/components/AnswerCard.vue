@@ -146,6 +146,10 @@ function buildSourceMeta(source: SourceSummary) {
   return parts.join(' · ');
 }
 
+function buildSourceSummary(source: SourceSummary) {
+  return String(source.summary || '').trim();
+}
+
 function toggleProgress() {
   if (progressSteps.value.length <= 1) return;
   progressExpanded.value = !progressExpanded.value;
@@ -264,7 +268,12 @@ function toggleThought() {
                 <span class="source-badge-index">{{ source.index }}</span>
                 <span class="source-badge-copy">
                   <span class="source-filename">{{ source.filename }}</span>
-                  <span v-if="buildSourceMeta(source)" class="source-meta">
+                  <span
+                    v-if="buildSourceSummary(source)"
+                    class="source-summary">
+                    {{ buildSourceSummary(source) }}
+                  </span>
+                  <span v-else-if="buildSourceMeta(source)" class="source-meta">
                     {{ buildSourceMeta(source) }}
                   </span>
                 </span>
@@ -302,7 +311,10 @@ function toggleThought() {
               <span class="source-badge-index">{{ source.index }}</span>
               <span class="source-badge-copy">
                 <span class="source-filename">{{ source.filename }}</span>
-                <span v-if="buildSourceMeta(source)" class="source-meta">
+                <span v-if="buildSourceSummary(source)" class="source-summary">
+                  {{ buildSourceSummary(source) }}
+                </span>
+                <span v-else-if="buildSourceMeta(source)" class="source-meta">
                   {{ buildSourceMeta(source) }}
                 </span>
               </span>
@@ -638,6 +650,9 @@ function toggleThought() {
   border: 1px solid #e4e4e7;
   border-radius: 14px;
   padding: 4px 10px 4px 6px;
+  width: 180px;
+  max-width: 100%;
+  box-sizing: border-box;
   font-size: 12px;
   color: #3f3f46;
   cursor: pointer;
@@ -655,6 +670,8 @@ function toggleThought() {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
+  flex: 1;
+  min-width: 0;
 }
 
 .source-badge-index {
@@ -683,6 +700,17 @@ function toggleThought() {
   color: #71717a;
   font-size: 11px;
   white-space: nowrap;
+}
+
+.source-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #71717a;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .notice-block {

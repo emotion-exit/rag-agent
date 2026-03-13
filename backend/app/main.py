@@ -114,103 +114,224 @@ def _build_provider_status_summary() -> dict[str, dict[str, Any]]:
     return settings.get_provider_status_summary()
 
 
+def _build_probe_result(
+    *,
+    status: str,
+    configured: bool,
+    message: str,
+    detail: str = "",
+    base_url: str,
+    model: str,
+    provider: str,
+    probe_mode: str,
+    token_usage: str,
+    http_status: int | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "status": status,
+        "configured": configured,
+        "message": message,
+        "detail": detail,
+        "base_url": base_url,
+        "model": model,
+        "provider": provider,
+        "probe_mode": probe_mode,
+        "token_usage": token_usage,
+    }
+    if http_status is not None:
+        payload["http_status"] = http_status
+    return payload
+
+
+def _extract_response_detail(response: httpx.Response) -> str:
+    """提取上游响应中的可读错误详情。"""
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+
+    if isinstance(payload, dict):
+        for key in ("detail", "message", "error", "msg"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:240]
+        compact = json.dumps(payload, ensure_ascii=False)
+        return compact[:240]
+
+    text = response.text.strip()
+    return text[:240] if text else ""
+
+
+def _probe_request(
+    *,
+    name: str,
+    method: str,
+    url: str,
+    headers: dict[str, str],
+    base_url: str,
+    model: str,
+    provider: str,
+    probe_mode: str,
+    token_usage: str,
+    json_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """发送一次健康检查请求，并统一转换成前端可展示的状态。"""
+    try:
+        response = httpx.request(
+            method,
+            url,
+            headers=headers,
+            json=json_payload,
+            timeout=8.0,
+        )
+    except httpx.TimeoutException:
+        return _build_probe_result(
+            status="timeout",
+            configured=True,
+            message=f"{name} 健康检查超时",
+            base_url=base_url,
+            model=model,
+            provider=provider,
+            probe_mode=probe_mode,
+            token_usage=token_usage,
+        )
+    except httpx.HTTPError as exc:
+        return _build_probe_result(
+            status="network_error",
+            configured=True,
+            message=f"{name} 健康检查失败：{exc}",
+            base_url=base_url,
+            model=model,
+            provider=provider,
+            probe_mode=probe_mode,
+            token_usage=token_usage,
+        )
+
+    if response.status_code in (401, 403):
+        return _build_probe_result(
+            status="auth_error",
+            configured=True,
+            message=f"{name} 鉴权失败，请检查 API Key 是否有效",
+            detail=_extract_response_detail(response),
+            base_url=base_url,
+            model=model,
+            provider=provider,
+            probe_mode=probe_mode,
+            token_usage=token_usage,
+            http_status=response.status_code,
+        )
+
+    if response.status_code >= 400:
+        return _build_probe_result(
+            status="upstream_error",
+            configured=True,
+            message=f"{name} 上游返回异常状态码 {response.status_code}",
+            detail=_extract_response_detail(response),
+            base_url=base_url,
+            model=model,
+            provider=provider,
+            probe_mode=probe_mode,
+            token_usage=token_usage,
+            http_status=response.status_code,
+        )
+
+    return _build_probe_result(
+        status="ok",
+        configured=True,
+        message=f"{name} 可用",
+        base_url=base_url,
+        model=model,
+        provider=provider,
+        probe_mode=probe_mode,
+        token_usage=token_usage,
+        http_status=response.status_code,
+    )
+
+
 def _live_probe_provider(name: str, base_url: str, api_key: str, model: str, provider: str) -> dict[str, Any]:
-    """对上游 provider 做一次轻量鉴权探测，区分缺配置与认证失败。"""
+    """对上游 provider 做一次能力级探测，区分缺配置、鉴权失败和接口异常。"""
     normalized_key = api_key.strip()
     normalized_base_url = base_url.strip().rstrip("/")
     normalized_model = model.strip()
     normalized_provider = provider.strip()
 
     if not normalized_key:
-        return {
-            "status": "missing_config",
-            "configured": False,
-            "message": f"{name} 未配置 API Key",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
+        return _build_probe_result(
+            status="missing_config",
+            configured=False,
+            message=f"{name} 未配置 API Key",
+            base_url=normalized_base_url,
+            model=normalized_model,
+            provider=normalized_provider,
+            probe_mode="missing_config",
+            token_usage="none_expected",
+        )
 
     if not normalized_base_url:
-        return {
-            "status": "missing_config",
-            "configured": False,
-            "message": f"{name} 未配置 Base URL",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
-
-    try:
-        response = httpx.get(
-            f"{normalized_base_url}/models",
-            headers={"Authorization": f"Bearer {normalized_key}"},
-            timeout=8.0,
+        return _build_probe_result(
+            status="missing_config",
+            configured=False,
+            message=f"{name} 未配置 Base URL",
+            base_url=normalized_base_url,
+            model=normalized_model,
+            provider=normalized_provider,
+            probe_mode="missing_config",
+            token_usage="none_expected",
         )
-    except httpx.TimeoutException:
-        return {
-            "status": "timeout",
-            "configured": True,
-            "message": f"{name} 健康检查超时",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
-    except httpx.HTTPError as exc:
-        return {
-            "status": "network_error",
-            "configured": True,
-            "message": f"{name} 健康检查失败：{exc}",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
 
-    if response.status_code in (401, 403):
-        return {
-            "status": "auth_error",
-            "configured": True,
-            "message": f"{name} 鉴权失败，请检查 API Key 是否有效",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "http_status": response.status_code,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
-
-    if response.status_code >= 400:
-        return {
-            "status": "upstream_error",
-            "configured": True,
-            "message": f"{name} 上游返回异常状态码 {response.status_code}",
-            "base_url": normalized_base_url,
-            "model": normalized_model,
-            "provider": normalized_provider,
-            "http_status": response.status_code,
-            "probe_mode": "http_get_models",
-            "token_usage": "none_expected",
-        }
-
-    return {
-        "status": "ok",
-        "configured": True,
-        "message": f"{name} 可用",
-        "base_url": normalized_base_url,
-        "model": normalized_model,
-        "provider": normalized_provider,
-        "http_status": response.status_code,
-        "probe_mode": "http_get_models",
-        "token_usage": "none_expected",
+    headers = {
+        "Authorization": f"Bearer {normalized_key}",
+        "Content-Type": "application/json",
     }
+
+    if name == "Embedding":
+        return _probe_request(
+            name=name,
+            method="POST",
+            url=f"{normalized_base_url}/embeddings",
+            headers=headers,
+            json_payload={
+                "model": normalized_model,
+                "input": ["健康检查"],
+            },
+            base_url=normalized_base_url,
+            model=normalized_model,
+            provider=normalized_provider,
+            probe_mode="http_post_embeddings",
+            token_usage="minimal_embedding_probe",
+        )
+
+    if name == "Reranker":
+        return _probe_request(
+            name=name,
+            method="POST",
+            url=f"{normalized_base_url}/rerank",
+            headers=headers,
+            json_payload={
+                "model": normalized_model,
+                "query": "健康检查",
+                "documents": ["健康检查"],
+                "top_n": 1,
+                "return_documents": False,
+            },
+            base_url=normalized_base_url,
+            model=normalized_model,
+            provider=normalized_provider,
+            probe_mode="http_post_rerank",
+            token_usage="minimal_rerank_probe",
+        )
+
+    return _probe_request(
+        name=name,
+        method="GET",
+        url=f"{normalized_base_url}/models",
+        headers={"Authorization": f"Bearer {normalized_key}"},
+        base_url=normalized_base_url,
+        model=normalized_model,
+        provider=normalized_provider,
+        probe_mode="http_get_models",
+        token_usage="none_expected",
+    )
 
 
 @app.get("/health/providers")

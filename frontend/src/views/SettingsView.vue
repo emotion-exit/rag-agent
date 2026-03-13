@@ -34,6 +34,7 @@ interface ProviderHealthItem {
   status: string;
   configured: boolean;
   message?: string;
+  detail?: string;
   base_url: string;
   model: string;
   provider?: string;
@@ -94,12 +95,17 @@ function formatProviderLabel(provider?: string) {
 function formatProbeMode(mode?: string) {
   if (!mode) return '未执行检测';
   if (mode === 'http_get_models') return 'GET /models 轻量探测';
+  if (mode === 'http_post_embeddings') return 'POST /embeddings 实探';
+  if (mode === 'http_post_rerank') return 'POST /rerank 实探';
+  if (mode === 'missing_config') return '配置检查';
   return mode;
 }
 
 function formatTokenUsage(tokenUsage?: string) {
   if (!tokenUsage) return '未知';
   if (tokenUsage === 'none_expected') return '默认不消耗 token';
+  if (tokenUsage === 'minimal_embedding_probe') return '极少量 embedding token';
+  if (tokenUsage === 'minimal_rerank_probe') return '极少量 rerank token';
   return tokenUsage;
 }
 
@@ -623,6 +629,63 @@ onMounted(() => {
                   重排请求超时时间，单位秒。用于控制直连 rerank 接口的等待上限。
                 </span>
               </label>
+
+              <label class="field-block">
+                <span class="field-label">召回候选数量</span>
+                <input
+                  v-model.number="form.RETRIEVAL_CANDIDATE_LIMIT"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="18" />
+                <span class="field-help">
+                  每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">最终上下文数量</span>
+                <input
+                  v-model.number="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="5" />
+                <span class="field-help">
+                  重排后最多保留多少个片段进入答案上下文。这个值越高，引用更充分，但生成成本也会增加。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">引用来源数量</span>
+                <input
+                  v-model.number="form.RETRIEVAL_SOURCE_LIMIT"
+                  class="field-input"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="5" />
+                <span class="field-help">
+                  回答完成后最多展示多少条引用来源。通常建议与最终上下文数量保持一致或略小。
+                </span>
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">问题扩写数量</span>
+                <input
+                  v-model.number="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
+                  class="field-input"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="3" />
+                <span class="field-help">
+                  口语问题会先扩写出多少个更正式的相近问法再做召回。填 0
+                  表示关闭扩写。
+                </span>
+              </label>
             </div>
           </div>
         </article>
@@ -676,6 +739,9 @@ onMounted(() => {
               </div>
               <div class="provider-message">
                 {{ entry.item?.message || '尚未执行检测。' }}
+              </div>
+              <div v-if="entry.item?.detail" class="provider-detail">
+                {{ entry.item.detail }}
               </div>
               <div class="provider-kv-list">
                 <div class="provider-kv-item">
@@ -1073,6 +1139,18 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.6;
   word-break: break-all;
+}
+
+.provider-detail {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(24, 24, 27, 0.04);
+  border: 1px solid rgba(24, 24, 27, 0.06);
+  color: #52525b;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .provider-kv-list {

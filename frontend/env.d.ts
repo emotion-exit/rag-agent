@@ -14,6 +14,10 @@ interface DesktopAppConfig {
   RERANKER_BASE_URL: string;
   RERANKER_MODEL: string;
   RERANKER_REQUEST_TIMEOUT: number;
+  RETRIEVAL_CANDIDATE_LIMIT: number;
+  RETRIEVAL_FINAL_CONTEXT_LIMIT: number;
+  RETRIEVAL_SOURCE_LIMIT: number;
+  RETRIEVAL_QUERY_EXPANSION_COUNT: number;
   CHAT_API_KEY: string;
   CHAT_BASE_URL: string;
   CHAT_MODEL: string;

@@ -65,11 +65,16 @@ def add_documents(
     chunks: list[str],
     metadatas: list[dict],
     doc_id: str,
+    embedding_texts: list[str] | None = None,
 ) -> int:
     """Embed and store document chunks in the vector store."""
     collection = _get_collection()
     ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-    embeddings = get_embeddings(chunks)
+    embedding_inputs = embedding_texts or chunks
+    if len(embedding_inputs) != len(chunks):
+        raise ValueError("embedding_texts 与 chunks 数量不一致，无法入库。")
+
+    embeddings = get_embeddings(embedding_inputs)
     max_batch_size = _get_chroma_max_batch_size(collection)
 
     for start in range(0, len(chunks), max_batch_size):
@@ -151,8 +156,13 @@ def list_documents() -> list[dict]:
     seen: dict[str, dict] = {}
     for meta in all_items["metadatas"]:
         doc_id = meta.get("doc_id", "")
-        if doc_id and doc_id not in seen:
-            seen[doc_id] = meta
+        if not doc_id:
+            continue
+
+        if doc_id not in seen:
+            seen[doc_id] = {**meta, "chunk_count": 0}
+
+        seen[doc_id]["chunk_count"] = int(seen[doc_id].get("chunk_count", 0) or 0) + 1
     return list(seen.values())
 
 

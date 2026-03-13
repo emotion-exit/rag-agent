@@ -21,6 +21,7 @@ import { getApiBase } from '@/services/runtime';
 interface DocumentInfo {
   doc_id: string;
   filename: string;
+  chunk_count: number;
   upload_time: string;
   knowledge_space: string;
   category: string;
@@ -41,6 +42,11 @@ interface UploadMetadataForm {
   topic: string;
   tags: string[];
   version_label: string;
+}
+
+interface UploadResponsePayload {
+  detail?: string;
+  message?: string;
 }
 
 type ToastType = 'success' | 'error';
@@ -185,6 +191,10 @@ function formatImageCount(value: number) {
   return value > 0 ? `附图 ${value} 张` : '无附图';
 }
 
+function formatChunkCount(value: number) {
+  return `${value || 0} 个分块`;
+}
+
 async function fetchDocuments() {
   loading.value = true;
   try {
@@ -227,7 +237,7 @@ async function processFiles(fileList: FileList | File[]) {
         method: 'POST',
         body: formData
       });
-      const data = await parseApiResponse(response);
+      const data = (await parseApiResponse(response)) as UploadResponsePayload;
       if (!response.ok) {
         throw new Error(extractApiErrorMessage(data, response.status));
       }
@@ -559,6 +569,11 @@ onMounted(() => {
                 <span class="meta-label">上传于</span>
                 <span class="meta-value">
                   {{ formatDate(doc.upload_time) }}
+                </span>
+              </div>
+              <div class="doc-meta-item">
+                <span class="chunk-badge">
+                  {{ formatChunkCount(doc.chunk_count) }}
                 </span>
               </div>
               <div class="doc-meta-item">
@@ -1170,7 +1185,20 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
+}
+
+.chunk-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .doc-meta-item {

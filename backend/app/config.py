@@ -55,6 +55,10 @@ class Settings(BaseModel):
     reranker_base_url: str = Field(default="", alias="RERANKER_BASE_URL")
     reranker_model: str = Field(default="", alias="RERANKER_MODEL")
     reranker_request_timeout: float = Field(default=20.0, alias="RERANKER_REQUEST_TIMEOUT")
+    retrieval_candidate_limit: int = Field(default=18, alias="RETRIEVAL_CANDIDATE_LIMIT")
+    retrieval_final_context_limit: int = Field(default=5, alias="RETRIEVAL_FINAL_CONTEXT_LIMIT")
+    retrieval_source_limit: int = Field(default=5, alias="RETRIEVAL_SOURCE_LIMIT")
+    retrieval_query_expansion_count: int = Field(default=3, alias="RETRIEVAL_QUERY_EXPANSION_COUNT")
 
     chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
     chat_base_url: str = Field(default="", alias="CHAT_BASE_URL")

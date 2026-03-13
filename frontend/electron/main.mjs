@@ -25,6 +25,10 @@ const allowedConfigKeys = [
   'RERANKER_BASE_URL',
   'RERANKER_MODEL',
   'RERANKER_REQUEST_TIMEOUT',
+  'RETRIEVAL_CANDIDATE_LIMIT',
+  'RETRIEVAL_FINAL_CONTEXT_LIMIT',
+  'RETRIEVAL_SOURCE_LIMIT',
+  'RETRIEVAL_QUERY_EXPANSION_COUNT',
   'CHAT_API_KEY',
   'CHAT_BASE_URL',
   'CHAT_MODEL',
@@ -60,6 +64,10 @@ function createDefaultConfig() {
     RERANKER_BASE_URL: '',
     RERANKER_MODEL: '',
     RERANKER_REQUEST_TIMEOUT: 20,
+    RETRIEVAL_CANDIDATE_LIMIT: 18,
+    RETRIEVAL_FINAL_CONTEXT_LIMIT: 5,
+    RETRIEVAL_SOURCE_LIMIT: 5,
+    RETRIEVAL_QUERY_EXPANSION_COUNT: 3,
     CHAT_API_KEY: '',
     CHAT_BASE_URL: '',
     CHAT_MODEL: '',
@@ -150,6 +158,22 @@ async function readDesktopConfig() {
     merged.RERANKER_REQUEST_TIMEOUT,
     createDefaultConfig().RERANKER_REQUEST_TIMEOUT
   );
+  merged.RETRIEVAL_CANDIDATE_LIMIT = normalizePositiveInteger(
+    merged.RETRIEVAL_CANDIDATE_LIMIT,
+    createDefaultConfig().RETRIEVAL_CANDIDATE_LIMIT
+  );
+  merged.RETRIEVAL_FINAL_CONTEXT_LIMIT = normalizePositiveInteger(
+    merged.RETRIEVAL_FINAL_CONTEXT_LIMIT,
+    createDefaultConfig().RETRIEVAL_FINAL_CONTEXT_LIMIT
+  );
+  merged.RETRIEVAL_SOURCE_LIMIT = normalizePositiveInteger(
+    merged.RETRIEVAL_SOURCE_LIMIT,
+    createDefaultConfig().RETRIEVAL_SOURCE_LIMIT
+  );
+  merged.RETRIEVAL_QUERY_EXPANSION_COUNT = normalizeNonNegativeInteger(
+    merged.RETRIEVAL_QUERY_EXPANSION_COUNT,
+    createDefaultConfig().RETRIEVAL_QUERY_EXPANSION_COUNT
+  );
   return merged;
 }
 
@@ -197,6 +221,38 @@ async function writeDesktopConfig(nextConfig) {
       sanitized[key] = normalizePositiveNumber(
         value,
         createDefaultConfig().RERANKER_REQUEST_TIMEOUT
+      );
+      continue;
+    }
+
+    if (key === 'RETRIEVAL_CANDIDATE_LIMIT') {
+      sanitized[key] = normalizePositiveInteger(
+        value,
+        createDefaultConfig().RETRIEVAL_CANDIDATE_LIMIT
+      );
+      continue;
+    }
+
+    if (key === 'RETRIEVAL_FINAL_CONTEXT_LIMIT') {
+      sanitized[key] = normalizePositiveInteger(
+        value,
+        createDefaultConfig().RETRIEVAL_FINAL_CONTEXT_LIMIT
+      );
+      continue;
+    }
+
+    if (key === 'RETRIEVAL_SOURCE_LIMIT') {
+      sanitized[key] = normalizePositiveInteger(
+        value,
+        createDefaultConfig().RETRIEVAL_SOURCE_LIMIT
+      );
+      continue;
+    }
+
+    if (key === 'RETRIEVAL_QUERY_EXPANSION_COUNT') {
+      sanitized[key] = normalizeNonNegativeInteger(
+        value,
+        createDefaultConfig().RETRIEVAL_QUERY_EXPANSION_COUNT
       );
       continue;
     }

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from app.config import settings
 from app.services.document_assets import delete_document_assets, save_document_images
 from app.services.document_processor import extract_document_chunks, extract_document_images
-from app.services.embedding_text_splitter import split_text_for_embedding
+from app.services.embedding_text_splitter import count_tokens, split_text_for_embedding
 from app.services.vector_store import add_documents, delete_document, list_documents, collection_count
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
@@ -49,7 +49,73 @@ def _split_text_for_embedding(text: str) -> list[str]:
     )
 
 
-def _prepare_embedding_chunks(chunks_with_sources: list[dict]) -> list[dict]:
+def _build_embedding_prefix(chunk_info: dict, metadata: dict[str, str]) -> str:
+    parts = []
+
+    for label, key in (
+        ("知识空间", "knowledge_space"),
+        ("分类", "category"),
+        ("主题", "topic"),
+        ("标签", "tags"),
+        ("版本", "version_label"),
+    ):
+        value = str(metadata.get(key, "") or "").strip()
+        if value:
+            parts.append(f"[{label}] {value}")
+
+    for label, key in (("章节路径", "heading_path"), ("章节标题", "section_title"), ("来源位置", "source_label")):
+        value = str(chunk_info.get(key, "") or "").strip()
+        if value:
+            parts.append(f"[{label}] {value}")
+
+    return "\n".join(parts).strip()
+
+
+def _split_content_with_prefix(content: str, prefix: str) -> list[tuple[str, str]]:
+    normalized_content = str(content or "").strip()
+    if not normalized_content:
+        return []
+
+    prefix_text = prefix.strip()
+    if not prefix_text:
+        pieces = _split_text_for_embedding(normalized_content)
+        return [(piece, piece) for piece in pieces]
+
+    prefix_tokens = count_tokens(
+        prefix_text,
+        settings.get_embedding_tokenizer_model(),
+        settings.embedding_tokenizer_encoding,
+    )
+    min_body_tokens = 32
+    available_max_tokens = max(settings.embedding_max_input_tokens - prefix_tokens, min_body_tokens)
+    available_target_tokens = min(
+        max(settings.embedding_target_chunk_tokens - prefix_tokens, min_body_tokens),
+        available_max_tokens,
+    )
+    available_overlap_tokens = min(
+        settings.embedding_chunk_overlap_tokens,
+        max(available_target_tokens - 1, 0),
+    )
+
+    pieces = split_text_for_embedding(
+        normalized_content,
+        max_tokens=available_max_tokens,
+        target_tokens=available_target_tokens,
+        overlap_tokens=available_overlap_tokens,
+        tokenizer_model=settings.get_embedding_tokenizer_model(),
+        tokenizer_encoding=settings.embedding_tokenizer_encoding,
+    )
+
+    return [
+        (piece, f"{prefix_text}\n[正文]\n{piece}".strip())
+        for piece in pieces
+    ]
+
+
+def _prepare_embedding_chunks(
+    chunks_with_sources: list[dict],
+    metadata: dict[str, str],
+) -> list[dict]:
     normalized_chunks: list[dict] = []
 
     for chunk_info in chunks_with_sources:
@@ -57,13 +123,16 @@ def _prepare_embedding_chunks(chunks_with_sources: list[dict]) -> list[dict]:
         if not content:
             continue
 
-        split_contents = _split_text_for_embedding(content)
-        if len(split_contents) <= 1:
-            normalized_chunks.append({**chunk_info, "content": content})
-            continue
-
-        for split_content in split_contents:
-            normalized_chunks.append({**chunk_info, "content": split_content})
+        prefix = _build_embedding_prefix(chunk_info, metadata)
+        split_contents = _split_content_with_prefix(content, prefix)
+        for split_content, embedding_content in split_contents:
+            normalized_chunks.append(
+                {
+                    **chunk_info,
+                    "content": split_content,
+                    "embedding_content": embedding_content,
+                }
+            )
 
     return normalized_chunks
 
@@ -101,11 +170,25 @@ async def upload_document(
 
         doc_id = str(uuid.uuid4())
         chunks_with_sources = extract_document_chunks(file_bytes, file.filename or "")
-        chunks_with_sources = _prepare_embedding_chunks(chunks_with_sources)
+        normalized_knowledge_space = _normalize_metadata_value(knowledge_space)
+        normalized_category = _normalize_metadata_value(category)
+        normalized_topic = _normalize_metadata_value(topic)
+        normalized_tags = _normalize_metadata_value(tags)
+        normalized_version_label = _normalize_metadata_value(version_label)
+        semantic_metadata = {
+            "knowledge_space": normalized_knowledge_space,
+            "category": normalized_category,
+            "topic": normalized_topic,
+            "tags": normalized_tags,
+            "version_label": normalized_version_label,
+        }
+
+        chunks_with_sources = _prepare_embedding_chunks(chunks_with_sources, semantic_metadata)
         if not chunks_with_sources:
             raise HTTPException(status_code=400, detail="Could not extract text content from file")
 
         chunks = [item["content"] for item in chunks_with_sources]
+        embedding_contents = [item["embedding_content"] for item in chunks_with_sources]
         image_warning = ""
         if ext == ".pdf" and len(file_bytes) > PDF_IMAGE_EXTRACTION_MAX_BYTES:
             document_images = []
@@ -115,11 +198,6 @@ async def upload_document(
         saved_images = save_document_images(doc_id, document_images)
 
         upload_time = datetime.now(timezone.utc).isoformat()
-        normalized_knowledge_space = _normalize_metadata_value(knowledge_space)
-        normalized_category = _normalize_metadata_value(category)
-        normalized_topic = _normalize_metadata_value(topic)
-        normalized_tags = _normalize_metadata_value(tags)
-        normalized_version_label = _normalize_metadata_value(version_label)
 
         # Store in vector DB
         metadatas = [
@@ -147,7 +225,7 @@ async def upload_document(
             for i, chunk_info in enumerate(chunks_with_sources)
         ]
 
-        count = add_documents(chunks, metadatas, doc_id)
+        count = add_documents(chunks, metadatas, doc_id, embedding_texts=embedding_contents)
 
         success_message = (
             f"成功上传 '{file.filename}'，共创建 {count} 个文本块，检测到 {len(saved_images)} 张文档图片（仅引用展示，不参与检索）"
@@ -190,6 +268,7 @@ async def get_documents():
         result.append({
             "doc_id": doc.get("doc_id", ""),
             "filename": doc.get("filename", "未知"),
+            "chunk_count": int(doc.get("chunk_count", 0) or 0),
             "upload_time": doc.get("upload_time", ""),
             "knowledge_space": doc.get("knowledge_space", ""),
             "category": doc.get("category", ""),

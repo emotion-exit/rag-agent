@@ -490,7 +490,7 @@ async def _stream_agent_response(
     retrieval_filters: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """运行 Agent，并把结果转成前端可消费的 SSE 事件流。"""
-    agent = create_rag_agent(retrieval_filters)
+    agent = create_rag_agent(retrieval_filters, session_id=session_id)
     runner = Runner(
         agent=agent,
         app_name=APP_NAME,
@@ -645,6 +645,7 @@ async def _stream_agent_response(
         source_summaries, retrieval_trace = build_source_payload_with_trace(
             message,
             explicit_metadata_filters=retrieval_filters,
+            session_id=session_id,
         )
 
         clarification = build_hitl_clarification(retrieval_trace)
@@ -727,6 +728,7 @@ async def chat(request: ChatRequest):
     source_summaries, retrieval_trace = build_source_payload_with_trace(
         request.message,
         explicit_metadata_filters=request.retrieval_filters,
+        session_id=request.session_id,
     )
     clarification = build_hitl_clarification(retrieval_trace)
     if clarification:
@@ -735,7 +737,7 @@ async def chat(request: ChatRequest):
     if int(retrieval_trace.get("final_hit_count", 0) or 0) <= 0:
         return ChatResponse(reply=NO_KNOWLEDGE_BASE_ANSWER, sources=[])
 
-    agent = create_rag_agent(request.retrieval_filters)
+    agent = create_rag_agent(request.retrieval_filters, session_id=request.session_id)
     runner = Runner(
         agent=agent,
         app_name=APP_NAME,
