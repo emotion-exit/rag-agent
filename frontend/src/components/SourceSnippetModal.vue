@@ -460,6 +460,7 @@ function highlightKeywords(text: string, keywords: string[]) {
 }
 
 .source-modal-close {
+  flex-shrink: 0;
   width: 36px;
   height: 36px;
   border: 0;
