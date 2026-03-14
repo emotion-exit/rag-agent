@@ -8,7 +8,11 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.services.document_assets import delete_document_assets, save_document_images
-from app.services.document_processor import extract_document_chunks, extract_document_images
+from app.services.document_processor import (
+    SUPPORTED_DOCUMENT_EXTENSIONS,
+    extract_document_chunks,
+    extract_document_images,
+)
 from app.services.embedding_text_splitter import count_tokens, split_text_for_embedding
 from app.services.vector_store import add_documents, delete_document, list_documents, collection_count
 
@@ -16,7 +20,7 @@ router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
 logger = logging.getLogger(__name__)
 
 # Supported MIME types and extensions
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".rst", ".csv"}
+ALLOWED_EXTENSIONS = set(SUPPORTED_DOCUMENT_EXTENSIONS)
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 PDF_IMAGE_EXTRACTION_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
