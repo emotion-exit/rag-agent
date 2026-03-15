@@ -1,4 +1,5 @@
 import os
+import json
 from typing import Any
 
 import httpx
@@ -8,14 +9,19 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config import settings
+from app.config import (
+    _base_settings,
+    reset_request_settings_overrides,
+    set_request_settings_overrides,
+    settings,
+)
 from app.routers import chat_router, knowledge_base_router
 
 logger = logging.getLogger(__name__)
 
 # Ensure data directories exist
-os.makedirs(settings.chroma_persist_dir, exist_ok=True)
-os.makedirs(settings.upload_dir, exist_ok=True)
+os.makedirs(_base_settings.chroma_persist_dir, exist_ok=True)
+os.makedirs(_base_settings.upload_dir, exist_ok=True)
 
 app = FastAPI(
     title="RAG Agent API",
@@ -26,7 +32,7 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=_base_settings.get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +41,30 @@ app.add_middleware(
 # Routers
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
+
+
+@app.middleware("http")
+async def apply_public_frontend_config(request: Request, call_next):
+    raw_config = request.headers.get("x-rag-public-config", "").strip()
+    if not raw_config:
+        raw_config = request.query_params.get("public_config", "").strip()
+    parsed_config: dict[str, Any] | None = None
+
+    if raw_config:
+        try:
+            payload = json.loads(raw_config)
+            if isinstance(payload, dict):
+                parsed_config = payload
+        except json.JSONDecodeError:
+            parsed_config = None
+
+    token = set_request_settings_overrides(parsed_config)
+    try:
+        response = await call_next(request)
+    finally:
+        reset_request_settings_overrides(token)
+
+    return response
 
 
 @app.exception_handler(HTTPException)
@@ -112,6 +142,43 @@ async def health():
 def _build_provider_status_summary() -> dict[str, dict[str, Any]]:
     """返回轻量 provider 状态，不发起外网请求。"""
     return settings.get_provider_status_summary()
+
+
+def _sanitize_provider_result(item: dict[str, Any]) -> dict[str, Any]:
+    """移除不适合公开前端展示的 provider 细节。"""
+    sanitized = {
+        "status": item.get("status", "unknown"),
+        "configured": bool(item.get("configured", False)),
+        "provider": item.get("provider", ""),
+    }
+
+    for key in ("message", "probe_mode", "token_usage", "http_status"):
+        value = item.get(key)
+        if value not in (None, ""):
+            sanitized[key] = value
+
+    return sanitized
+
+
+def _sanitize_provider_map(providers: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        name: _sanitize_provider_result(item)
+        for name, item in providers.items()
+    }
+
+
+@app.get("/health/public")
+async def public_health():
+    provider_states = _sanitize_provider_map(_build_provider_status_summary())
+    status = "ok"
+
+    if any(item["status"] == "missing_config" for item in provider_states.values()):
+        status = "degraded"
+
+    return {
+        "status": status,
+        "providers": provider_states,
+    }
 
 
 def _build_probe_result(
@@ -367,4 +434,40 @@ async def health_providers():
     return {
         "status": status,
         "providers": providers,
+    }
+
+
+@app.get("/health/providers/public")
+async def public_health_providers():
+    providers = {
+        "embedding": _live_probe_provider(
+            "Embedding",
+            settings.embedding_base_url,
+            settings.embedding_api_key,
+            settings.embedding_model,
+            settings.embedding_provider,
+        ),
+        "reranker": _live_probe_provider(
+            "Reranker",
+            settings.reranker_base_url,
+            settings.reranker_api_key,
+            settings.reranker_model,
+            "siliconflow-rerank-http",
+        ),
+        "chat": _live_probe_provider(
+            "Chat",
+            settings.chat_base_url,
+            settings.chat_api_key,
+            settings.chat_model,
+            "openai-compatible",
+        ),
+    }
+
+    status = "ok"
+    if any(item["status"] != "ok" for item in providers.values()):
+        status = "degraded"
+
+    return {
+        "status": status,
+        "providers": _sanitize_provider_map(providers),
     }

@@ -6,6 +6,7 @@ import {
   RightOutlined
 } from '@ant-design/icons-vue';
 import { getApiBase } from '@/services/runtime';
+import { buildPublicConfigHeaders } from '@/services/publicConfig';
 
 interface SourceSummary {
   index: number;
@@ -131,7 +132,10 @@ watch(
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/chat/sources/${encodeURIComponent(docId)}/${chunkIndex}`
+        `${API_BASE}/api/chat/sources/${encodeURIComponent(docId)}/${chunkIndex}`,
+        {
+          headers: buildPublicConfigHeaders()
+        }
       );
 
       if (!response.ok) {

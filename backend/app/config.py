@@ -8,6 +8,7 @@
 
 import json
 import os
+from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,30 @@ LEGACY_ENV_FALLBACKS: dict[str, tuple[str, ...]] = {
     "CHAT_API_KEY": ("OPENROUTER_API_KEY",),
     "CHAT_BASE_URL": ("OPENROUTER_BASE_URL",),
 }
+PUBLIC_FRONTEND_CONFIG_FIELDS = {
+    "EMBEDDING_PROVIDER",
+    "EMBEDDING_MAX_INPUT_TOKENS",
+    "EMBEDDING_TARGET_CHUNK_TOKENS",
+    "EMBEDDING_CHUNK_OVERLAP_TOKENS",
+    "EMBEDDING_TOKENIZER_MODEL",
+    "EMBEDDING_TOKENIZER_ENCODING",
+    "RERANKER_REQUEST_TIMEOUT",
+    "RETRIEVAL_CANDIDATE_LIMIT",
+    "RETRIEVAL_FINAL_CONTEXT_LIMIT",
+    "RETRIEVAL_SOURCE_LIMIT",
+    "RETRIEVAL_QUERY_EXPANSION_COUNT",
+    "CHAT_TEMPERATURE",
+    "OPENROUTER_SITE_URL",
+    "OPENROUTER_APP_TITLE",
+    "OPENROUTER_CATEGORIES",
+    "CHROMA_PERSIST_DIR",
+    "UPLOAD_DIR",
+    "CORS_ORIGINS",
+}
+_request_settings_overrides: ContextVar[dict[str, Any]] = ContextVar(
+    "request_settings_overrides",
+    default={},
+)
 
 
 class Settings(BaseModel):
@@ -263,5 +288,67 @@ def load_settings() -> Settings:
     return Settings.model_validate(values)
 
 
-# 模块导入时就完成一次配置加载，方便其他模块直接使用 settings。
-settings = load_settings()
+def _normalize_public_frontend_overrides(overrides: dict[str, Any] | None) -> dict[str, Any]:
+    """校验并规范化前端可公开配置覆盖。"""
+    if not isinstance(overrides, dict):
+        return {}
+
+    filtered: dict[str, Any] = {}
+    for key in PUBLIC_FRONTEND_CONFIG_FIELDS:
+        if key in overrides:
+            filtered[key] = overrides[key]
+
+    if not filtered:
+        return {}
+
+    merged_values = _base_settings.model_dump(by_alias=True)
+    merged_values.update(filtered)
+    validated = Settings.model_validate(merged_values)
+    normalized = validated.model_dump(by_alias=True)
+    normalized["CHROMA_PERSIST_DIR"] = _resolve_storage_path(
+        normalized["CHROMA_PERSIST_DIR"],
+        Path(validated.app_config_path),
+    )
+    normalized["UPLOAD_DIR"] = _resolve_storage_path(
+        normalized["UPLOAD_DIR"],
+        Path(validated.app_config_path),
+    )
+    return {
+        key: normalized[key]
+        for key in PUBLIC_FRONTEND_CONFIG_FIELDS
+        if key in normalized
+    }
+
+
+def set_request_settings_overrides(overrides: dict[str, Any] | None) -> Token[dict[str, Any]]:
+    """为当前请求设置临时配置覆盖。"""
+    normalized = _normalize_public_frontend_overrides(overrides)
+    return _request_settings_overrides.set(normalized)
+
+
+def reset_request_settings_overrides(token: Token[dict[str, Any]]) -> None:
+    """恢复当前请求之前的配置上下文。"""
+    _request_settings_overrides.reset(token)
+
+
+def get_settings() -> Settings:
+    """返回当前上下文下生效的配置对象。"""
+    overrides = _request_settings_overrides.get()
+    if not overrides:
+        return _base_settings
+
+    merged_values = _base_settings.model_dump(by_alias=True)
+    merged_values.update(overrides)
+    return Settings.model_validate(merged_values)
+
+
+class SettingsProxy:
+    """把全局配置包装成按请求解析的代理。"""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_settings(), name)
+
+
+# 模块导入时先加载基础配置，再通过代理按请求叠加前端公开设置。
+_base_settings = load_settings()
+settings = SettingsProxy()

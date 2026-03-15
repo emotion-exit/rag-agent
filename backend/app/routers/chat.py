@@ -9,6 +9,7 @@
 import json
 import asyncio
 import re
+from urllib.parse import quote
 from typing import AsyncIterator
 
 from fastapi import APIRouter, HTTPException, Request
@@ -160,6 +161,7 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
     """为来源详情挑选同页 / 同段附近的关联图片。"""
     source_page = int(metadata.get("source_page", 0) or 0)
     related_images = []
+    public_config = request.headers.get("x-rag-public-config", "").strip()
 
     for item in list_document_images(doc_id):
         image_id = str(item.get("image_id", "")).strip()
@@ -174,6 +176,10 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
         if not is_related:
             continue
 
+        image_url = str(request.url_for("get_document_image_file", doc_id=doc_id, image_id=image_id))
+        if public_config:
+            image_url = f"{image_url}?public_config={quote(public_config, safe='')}"
+
         related_images.append(
             {
                 "image_id": image_id,
@@ -181,7 +187,7 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
                 "source_label": item.get("source_label", ""),
                 "source_page": int(item.get("source_page", 0) or 0),
                 "anchor_text": item.get("anchor_text", ""),
-                "url": str(request.url_for("get_document_image_file", doc_id=doc_id, image_id=image_id)),
+                "url": image_url,
             }
         )
 

@@ -22,10 +22,6 @@ from app.services.reranker import rerank_documents
 
 # 向量检索距离阈值。这里使用的是 distance，数值越小代表语义越接近。
 RETRIEVAL_THRESHOLD = 0.7
-INITIAL_RETRIEVAL_LIMIT = max(int(settings.retrieval_candidate_limit), 1)
-FINAL_CONTEXT_LIMIT = max(int(settings.retrieval_final_context_limit), 1)
-FINAL_SOURCE_LIMIT = max(int(settings.retrieval_source_limit), 1)
-QUERY_EXPANSION_LIMIT = max(int(settings.retrieval_query_expansion_count), 0)
 # 限制单文档最多贡献多少个 chunk，避免某一份文档完全垄断上下文窗口。
 MAX_CHUNKS_PER_DOCUMENT = 2
 SOURCE_SUMMARY_LENGTH = 140
@@ -55,7 +51,6 @@ RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
 ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
 NO_KNOWLEDGE_BASE_ANSWER = "当前知识库中没有找到相关资料，无法回答您的问题。"
-KNOWLEDGE_SPACE_RESOLUTION_PROBE_LIMIT = max(INITIAL_RETRIEVAL_LIMIT, 8)
 KNOWLEDGE_SPACE_RESOLVED = "resolved"
 KNOWLEDGE_SPACE_AMBIGUOUS = "ambiguous"
 KNOWLEDGE_SPACE_UNKNOWN = "unknown"
@@ -105,6 +100,26 @@ ADVISORY_SYSTEM_GUIDANCE = """优化建议（在不违背核心指令时优先�
 5. 如果用户的问题非常宽泛，只回答当前问题最关键的部分，避免无关扩写。"""
 
 SYSTEM_INSTRUCTION = f"{CORE_SYSTEM_INSTRUCTION}\n\n{ADVISORY_SYSTEM_GUIDANCE}"
+
+
+def _get_initial_retrieval_limit() -> int:
+    return max(int(settings.retrieval_candidate_limit), 1)
+
+
+def _get_final_context_limit() -> int:
+    return max(int(settings.retrieval_final_context_limit), 1)
+
+
+def _get_final_source_limit() -> int:
+    return max(int(settings.retrieval_source_limit), 1)
+
+
+def _get_query_expansion_limit() -> int:
+    return max(int(settings.retrieval_query_expansion_count), 0)
+
+
+def _get_knowledge_space_resolution_probe_limit() -> int:
+    return max(_get_initial_retrieval_limit(), 8)
 
 
 def _build_llm() -> LiteLlm:
@@ -419,7 +434,7 @@ def _probe_knowledge_space_candidates(query: str) -> list[str]:
     try:
         probe_results = vector_store.query_documents(
             query,
-            n_results=KNOWLEDGE_SPACE_RESOLUTION_PROBE_LIMIT,
+            n_results=_get_knowledge_space_resolution_probe_limit(),
         )
     except Exception:
         probe_results = []
@@ -573,7 +588,8 @@ def _generate_query_variants(query: str, knowledge_space: str = "", session_id: 
         return list(cached_variants), True
 
     variants = [normalized_query]
-    if QUERY_EXPANSION_LIMIT <= 0:
+    query_expansion_limit = _get_query_expansion_limit()
+    if query_expansion_limit <= 0:
         _write_session_cache(session_id, "query_variants", cache_key, variants)
         return variants, False
 
@@ -583,7 +599,7 @@ def _generate_query_variants(query: str, knowledge_space: str = "", session_id: 
         (
             f"{scope_hint}"
             f"原始问题：{normalized_query}\n"
-            f"请生成 {QUERY_EXPANSION_LIMIT} 个与原问题语义等价、但更接近正式文档写法的中文检索问句。\n"
+            f"请生成 {query_expansion_limit} 个与原问题语义等价、但更接近正式文档写法的中文检索问句。\n"
             "要求：\n"
             "1. 不要引入原问题中没有的新事实、新对象或新流程。\n"
             "2. 可以补充同义词、正式术语、模块名称、流程名称。\n"
@@ -599,7 +615,7 @@ def _generate_query_variants(query: str, knowledge_space: str = "", session_id: 
         candidate = re.sub(r"^[\-\d\s.、]+", "", line).strip(" \t\"'“”")
         if candidate and candidate not in variants:
             variants.append(candidate)
-        if len(variants) >= QUERY_EXPANSION_LIMIT + 1:
+        if len(variants) >= query_expansion_limit + 1:
             break
 
     _write_session_cache(session_id, "query_variants", cache_key, variants)
@@ -1042,8 +1058,8 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
 
 def retrieve_relevant_documents_trace(
     query: str,
-    initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
-    final_n_results: int = FINAL_CONTEXT_LIMIT,
+    initial_n_results: int | None = None,
+    final_n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1052,6 +1068,8 @@ def retrieve_relevant_documents_trace(
     这个 trace 会被聊天流式接口复用，用于展示“已召回多少条、过滤后还剩多少条”等进度信息。
     """
     normalized_explicit_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
+    initial_n_results = initial_n_results or _get_initial_retrieval_limit()
+    final_n_results = final_n_results or _get_final_context_limit()
     trace_cache_key = _build_cache_key(
         query,
         json.dumps(
@@ -1211,8 +1229,8 @@ def retrieve_relevant_documents_trace(
 
 def retrieve_relevant_documents_with_mode(
     query: str,
-    initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
-    final_n_results: int = FINAL_CONTEXT_LIMIT,
+    initial_n_results: int | None = None,
+    final_n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> tuple[list[dict], str]:
@@ -1229,8 +1247,8 @@ def retrieve_relevant_documents_with_mode(
 
 def retrieve_relevant_documents(
     query: str,
-    initial_n_results: int = INITIAL_RETRIEVAL_LIMIT,
-    final_n_results: int = FINAL_CONTEXT_LIMIT,
+    initial_n_results: int | None = None,
+    final_n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> list[dict]:
@@ -1247,14 +1265,15 @@ def retrieve_relevant_documents(
 
 def build_source_payload(
     query: str,
-    n_results: int = FINAL_SOURCE_LIMIT,
+    n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> tuple[list[dict], str]:
     """把检索结果转成前端来源卡片需要的轻量结构。"""
+    n_results = n_results or _get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
-        initial_n_results=INITIAL_RETRIEVAL_LIMIT,
+        initial_n_results=_get_initial_retrieval_limit(),
         final_n_results=n_results,
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
@@ -1292,14 +1311,15 @@ def build_source_payload(
 
 def build_source_payload_with_trace(
     query: str,
-    n_results: int = FINAL_SOURCE_LIMIT,
+    n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
+    n_results = n_results or _get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
-        initial_n_results=INITIAL_RETRIEVAL_LIMIT,
+        initial_n_results=_get_initial_retrieval_limit(),
         final_n_results=n_results,
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
@@ -1335,7 +1355,7 @@ def build_source_payload_with_trace(
 
 def build_source_summaries(
     query: str,
-    n_results: int = FINAL_SOURCE_LIMIT,
+    n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> list[dict]:
@@ -1364,8 +1384,8 @@ def retrieve_from_knowledge_base(
 
     relevant, _ = retrieve_relevant_documents_with_mode(
         query,
-        initial_n_results=INITIAL_RETRIEVAL_LIMIT,
-        final_n_results=FINAL_CONTEXT_LIMIT,
+        initial_n_results=_get_initial_retrieval_limit(),
+        final_n_results=_get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
     )

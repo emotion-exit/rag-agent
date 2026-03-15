@@ -19,6 +19,7 @@ import type {
   SourceSummary
 } from '@/components/AnswerCard.vue';
 import { getApiBase } from '@/services/runtime';
+import { buildPublicConfigHeaders } from '@/services/publicConfig';
 
 const messages = ref<Message[]>([]);
 const inputText = ref('');
@@ -284,7 +285,10 @@ async function submitMessage(text: string) {
   try {
     const response = await fetch(`${API_BASE}/api/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildPublicConfigHeaders()
+      },
       body: JSON.stringify({
         message: text,
         session_id: sessionId.value,

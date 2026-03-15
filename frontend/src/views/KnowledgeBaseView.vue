@@ -17,6 +17,7 @@ import {
   WarningOutlined
 } from '@ant-design/icons-vue';
 import { getApiBase } from '@/services/runtime';
+import { buildPublicConfigHeaders } from '@/services/publicConfig';
 
 interface DocumentInfo {
   doc_id: string;
@@ -199,8 +200,12 @@ async function fetchDocuments() {
   loading.value = true;
   try {
     const [docsRes, statsRes] = await Promise.all([
-      fetch(`${API_BASE}/api/knowledge-base/documents`),
-      fetch(`${API_BASE}/api/knowledge-base/stats`)
+      fetch(`${API_BASE}/api/knowledge-base/documents`, {
+        headers: buildPublicConfigHeaders()
+      }),
+      fetch(`${API_BASE}/api/knowledge-base/stats`, {
+        headers: buildPublicConfigHeaders()
+      })
     ]);
     if (!docsRes.ok) throw new Error(`HTTP ${docsRes.status}`);
     if (!statsRes.ok) throw new Error(`HTTP ${statsRes.status}`);
@@ -235,6 +240,7 @@ async function processFiles(fileList: FileList | File[]) {
 
       const response = await fetch(`${API_BASE}/api/knowledge-base/upload`, {
         method: 'POST',
+        headers: buildPublicConfigHeaders(),
         body: formData
       });
       const data = (await parseApiResponse(response)) as UploadResponsePayload;
@@ -314,7 +320,8 @@ async function deleteDocument(doc: DocumentInfo) {
     const response = await fetch(
       `${API_BASE}/api/knowledge-base/documents/${doc.doc_id}`,
       {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: buildPublicConfigHeaders()
       }
     );
     const data = await response.json();
