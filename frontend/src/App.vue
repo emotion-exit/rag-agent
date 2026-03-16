@@ -106,7 +106,7 @@ const keepAliveIncludes = computed(() =>
   top: 24px;
   z-index: 100;
   width: 100%;
-  max-width: 900px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 0 20px;
 }
@@ -115,13 +115,15 @@ const keepAliveIncludes = computed(() =>
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.76);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  padding: 12px 16px 12px 20px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  padding: 10px 14px 10px 20px;
   border-radius: 100px;
-  box-shadow: var(--shadow-subtle);
-  border: 1px solid var(--color-border-soft);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.04),
+    0 1px 4px rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
 .logo-area {
@@ -172,17 +174,20 @@ const keepAliveIncludes = computed(() =>
 
 .nav-item:hover {
   color: var(--color-heading);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .nav-item-active {
   background: var(--color-surface);
   color: var(--color-heading);
-  box-shadow: 0 2px 8px rgba(24, 24, 27, 0.06);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.06),
+    0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .app-main {
   width: 100%;
-  max-width: 900px;
+  max-width: 1320px;
   margin: 0 auto;
   flex: 1;
   display: flex;

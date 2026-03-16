@@ -56,6 +56,7 @@
     "files": [
       "dist/**",
       "electron/**",
+      "public/favicon.ico",
       "package.json"
     ],
     "extraResources": [
@@ -65,12 +66,14 @@
       }
     ],
     "mac": {
+      "icon": "electron/assets/icon.icns",
       "target": [
         "dmg"
       ],
       "category": "public.app-category.productivity"
     },
     "win": {
+      "icon": "public/favicon.ico",
       "target": [
         "portable"
       ]

@@ -5,6 +5,8 @@ defineOptions({
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
+  CaretDownOutlined,
+  CaretRightOutlined,
   CheckCircleOutlined,
   DatabaseOutlined,
   DeleteOutlined,
@@ -19,6 +21,7 @@ import {
   WarningOutlined
 } from '@ant-design/icons-vue';
 import KnowledgeSpaceCreateModal from '@/components/knowledge-base/KnowledgeSpaceCreateModal.vue';
+import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import KnowledgeBaseTaskProgressModal from '@/components/knowledge-base/KnowledgeBaseTaskProgressModal.vue';
 import KnowledgeUploadModal from '@/components/knowledge-base/KnowledgeUploadModal.vue';
 import UngroupedMigrationModal from '@/components/knowledge-base/UngroupedMigrationModal.vue';
@@ -48,6 +51,24 @@ interface KnowledgeSpaceCreateResponsePayload {
 }
 
 type ToastType = 'success' | 'error';
+type DangerActionType = 'delete-space' | 'delete-document';
+
+interface DangerImpactStat {
+  label: string;
+  value: string;
+}
+
+interface DangerConfirmState {
+  visible: boolean;
+  action: DangerActionType | null;
+  targetId: string;
+  targetLabel: string;
+  title: string;
+  message: string;
+  confirmText: string;
+  impactStats: DangerImpactStat[];
+  impactItems: string[];
+}
 
 const API_BASE = getApiBase();
 const KNOWLEDGE_BASE_TASK_STORAGE_KEY = 'knowledge-base-active-task';
@@ -71,6 +92,8 @@ const spaceSummary = ref<SpaceSummary>({
 const selectedSpaceId = ref('');
 const loading = ref(false);
 const creatingSpace = ref(false);
+const deletingSpace = ref(false);
+const deletingDocumentId = ref('');
 const uploading = ref(false);
 const migratingUngrouped = ref(false);
 const createModalVisible = ref(false);
@@ -83,12 +106,24 @@ const toast = ref<{ visible: boolean; type: ToastType; message: string }>({
   type: 'success',
   message: ''
 });
+const dangerConfirm = ref<DangerConfirmState>({
+  visible: false,
+  action: null,
+  targetId: '',
+  targetLabel: '',
+  title: '',
+  message: '',
+  confirmText: '',
+  impactStats: [],
+  impactItems: []
+});
+const expandedSpaceIds = ref<string[]>([]);
 let taskPollingTimer: number | null = null;
 
 const createSpaceForm = ref<KnowledgeSpaceCreateForm>({
   name: '',
   parent_id: '',
-  category: CATEGORY_OPTIONS[0] ?? '制度规范',
+  category: '',
   topic: '',
   tags: '',
   version_label: '',
@@ -105,11 +140,33 @@ function flattenSpaces(nodes: KnowledgeSpace[]): KnowledgeSpace[] {
 }
 
 const flatSpaces = computed(() => flattenSpaces(spaces.value));
+const spaceMap = computed(
+  () => new Map(flatSpaces.value.map((item) => [item.space_id, item]))
+);
 const selectedSpace = computed(
   () =>
     flatSpaces.value.find((item) => item.space_id === selectedSpaceId.value) ||
     null
 );
+const visibleTreeSpaces = computed(() => {
+  const items: KnowledgeSpace[] = [];
+
+  const walk = (nodes: KnowledgeSpace[]) => {
+    for (const node of nodes) {
+      items.push(node);
+      if (
+        Array.isArray(node.children) &&
+        node.children.length > 0 &&
+        expandedSpaceIds.value.includes(node.space_id)
+      ) {
+        walk(node.children);
+      }
+    }
+  };
+
+  walk(spaces.value);
+  return items;
+});
 const childSpaces = computed(() =>
   flatSpaces.value.filter((item) => item.parent_id === selectedSpaceId.value)
 );
@@ -165,7 +222,7 @@ function buildDefaultCreateSpaceForm(parentId = ''): KnowledgeSpaceCreateForm {
   return {
     name: '',
     parent_id: parentId,
-    category: CATEGORY_OPTIONS[0] ?? '制度规范',
+    category: '',
     topic: '',
     tags: '',
     version_label: '',
@@ -252,6 +309,111 @@ function formatChunkCount(value: number) {
   return `${value || 0} 个分块`;
 }
 
+function hasChildSpaces(space: KnowledgeSpace) {
+  return Array.isArray(space.children) && space.children.length > 0;
+}
+
+function isSpaceExpanded(spaceId: string) {
+  return expandedSpaceIds.value.includes(spaceId);
+}
+
+function ensureExpanded(spaceId: string) {
+  if (!expandedSpaceIds.value.includes(spaceId)) {
+    expandedSpaceIds.value = [...expandedSpaceIds.value, spaceId];
+  }
+}
+
+function expandAncestors(spaceId: string) {
+  let current = spaceMap.value.get(spaceId);
+  while (current?.parent_id) {
+    ensureExpanded(current.parent_id);
+    current = spaceMap.value.get(current.parent_id);
+  }
+}
+
+function toggleSpaceExpanded(spaceId: string) {
+  if (expandedSpaceIds.value.includes(spaceId)) {
+    expandedSpaceIds.value = expandedSpaceIds.value.filter(
+      (item) => item !== spaceId
+    );
+    return;
+  }
+
+  ensureExpanded(spaceId);
+}
+
+function collectDescendantSpaceIds(spaceId: string) {
+  const descendantIds = new Set<string>();
+  const queue = [spaceId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId || descendantIds.has(currentId)) continue;
+
+    descendantIds.add(currentId);
+    flatSpaces.value
+      .filter((item) => item.parent_id === currentId)
+      .forEach((item) => {
+        queue.push(item.space_id);
+      });
+  }
+
+  return descendantIds;
+}
+
+function buildSpaceDeleteImpactStats(
+  space: KnowledgeSpace
+): DangerImpactStat[] {
+  const relatedSpaceIds = collectDescendantSpaceIds(space.space_id);
+  const relatedDocuments = documents.value.filter((doc) =>
+    relatedSpaceIds.has(String(doc.space_id || '').trim())
+  );
+  const chunkCount = relatedDocuments.reduce(
+    (sum, item) => sum + Number(item.chunk_count || 0),
+    0
+  );
+  const imageCount = relatedDocuments.reduce(
+    (sum, item) => sum + Number(item.image_count || 0),
+    0
+  );
+
+  return [
+    {
+      label: '覆盖空间',
+      value: `${relatedSpaceIds.size} 个`
+    },
+    {
+      label: '关联文档',
+      value: `${relatedDocuments.length} 篇`
+    },
+    {
+      label: '文档分块',
+      value: `${chunkCount} 个`
+    },
+    {
+      label: '附图资源',
+      value: `${imageCount} 张`
+    }
+  ];
+}
+
+function buildDocumentDeleteImpactStats(doc: DocumentInfo): DangerImpactStat[] {
+  return [
+    {
+      label: '所属空间',
+      value: formatMetadata(doc.knowledge_space)
+    },
+    {
+      label: '文档分块',
+      value: `${Number(doc.chunk_count || 0)} 个`
+    },
+    {
+      label: '附图资源',
+      value: `${Number(doc.image_count || 0)} 张`
+    }
+  ];
+}
+
 async function parseApiResponse(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') || '';
 
@@ -279,19 +441,33 @@ function extractApiErrorMessage(payload: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
+function normalizeCreateSpaceErrorMessage(message: string) {
+  const normalized = String(message || '').trim();
+  if (normalized === '主题不能为空' || normalized === '分类不能为空') {
+    return '当前后端仍在使用旧的必填校验，请重启后端后重试。';
+  }
+
+  return normalized;
+}
+
 function syncSelectedSpace(preferredSpaceId = '') {
   const availableIds = new Set(flatSpaces.value.map((item) => item.space_id));
 
   if (preferredSpaceId && availableIds.has(preferredSpaceId)) {
     selectedSpaceId.value = preferredSpaceId;
+    expandAncestors(preferredSpaceId);
     return;
   }
 
   if (selectedSpaceId.value && availableIds.has(selectedSpaceId.value)) {
+    expandAncestors(selectedSpaceId.value);
     return;
   }
 
   selectedSpaceId.value = flatSpaces.value[0]?.space_id || '';
+  if (selectedSpaceId.value) {
+    ensureExpanded(selectedSpaceId.value);
+  }
 }
 
 async function refreshKnowledgeBase(preferredSpaceId = '') {
@@ -343,16 +519,6 @@ function validateCreateSpaceForm(payload: KnowledgeSpaceCreateForm) {
     return false;
   }
 
-  if (!payload.category.trim()) {
-    showToast('请先填写知识空间分类', 'error');
-    return false;
-  }
-
-  if (!payload.topic.trim()) {
-    showToast('请先填写知识空间主题', 'error');
-    return false;
-  }
-
   return true;
 }
 
@@ -364,6 +530,121 @@ function openCreateSpaceModal(parentId = '') {
 function closeCreateSpaceModal() {
   if (creatingSpace.value) return;
   createModalVisible.value = false;
+}
+
+function resetDangerConfirm() {
+  dangerConfirm.value = {
+    visible: false,
+    action: null,
+    targetId: '',
+    targetLabel: '',
+    title: '',
+    message: '',
+    confirmText: '',
+    impactStats: [],
+    impactItems: []
+  };
+}
+
+function closeDangerConfirm() {
+  if (deletingSpace.value || deletingDocumentId.value) return;
+  resetDangerConfirm();
+}
+
+function openDeleteSpaceConfirm() {
+  const space = selectedSpace.value;
+  if (!space || deletingSpace.value || hasActiveTask.value) return;
+
+  dangerConfirm.value = {
+    visible: true,
+    action: 'delete-space',
+    targetId: space.space_id,
+    targetLabel: space.path,
+    title: `删除空间“${space.name}”`,
+    message: '该操作不可恢复。确认后会递归清理当前空间下的全部结构和索引数据。',
+    confirmText: '确认删除空间',
+    impactStats: buildSpaceDeleteImpactStats(space),
+    impactItems: [
+      '当前知识空间',
+      '所有子空间',
+      '空间下全部文档',
+      '文档分块与向量索引',
+      '附图与资源目录'
+    ]
+  };
+}
+
+function openDeleteDocumentConfirm(doc: DocumentInfo) {
+  if (!doc.doc_id || deletingDocumentId.value) return;
+
+  dangerConfirm.value = {
+    visible: true,
+    action: 'delete-document',
+    targetId: doc.doc_id,
+    targetLabel: doc.filename,
+    title: `删除文档“${doc.filename}”`,
+    message:
+      '删除后该文档将从知识库中彻底移除，相关分块和附图资源也会同步清理。',
+    confirmText: '确认删除文档',
+    impactStats: buildDocumentDeleteImpactStats(doc),
+    impactItems: [
+      '当前文档记录',
+      '文档文本分块',
+      '向量索引数据',
+      '附图与资源文件'
+    ]
+  };
+}
+
+async function deleteSelectedSpace() {
+  const targetSpaceId = String(dangerConfirm.value.targetId || '').trim();
+  const targetSpace =
+    spaceMap.value.get(targetSpaceId) ||
+    (selectedSpace.value?.space_id === targetSpaceId
+      ? selectedSpace.value
+      : null);
+  if (!targetSpaceId || deletingSpace.value || hasActiveTask.value) return;
+
+  deletingSpace.value = true;
+  try {
+    const fallbackParentId = String(targetSpace?.parent_id || '').trim();
+    let response = await fetch(
+      `${API_BASE}/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}`,
+      {
+        method: 'DELETE',
+        headers: buildPublicConfigHeaders()
+      }
+    );
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch(
+        `${API_BASE}/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}/delete`,
+        {
+          method: 'POST',
+          headers: buildPublicConfigHeaders()
+        }
+      );
+    }
+    const data = (await parseApiResponse(response)) as {
+      detail?: string;
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(extractApiErrorMessage(data, response.status));
+    }
+
+    selectedSpaceId.value = fallbackParentId;
+    await refreshKnowledgeBase(fallbackParentId);
+    resetDangerConfirm();
+    showToast(
+      data.message ||
+        `知识空间“${targetSpace?.path || dangerConfirm.value.targetLabel || targetSpaceId}”已删除`
+    );
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    showToast(`删除知识空间失败：${errMsg}`, 'error');
+  } finally {
+    deletingSpace.value = false;
+  }
 }
 
 async function createSpace(payload: KnowledgeSpaceCreateForm) {
@@ -401,7 +682,9 @@ async function createSpace(payload: KnowledgeSpaceCreateForm) {
     createModalVisible.value = false;
     showToast(data.message || '知识空间创建成功');
   } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const errMsg = normalizeCreateSpaceErrorMessage(
+      err instanceof Error ? err.message : String(err)
+    );
     showToast(`创建知识空间失败：${errMsg}`, 'error');
   } finally {
     creatingSpace.value = false;
@@ -636,10 +919,7 @@ async function handleUngroupedMigration(targetSpaceId: string) {
 }
 
 async function deleteDocument(doc: DocumentInfo) {
-  if (!window.confirm(`确定删除“${doc.filename}”吗？`)) {
-    return;
-  }
-
+  deletingDocumentId.value = doc.doc_id;
   try {
     const response = await fetch(
       `${API_BASE}/api/knowledge-base/documents/${doc.doc_id}`,
@@ -650,16 +930,42 @@ async function deleteDocument(doc: DocumentInfo) {
     );
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    showToast(`已删除文档“${doc.filename}”`);
     await refreshKnowledgeBase(selectedSpace.value?.space_id || '');
+    resetDangerConfirm();
+    showToast(`已删除文档“${doc.filename}”`);
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
     showToast(`删除失败：${errMsg}`, 'error');
+  } finally {
+    deletingDocumentId.value = '';
+  }
+}
+
+async function confirmDangerAction() {
+  if (!dangerConfirm.value.action) return;
+
+  if (dangerConfirm.value.action === 'delete-space') {
+    await deleteSelectedSpace();
+    return;
+  }
+
+  if (dangerConfirm.value.action === 'delete-document') {
+    const doc = visibleDocuments.value.find(
+      (item) => item.doc_id === dangerConfirm.value.targetId
+    );
+    if (!doc) {
+      closeDangerConfirm();
+      showToast('目标文档不存在或已被移除', 'error');
+      return;
+    }
+
+    await deleteDocument(doc);
   }
 }
 
 function selectSpace(spaceId: string) {
   selectedSpaceId.value = spaceId;
+  expandAncestors(spaceId);
 }
 
 function assignSelectedSpaceAsParent() {
@@ -678,49 +984,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="kb-page">
-    <section class="kb-panel kb-hero">
+    <section class="kb-hero">
       <div class="kb-hero-head">
         <div>
-          <div class="kb-eyebrow">Knowledge Space</div>
-          <h1 class="kb-title">知识空间浏览</h1>
-          <p class="kb-subtitle">
-            页面只保留浏览、下钻和当前空间操作。创建空间、上传文件都改为弹窗处理，避免主界面堆叠表单。
-          </p>
-        </div>
-        <div class="kb-hero-actions">
-          <button
-            v-if="spaceSummary.ungrouped_documents > 0"
-            type="button"
-            class="kb-btn kb-btn-warning"
-            :disabled="hasActiveTask"
-            @click="openMigrationModal">
-            <WarningOutlined />
-            迁移未归类文档
-          </button>
-          <button
-            type="button"
-            class="kb-btn kb-btn-secondary"
-            :disabled="hasActiveTask"
-            @click="openCreateSpaceModal()">
-            <PlusOutlined />
-            新建空间
-          </button>
-          <button
-            type="button"
-            class="kb-btn kb-btn-primary"
-            :disabled="!selectedSpace || hasActiveTask"
-            @click="openUploadModal">
-            <UploadOutlined />
-            上传文档
-          </button>
-          <button
-            type="button"
-            class="kb-btn kb-btn-ghost"
-            :disabled="loading"
-            @click="refreshKnowledgeBase(selectedSpaceId)">
-            <ReloadOutlined :class="{ spin: loading }" />
-            刷新
-          </button>
+          <h1 class="kb-title">知识空间</h1>
         </div>
       </div>
 
@@ -740,7 +1007,10 @@ onBeforeUnmount(() => {
         <div class="kb-section-head">
           <div>
             <div class="kb-section-title">空间树</div>
-            <div class="kb-section-desc">像目录一样浏览知识空间。</div>
+            <div class="kb-tree-subtitle">
+              {{ flatSpaces.length }} 个正式空间 ·
+              {{ spaceSummary.ungrouped_documents }} 篇待归类文档
+            </div>
           </div>
           <button
             v-if="selectedSpace"
@@ -754,26 +1024,31 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="kb-tree-list">
-          <button
-            type="button"
-            :class="[
-              'kb-tree-item',
-              !selectedSpaceId ? 'kb-tree-item-active' : ''
-            ]"
-            @click="selectedSpaceId = ''">
-            <div class="kb-tree-main">
-              <FolderOpenOutlined class="kb-tree-icon" />
-              <div class="kb-tree-copy">
-                <div class="kb-tree-name">未归类文档</div>
-                <div class="kb-tree-path">旧数据过渡区，不建议继续上传</div>
+          <div class="kb-tree-row" :style="{ '--tree-depth': '0' }">
+            <span class="kb-tree-toggle kb-tree-toggle-placeholder" />
+            <button
+              type="button"
+              :class="[
+                'kb-tree-item',
+                !selectedSpaceId ? 'kb-tree-item-active' : ''
+              ]"
+              @click="selectedSpaceId = ''">
+              <div class="kb-tree-main">
+                <FolderOpenOutlined class="kb-tree-icon" />
+                <div class="kb-tree-copy">
+                  <div class="kb-tree-name">未归类文档</div>
+                  <div class="kb-tree-path">旧数据过渡区，不建议继续上传</div>
+                </div>
               </div>
-            </div>
-            <span class="kb-tree-count">
-              {{ spaceSummary.ungrouped_documents }}
-            </span>
-          </button>
+              <span class="kb-tree-count">
+                {{ spaceSummary.ungrouped_documents }}
+              </span>
+            </button>
+          </div>
 
-          <div v-if="flatSpaces.length === 0" class="kb-empty kb-empty-tree">
+          <div
+            v-if="flatSpaces.length === 0"
+            class="kb-empty kb-empty-tree kb-empty-tree-compact">
             <FolderOpenOutlined class="kb-empty-icon" />
             <p>还没有知识空间，请先创建一个顶级空间。</p>
             <button
@@ -785,32 +1060,50 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <button
-            v-for="space in flatSpaces"
+          <div
+            v-for="space in visibleTreeSpaces"
             :key="space.space_id"
-            type="button"
-            :class="[
-              'kb-tree-item',
-              selectedSpaceId === space.space_id ? 'kb-tree-item-active' : ''
-            ]"
-            :style="{ paddingLeft: `${16 + space.depth * 18}px` }"
-            @click="selectSpace(space.space_id)">
-            <div class="kb-tree-main">
-              <FolderOpenOutlined class="kb-tree-icon" />
-              <div class="kb-tree-copy">
-                <div class="kb-tree-name">{{ space.name }}</div>
-                <div class="kb-tree-path">{{ space.path }}</div>
+            class="kb-tree-row"
+            :style="{ '--tree-depth': String(space.depth) }">
+            <button
+              v-if="hasChildSpaces(space)"
+              type="button"
+              class="kb-tree-toggle"
+              :title="
+                isSpaceExpanded(space.space_id) ? '收起子空间' : '展开子空间'
+              "
+              @click.stop="toggleSpaceExpanded(space.space_id)">
+              <CaretDownOutlined v-if="isSpaceExpanded(space.space_id)" />
+              <CaretRightOutlined v-else />
+            </button>
+            <span v-else class="kb-tree-toggle kb-tree-toggle-placeholder" />
+
+            <button
+              type="button"
+              :class="[
+                'kb-tree-item',
+                selectedSpaceId === space.space_id ? 'kb-tree-item-active' : ''
+              ]"
+              @click="selectSpace(space.space_id)">
+              <div class="kb-tree-main">
+                <FolderOpenOutlined class="kb-tree-icon" />
+                <div class="kb-tree-copy">
+                  <div class="kb-tree-name">{{ space.name }}</div>
+                  <div class="kb-tree-path">{{ space.path }}</div>
+                </div>
               </div>
-            </div>
-            <span class="kb-tree-count">
-              {{ space.direct_document_count }}/{{ space.total_document_count }}
-            </span>
-          </button>
+              <span class="kb-tree-count">
+                {{ space.direct_document_count }}/{{
+                  space.total_document_count
+                }}
+              </span>
+            </button>
+          </div>
         </div>
       </aside>
 
       <div class="kb-main">
-        <article class="kb-panel kb-focus-panel">
+        <article v-if="selectedSpace" class="kb-panel kb-focus-panel">
           <div class="kb-section-head kb-focus-head">
             <div>
               <div class="kb-section-title">
@@ -824,7 +1117,16 @@ onBeforeUnmount(() => {
               <button
                 v-if="selectedSpace"
                 type="button"
-                class="kb-btn kb-btn-secondary"
+                class="kb-btn kb-btn-danger"
+                :disabled="hasActiveTask || deletingSpace"
+                @click="openDeleteSpaceConfirm">
+                <DeleteOutlined />
+                {{ deletingSpace ? '删除中...' : '删除空间' }}
+              </button>
+              <button
+                v-if="selectedSpace"
+                type="button"
+                class="kb-btn kb-btn-secondary kb-btn-wide"
                 :disabled="hasActiveTask"
                 @click="assignSelectedSpaceAsParent">
                 <PlusOutlined />
@@ -832,7 +1134,7 @@ onBeforeUnmount(() => {
               </button>
               <button
                 type="button"
-                class="kb-btn kb-btn-primary"
+                class="kb-btn kb-btn-primary kb-btn-wide"
                 :disabled="!selectedSpace || hasActiveTask"
                 @click="openUploadModal">
                 <UploadOutlined />
@@ -841,100 +1143,74 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <template v-if="selectedSpace">
-            <div class="kb-focus-stats">
-              <div class="kb-focus-stat">
-                <span class="kb-focus-stat-label">直属文档</span>
-                <strong class="kb-focus-stat-value">
-                  {{ selectedSpace.direct_document_count }}
-                </strong>
-              </div>
-              <div class="kb-focus-stat">
-                <span class="kb-focus-stat-label">全部文档</span>
-                <strong class="kb-focus-stat-value">
-                  {{ selectedSpace.total_document_count }}
-                </strong>
-              </div>
-              <div class="kb-focus-stat">
-                <span class="kb-focus-stat-label">子空间</span>
-                <strong class="kb-focus-stat-value">
-                  {{ selectedSpace.child_count }}
-                </strong>
-              </div>
-              <div class="kb-focus-stat">
-                <span class="kb-focus-stat-label">创建时间</span>
-                <strong class="kb-focus-stat-value kb-focus-stat-time">
-                  {{ formatDate(selectedSpace.created_at) }}
-                </strong>
-              </div>
+          <div class="kb-focus-stats">
+            <div class="kb-focus-stat">
+              <span class="kb-focus-stat-label">直属文档</span>
+              <strong class="kb-focus-stat-value">
+                {{ selectedSpace.direct_document_count }}
+              </strong>
             </div>
-
-            <div class="kb-meta-row">
-              <span class="kb-meta-chip">
-                分类 · {{ formatMetadata(selectedSpace.category) }}
-              </span>
-              <span class="kb-meta-chip">
-                主题 · {{ formatMetadata(selectedSpace.topic) }}
-              </span>
-              <span
-                v-if="selectedSpace.version_label"
-                class="kb-meta-chip kb-meta-chip-success">
-                版本 · {{ selectedSpace.version_label }}
-              </span>
-              <span
-                v-for="tag in formatTagList(selectedSpace.tags)"
-                :key="`${selectedSpace.space_id}-${tag}`"
-                class="kb-meta-chip">
-                {{ tag }}
-              </span>
+            <div class="kb-focus-stat">
+              <span class="kb-focus-stat-label">全部文档</span>
+              <strong class="kb-focus-stat-value">
+                {{ selectedSpace.total_document_count }}
+              </strong>
             </div>
-
-            <p class="kb-focus-description">
-              {{ selectedSpace.description || '当前空间未填写额外说明。' }}
-            </p>
-
-            <div v-if="childSpaces.length > 0" class="kb-children-wrap">
-              <div class="kb-children-title">下一级空间</div>
-              <div class="kb-children-grid">
-                <button
-                  v-for="space in childSpaces"
-                  :key="space.space_id"
-                  type="button"
-                  class="kb-child-card"
-                  @click="selectSpace(space.space_id)">
-                  <div class="kb-child-name">{{ space.name }}</div>
-                  <div class="kb-child-path">{{ space.path }}</div>
-                  <div class="kb-child-meta">
-                    {{ space.child_count }} 个子空间 ·
-                    {{ space.total_document_count }} 篇文档
-                  </div>
-                </button>
-              </div>
+            <div class="kb-focus-stat">
+              <span class="kb-focus-stat-label">子空间</span>
+              <strong class="kb-focus-stat-value">
+                {{ selectedSpace.child_count }}
+              </strong>
             </div>
-          </template>
+            <div class="kb-focus-stat">
+              <span class="kb-focus-stat-label">创建时间</span>
+              <strong class="kb-focus-stat-value kb-focus-stat-time">
+                {{ formatDate(selectedSpace.created_at) }}
+              </strong>
+            </div>
+          </div>
 
-          <div v-else class="kb-empty kb-empty-focus kb-empty-warning">
-            <DatabaseOutlined class="kb-empty-icon" />
-            <p>
-              当前是未归类视图。建议先创建正式知识空间，再通过弹窗上传文档。
-            </p>
-            <button
-              v-if="spaceSummary.ungrouped_documents > 0"
-              type="button"
-              class="kb-btn kb-btn-warning"
-              :disabled="hasActiveTask"
-              @click="openMigrationModal">
-              <WarningOutlined />
-              批量迁移并重建索引
-            </button>
-            <button
-              type="button"
-              class="kb-btn kb-btn-secondary"
-              :disabled="hasActiveTask"
-              @click="openCreateSpaceModal()">
-              <PlusOutlined />
-              新建顶级空间
-            </button>
+          <div class="kb-meta-row">
+            <span class="kb-meta-chip">
+              分类 · {{ formatMetadata(selectedSpace.category) }}
+            </span>
+            <span class="kb-meta-chip">
+              主题 · {{ formatMetadata(selectedSpace.topic) }}
+            </span>
+            <span
+              v-if="selectedSpace.version_label"
+              class="kb-meta-chip kb-meta-chip-success">
+              版本 · {{ selectedSpace.version_label }}
+            </span>
+            <span
+              v-for="tag in formatTagList(selectedSpace.tags)"
+              :key="`${selectedSpace.space_id}-${tag}`"
+              class="kb-meta-chip">
+              {{ tag }}
+            </span>
+          </div>
+
+          <p class="kb-focus-description">
+            {{ selectedSpace.description || '当前空间未填写额外说明。' }}
+          </p>
+
+          <div v-if="childSpaces.length > 0" class="kb-children-wrap">
+            <div class="kb-children-title">下一级空间</div>
+            <div class="kb-children-grid">
+              <button
+                v-for="space in childSpaces"
+                :key="space.space_id"
+                type="button"
+                class="kb-child-card"
+                @click="selectSpace(space.space_id)">
+                <div class="kb-child-name">{{ space.name }}</div>
+                <div class="kb-child-path">{{ space.path }}</div>
+                <div class="kb-child-meta">
+                  {{ space.child_count }} 个子空间 ·
+                  {{ space.total_document_count }} 篇文档
+                </div>
+              </button>
+            </div>
           </div>
         </article>
 
@@ -944,26 +1220,53 @@ onBeforeUnmount(() => {
               <div class="kb-section-title">{{ documentPanelTitle }}</div>
               <div class="kb-section-desc">{{ documentPanelSubtitle }}</div>
             </div>
-            <div class="kb-doc-count">{{ visibleDocuments.length }} 篇</div>
+            <div class="kb-doc-tools">
+              <button
+                type="button"
+                class="kb-btn kb-btn-ghost kb-btn-compact"
+                :disabled="loading"
+                @click="refreshKnowledgeBase(selectedSpaceId)">
+                <ReloadOutlined :class="{ spin: loading }" />
+                刷新
+              </button>
+              <div class="kb-doc-count">{{ visibleDocuments.length }} 篇</div>
+            </div>
           </div>
 
-          <div
-            v-if="!selectedSpace && ungroupedDocuments.length > 0"
-            class="kb-alert-banner kb-alert-banner-warning">
-            <div>
-              <div class="kb-alert-title">迁移时会重新 embedding</div>
-              <div class="kb-alert-text">
-                批量迁移会把目标空间的元数据重新写入这些文档，并重建对应向量索引，请尽量在低峰时段操作。
+          <div v-if="!selectedSpace" class="kb-ungrouped-module">
+            <div class="kb-ungrouped-copy">
+              <div class="kb-ungrouped-title">未归类文档过渡区</div>
+              <div class="kb-ungrouped-text">
+                当前是历史遗留数据的过渡视图。建议尽快创建正式知识空间，并将这些文档迁移到目标空间以重建索引。
               </div>
             </div>
-            <button
-              type="button"
-              class="kb-btn kb-btn-warning"
-              :disabled="hasActiveTask"
-              @click="openMigrationModal">
-              <WarningOutlined />
-              立即迁移
-            </button>
+            <div class="kb-ungrouped-note">
+              <div>
+                <div class="kb-alert-title">迁移时会重新 embedding</div>
+                <div class="kb-alert-text">
+                  批量迁移会把目标空间的元数据重新写入这些文档，并重建对应向量索引，请尽量在低峰时段操作。
+                </div>
+              </div>
+              <div class="kb-ungrouped-actions">
+                <button
+                  v-if="spaceSummary.ungrouped_documents > 0"
+                  type="button"
+                  class="kb-btn kb-btn-warning kb-btn-wide"
+                  :disabled="hasActiveTask"
+                  @click="openMigrationModal">
+                  <WarningOutlined />
+                  批量迁移并重建索引
+                </button>
+                <button
+                  type="button"
+                  class="kb-btn kb-btn-secondary kb-btn-wide"
+                  :disabled="hasActiveTask"
+                  @click="openCreateSpaceModal()">
+                  <PlusOutlined />
+                  新建顶级空间
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-if="loading && documents.length === 0" class="kb-empty">
@@ -1001,7 +1304,7 @@ onBeforeUnmount(() => {
                     class="kb-icon-btn kb-icon-btn-danger"
                     type="button"
                     title="删除文档"
-                    @click="deleteDocument(doc)">
+                    @click="openDeleteDocumentConfirm(doc)">
                     <DeleteOutlined />
                   </button>
                 </div>
@@ -1079,6 +1382,17 @@ onBeforeUnmount(() => {
       @close="closeCreateSpaceModal"
       @submit="createSpace" />
 
+    <KnowledgeDangerConfirmModal
+      :visible="dangerConfirm.visible"
+      :title="dangerConfirm.title"
+      :message="dangerConfirm.message"
+      :impact-stats="dangerConfirm.impactStats"
+      :impact-items="dangerConfirm.impactItems"
+      :confirm-text="dangerConfirm.confirmText"
+      :submitting="deletingSpace || !!deletingDocumentId"
+      @close="closeDangerConfirm"
+      @confirm="confirmDangerAction" />
+
     <KnowledgeUploadModal
       :visible="uploadModalVisible"
       :submitting="uploading"
@@ -1110,7 +1424,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
-  padding-top: 16px;
+  padding-top: 0;
   padding-bottom: 18px;
 }
 
@@ -1123,7 +1437,12 @@ onBeforeUnmount(() => {
 }
 
 .kb-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 0;
+  padding: 12px 4px 4px;
+  gap: 24px;
 }
 
 .kb-hero-head,
@@ -1136,21 +1455,27 @@ onBeforeUnmount(() => {
   gap: 24px;
 }
 
+.kb-hero-head {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
 .kb-eyebrow {
   color: #71717a;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
 }
 
 .kb-title {
   margin-top: 0;
   color: #18181b;
-  font-size: 30px;
-  line-height: 1.1;
+  font-size: 20px;
+  line-height: 1.05;
   letter-spacing: -0.04em;
+  margin-bottom: 0;
 }
 
 .kb-subtitle,
@@ -1171,12 +1496,37 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
-.kb-hero-actions,
+.kb-hero-head > :first-child,
+.kb-section-head > :first-child,
+.kb-doc-head > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+
 .kb-focus-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
+  align-items: flex-start;
+}
+
+.kb-action-cluster,
+.kb-empty-actions,
+.kb-ungrouped-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.kb-action-cluster-primary {
+  justify-content: flex-end;
+}
+
+.kb-focus-actions,
+.kb-empty-actions,
+.kb-ungrouped-actions {
+  justify-content: flex-end;
 }
 
 .kb-btn,
@@ -1187,11 +1537,13 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-height: 40px;
   padding: 0 16px;
+  min-width: 116px;
   border: none;
   border-radius: 12px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -1223,6 +1575,11 @@ onBeforeUnmount(() => {
   color: #3f3f46;
 }
 
+.kb-btn-danger {
+  background: rgba(177, 55, 42, 0.1);
+  color: #9e3328;
+}
+
 .kb-btn-secondary,
 .kb-chip-btn {
   background: #f4f4f5;
@@ -1234,16 +1591,29 @@ onBeforeUnmount(() => {
   color: #3f3f46;
 }
 
+.kb-btn-wide {
+  min-width: 154px;
+}
+
+.kb-btn-compact {
+  min-width: 88px;
+}
+
 .kb-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 0;
+  flex: 1;
 }
 
 .kb-summary-card {
-  padding: 18px;
-  border-radius: 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 12px;
   border: 1px solid rgba(24, 24, 27, 0.08);
   background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
 }
@@ -1281,14 +1651,14 @@ onBeforeUnmount(() => {
 }
 
 .kb-summary-value {
-  margin-top: 8px;
-  font-size: 18px;
+  margin-top: 0;
+  font-size: 16px;
 }
 
 .kb-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: 16px;
+  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
 }
 
@@ -1297,45 +1667,131 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.kb-sidebar {
+  position: sticky;
+  top: 0;
+}
+
 .kb-main {
   display: grid;
-  gap: 16px;
+  gap: 18px;
+}
+
+.kb-tree-subtitle {
+  margin-top: 6px;
+  color: #8a8a94;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .kb-tree-list {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  max-height: min(72vh, 820px);
+  overflow: auto;
+  border-radius: 22px;
+  border: 1px solid rgba(24, 24, 27, 0.05);
+  background: linear-gradient(
+    180deg,
+    rgba(24, 24, 27, 0.015) 0%,
+    rgba(24, 24, 27, 0.04) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 18px 32px rgba(24, 24, 27, 0.04);
+}
+
+.kb-tree-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
+  align-items: stretch;
+  padding-left: calc(var(--tree-depth, 0) * 18px);
+  min-height: 72px;
+}
+
+.kb-tree-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 100%;
+  border: none;
+  border-radius: 12px;
+  background: rgba(24, 24, 27, 0.04);
+  color: #71717a;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease;
+}
+
+.kb-tree-toggle:hover {
+  background: rgba(24, 24, 27, 0.08);
+  color: #18181b;
+}
+
+.kb-tree-toggle-placeholder {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .kb-tree-item {
+  position: relative;
   width: 100%;
   border: 1px solid rgba(24, 24, 27, 0.08);
-  border-radius: 18px;
+  border-radius: 22px;
   background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 14px 16px;
+  min-height: 72px;
+  padding: 16px 18px 16px 20px;
   text-align: left;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
-    transform 0.2s ease,
     background 0.2s ease;
 }
 
+.kb-tree-item::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 10px;
+  width: 4px;
+  border-radius: 999px;
+  background: rgba(24, 24, 27, 0.08);
+  transition:
+    background 0.2s ease,
+    opacity 0.2s ease;
+  opacity: 0.7;
+}
+
 .kb-tree-item:hover {
-  transform: translateY(-1px);
   border-color: rgba(24, 24, 27, 0.14);
+  box-shadow: 0 10px 20px rgba(24, 24, 27, 0.05);
+}
+
+.kb-tree-item:active {
+  transform: none;
 }
 
 .kb-tree-item-active {
   border-color: transparent;
   background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
-  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.16);
+  box-shadow: 0 20px 34px rgba(24, 24, 27, 0.18);
+}
+
+.kb-tree-item-active::before {
+  background: rgba(255, 255, 255, 0.34);
 }
 
 .kb-tree-item-active .kb-tree-name,
@@ -1358,30 +1814,44 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.kb-tree-main {
+  align-items: center;
+  gap: 14px;
+}
+
 .kb-tree-icon,
 .kb-doc-icon {
   flex-shrink: 0;
 }
 
 .kb-tree-icon {
-  margin-top: 2px;
+  font-size: 18px;
   color: #71717a;
 }
 
 .kb-tree-copy {
   min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.kb-tree-name {
+  line-height: 1.4;
+  font-size: 15px;
 }
 
 .kb-tree-path {
-  margin-top: 4px;
   word-break: break-word;
+  font-size: 12px;
 }
 
 .kb-tree-count,
 .kb-doc-count {
   flex-shrink: 0;
+  min-width: 60px;
+  text-align: center;
   border-radius: 999px;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: #f4f4f5;
   border: 1px solid rgba(24, 24, 27, 0.08);
   color: #52525b;
@@ -1393,13 +1863,21 @@ onBeforeUnmount(() => {
   color: #18181b;
 }
 
+.kb-doc-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .kb-focus-head {
   margin-bottom: 18px;
 }
 
 .kb-focus-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -1473,7 +1951,7 @@ onBeforeUnmount(() => {
 }
 
 .kb-children-grid {
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin-top: 10px;
 }
 
@@ -1506,7 +1984,7 @@ onBeforeUnmount(() => {
 }
 
 .kb-doc-grid {
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .kb-doc-card {
@@ -1600,8 +2078,20 @@ onBeforeUnmount(() => {
   margin-top: 4px;
 }
 
+.kb-empty-tree-compact {
+  min-height: 240px;
+  padding: 32px 18px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .kb-empty-focus {
   padding: 32px 20px;
+}
+
+.kb-empty-actions {
+  margin-top: 18px;
+  justify-content: center;
 }
 
 .kb-empty-warning {
@@ -1609,20 +2099,40 @@ onBeforeUnmount(() => {
   border-color: rgba(24, 24, 27, 0.12);
 }
 
-.kb-alert-banner {
+.kb-ungrouped-module {
+  margin-bottom: 18px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(180, 125, 29, 0.14);
+  background: linear-gradient(
+    180deg,
+    rgba(180, 125, 29, 0.08) 0%,
+    rgba(180, 125, 29, 0.14) 100%
+  );
+}
+
+.kb-ungrouped-title {
+  color: #18181b;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.kb-ungrouped-text {
+  margin-top: 8px;
+  color: #52525b;
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 760px;
+}
+
+.kb-ungrouped-note {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  background: rgba(180, 125, 29, 0.12);
-}
-
-.kb-alert-banner-warning {
-  border-color: transparent;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(180, 125, 29, 0.12);
 }
 
 .kb-alert-title {
@@ -1648,7 +2158,7 @@ onBeforeUnmount(() => {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 190;
+  z-index: 12050;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -1661,15 +2171,15 @@ onBeforeUnmount(() => {
 }
 
 .kb-toast-success {
-  background: var(--color-surface);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
+  background: rgba(37, 99, 65, 0.12);
+  color: var(--color-success-strong);
+  border: 1px solid rgba(37, 99, 65, 0.18);
 }
 
 .kb-toast-error {
-  background: var(--color-surface);
-  color: var(--color-danger);
-  border: 1px solid var(--color-danger-border);
+  background: rgba(180, 125, 29, 0.14);
+  color: var(--color-warning-strong);
+  border: 1px solid rgba(180, 125, 29, 0.22);
 }
 
 .toast-enter-active,
@@ -1706,7 +2216,10 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .kb-summary-grid,
+  .kb-sidebar {
+    position: static;
+  }
+
   .kb-focus-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1723,6 +2236,16 @@ onBeforeUnmount(() => {
     border-radius: 18px;
   }
 
+  .kb-hero {
+    padding: 12px 4px 4px;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kb-title {
+    font-size: 22px;
+  }
+
   .kb-hero-head,
   .kb-section-head,
   .kb-doc-head,
@@ -1731,9 +2254,28 @@ onBeforeUnmount(() => {
     align-items: stretch;
   }
 
-  .kb-hero-actions,
   .kb-focus-actions {
     justify-content: flex-start;
+  }
+
+  .kb-action-cluster,
+  .kb-empty-actions,
+  .kb-ungrouped-actions {
+    width: 100%;
+  }
+
+  .kb-action-cluster-primary,
+  .kb-empty-actions,
+  .kb-ungrouped-actions {
+    justify-content: stretch;
+  }
+
+  .kb-doc-tools {
+    justify-content: flex-start;
+  }
+
+  .kb-ungrouped-note {
+    flex-direction: column;
   }
 
   .kb-btn,
@@ -1745,7 +2287,16 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .kb-summary-grid,
+  .kb-summary-grid {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kb-summary-card {
+    display: flex;
+    justify-content: space-between;
+  }
+
   .kb-focus-stats,
   .kb-doc-grid {
     grid-template-columns: minmax(0, 1fr);

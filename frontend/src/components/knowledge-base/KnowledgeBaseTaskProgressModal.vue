@@ -62,10 +62,7 @@ function requestClose() {
 <template>
   <Teleport to="body">
     <Transition name="kb-modal-fade">
-      <div
-        v-if="visible && task"
-        class="kb-modal-backdrop"
-        @click.self="requestClose">
+      <div v-if="visible && task" class="kb-modal-backdrop">
         <div class="kb-modal-panel kb-task-panel">
           <div class="kb-modal-head">
             <div>
@@ -148,24 +145,29 @@ function requestClose() {
 .kb-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 180;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(24, 24, 27, 0.16);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .kb-modal-panel {
   width: min(680px, 100%);
   max-height: min(88vh, 920px);
   overflow: auto;
-  padding: 24px;
-  border-radius: 28px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-floating);
+  padding: 32px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.1),
+    0 8px 24px rgba(0, 0, 0, 0.05);
 }
 
 .kb-modal-head {
@@ -308,7 +310,7 @@ function requestClose() {
 }
 
 .kb-modal-actions {
-  margin-top: 20px;
+  margin-top: 24px;
   display: flex;
   justify-content: flex-end;
 }
@@ -317,23 +319,34 @@ function requestClose() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--color-border);
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 20px;
+  border: none;
   border-radius: 999px;
   font: inherit;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-}
-
-.kb-btn-secondary {
-  background: var(--color-surface);
-  color: var(--color-text);
+  transition: all 0.2s ease;
 }
 
 .kb-btn:disabled {
-  opacity: 0.55;
+  opacity: 0.6;
   cursor: not-allowed;
+}
+
+.kb-btn-secondary {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-text);
+}
+
+.kb-btn-secondary:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.kb-btn-secondary:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .kb-modal-fade-enter-active,

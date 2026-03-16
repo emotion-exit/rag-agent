@@ -1165,7 +1165,7 @@ onMounted(() => {
 
 .multi-column-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
 }
@@ -1174,10 +1174,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--surface-bg-alt, #fafafa);
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid rgba(24, 24, 27, 0.08);
+  background: linear-gradient(180deg, #fcfcfd 0%, #f7f7f8 100%);
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(24, 24, 27, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .section-title {
@@ -1185,8 +1186,22 @@ onMounted(() => {
   font-weight: 700;
   color: #18181b;
   margin-bottom: 4px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(24, 24, 27, 0.08);
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(24, 24, 27, 0.06);
+}
+
+.advanced-group {
+  gap: 16px;
+}
+
+.advanced-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.advanced-group-copy {
+  max-width: 760px;
 }
 
 .single-column-grid {
@@ -1453,6 +1468,10 @@ onMounted(() => {
     display: grid;
   }
 
+  .multi-column-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .hero-status {
     align-items: flex-start;
     min-width: auto;
@@ -1471,6 +1490,10 @@ onMounted(() => {
 
   .field-grid,
   .path-input-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  .multi-column-grid {
     grid-template-columns: 1fr;
   }
 

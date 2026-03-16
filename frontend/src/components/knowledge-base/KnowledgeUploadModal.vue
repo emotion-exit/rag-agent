@@ -4,8 +4,10 @@ import {
   CloseOutlined,
   InboxOutlined,
   LoadingOutlined,
+  MinusCircleOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue';
+import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import type {
   KnowledgeSpace,
   UploadForm,
@@ -32,6 +34,64 @@ const localForm = ref<UploadForm>({ ...props.initialForm });
 const selectedFiles = ref<File[]>([]);
 const dragOver = ref(false);
 const localWarning = ref('');
+const localTagInput = ref('');
+const removeConfirmVisible = ref(false);
+const pendingRemoveIndex = ref(-1);
+
+const pendingRemoveFile = computed(
+  () => selectedFiles.value[pendingRemoveIndex.value] || null
+);
+const pendingRemoveStats = computed(() => {
+  const file = pendingRemoveFile.value;
+  if (!file) return [];
+
+  return [
+    {
+      label: '文件大小',
+      value: `${Math.max(file.size / 1024 / 1024, 0.01).toFixed(2)} MB`
+    },
+    {
+      label: '当前队列',
+      value: `${selectedFiles.value.length} 个`
+    }
+  ];
+});
+
+function parseTagList(value: string) {
+  return Array.from(
+    new Set(
+      String(value || '')
+        .split(/[，,、\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+const tagItems = computed(() => parseTagList(localForm.value.tags));
+
+function syncTagField(tags: string[]) {
+  localForm.value.tags = Array.from(new Set(tags)).join(', ');
+}
+
+function commitPendingTags() {
+  const pendingTags = parseTagList(localTagInput.value);
+  if (pendingTags.length === 0) return;
+
+  syncTagField([...tagItems.value, ...pendingTags]);
+  localTagInput.value = '';
+}
+
+function removeTag(tag: string) {
+  syncTagField(tagItems.value.filter((item) => item !== tag));
+}
+
+function handleTagInputKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
+    event.preventDefault();
+    commitPendingTags();
+  }
+}
 
 watch(
   () => [props.visible, props.initialForm] as const,
@@ -41,6 +101,9 @@ watch(
     selectedFiles.value = [];
     dragOver.value = false;
     localWarning.value = '';
+    localTagInput.value = '';
+    removeConfirmVisible.value = false;
+    pendingRemoveIndex.value = -1;
   },
   { deep: true }
 );
@@ -83,6 +146,25 @@ function removeFile(index: number) {
   selectedFiles.value.splice(index, 1);
 }
 
+function openRemoveFileConfirm(index: number) {
+  if (props.submitting || index < 0 || index >= selectedFiles.value.length)
+    return;
+  pendingRemoveIndex.value = index;
+  removeConfirmVisible.value = true;
+}
+
+function closeRemoveFileConfirm() {
+  if (props.submitting) return;
+  removeConfirmVisible.value = false;
+  pendingRemoveIndex.value = -1;
+}
+
+function confirmRemoveFile() {
+  if (pendingRemoveIndex.value < 0) return;
+  removeFile(pendingRemoveIndex.value);
+  closeRemoveFileConfirm();
+}
+
 function handleDragOver(event: DragEvent) {
   if (!props.selectedSpace || props.submitting) return;
   event.preventDefault();
@@ -114,6 +196,7 @@ function submitUpload() {
     return;
   }
 
+  commitPendingTags();
   emit('submit', {
     files: [...selectedFiles.value],
     tags: localForm.value.tags,
@@ -125,7 +208,7 @@ function submitUpload() {
 <template>
   <Teleport to="body">
     <Transition name="kb-modal-fade">
-      <div v-if="visible" class="kb-modal-backdrop" @click.self="requestClose">
+      <div v-if="visible" class="kb-modal-backdrop">
         <div class="kb-modal-panel kb-upload-panel">
           <div class="kb-modal-head">
             <div>
@@ -158,12 +241,30 @@ function submitUpload() {
           <div class="kb-form-grid">
             <label class="kb-field-block">
               <span class="kb-field-label">附加标签</span>
-              <input
-                v-model="localForm.tags"
-                class="kb-field-input"
-                type="text"
-                placeholder="可选，多个标签用逗号分隔"
-                :disabled="submitting || !selectedSpace" />
+              <div
+                class="kb-tag-editor"
+                :class="{
+                  'kb-tag-editor-disabled': submitting || !selectedSpace
+                }">
+                <span v-for="tag in tagItems" :key="tag" class="kb-tag-chip">
+                  <span>{{ tag }}</span>
+                  <button
+                    type="button"
+                    class="kb-tag-chip-remove"
+                    :disabled="submitting || !selectedSpace"
+                    @click="removeTag(tag)">
+                    <MinusCircleOutlined />
+                  </button>
+                </span>
+                <input
+                  v-model="localTagInput"
+                  class="kb-tag-input"
+                  type="text"
+                  placeholder="输入后按回车生成标签"
+                  :disabled="submitting || !selectedSpace"
+                  @keydown="handleTagInputKeydown"
+                  @blur="commitPendingTags" />
+              </div>
             </label>
 
             <label class="kb-field-block">
@@ -226,7 +327,7 @@ function submitUpload() {
                   type="button"
                   class="kb-file-remove"
                   :disabled="submitting"
-                  @click="removeFile(index)">
+                  @click="openRemoveFileConfirm(index)">
                   移除
                 </button>
               </div>
@@ -254,6 +355,21 @@ function submitUpload() {
         </div>
       </div>
     </Transition>
+
+    <KnowledgeDangerConfirmModal
+      :visible="removeConfirmVisible"
+      :title="
+        pendingRemoveFile
+          ? `移除待上传文件“${pendingRemoveFile.name}”`
+          : '移除待上传文件'
+      "
+      :message="'该文件会从当前上传队列中移除，不会提交到知识库。'"
+      :impact-stats="pendingRemoveStats"
+      :impact-items="['当前待上传文件', '本次上传队列顺序']"
+      confirm-text="确认移除文件"
+      :submitting="submitting"
+      @close="closeRemoveFileConfirm"
+      @confirm="confirmRemoveFile" />
   </Teleport>
 </template>
 
@@ -261,24 +377,29 @@ function submitUpload() {
 .kb-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 180;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(24, 24, 27, 0.16);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .kb-modal-panel {
   width: min(760px, 100%);
   max-height: min(88vh, 920px);
   overflow: auto;
-  padding: 24px;
-  border-radius: 28px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-floating);
+  padding: 32px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.1),
+    0 8px 24px rgba(0, 0, 0, 0.05);
 }
 
 .kb-upload-panel {
@@ -307,13 +428,22 @@ function submitUpload() {
 }
 
 .kb-modal-close {
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--color-border-soft);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
   border-radius: 50%;
-  background: var(--color-surface);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kb-modal-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-heading);
 }
 
 .kb-upload-space-card {
@@ -356,22 +486,90 @@ function submitUpload() {
 
 .kb-field-input {
   width: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  background: var(--color-surface);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
   color: var(--color-text);
   padding: 12px 14px;
   font: inherit;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
+  font-size: 14px;
+  line-height: 1.5;
+  transition: all 0.2s ease;
 }
 
 .kb-field-input:focus {
   outline: none;
-  border-color: var(--color-success);
-  box-shadow: 0 0 0 3px rgba(47, 107, 79, 0.1);
+  background: #ffffff;
+  border-color: rgba(47, 107, 79, 0.4);
+  box-shadow: 0 0 0 4px rgba(47, 107, 79, 0.1);
+}
+
+.kb-tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 48px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 8px 10px;
+  transition: all 0.2s ease;
+}
+
+.kb-tag-editor:focus-within {
+  background: #ffffff;
+  border-color: rgba(47, 107, 79, 0.4);
+  box-shadow: 0 0 0 4px rgba(47, 107, 79, 0.1);
+}
+
+.kb-tag-editor-disabled {
+  opacity: 0.7;
+}
+
+.kb-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(47, 107, 79, 0.1);
+  color: var(--color-success-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.kb-tag-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.kb-tag-input {
+  flex: 1 1 180px;
+  min-width: 140px;
+  min-height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+  padding: 0 2px;
+}
+
+.kb-tag-input::placeholder {
+  color: var(--color-text-muted);
 }
 
 .kb-upload-zone {
@@ -521,13 +719,15 @@ function submitUpload() {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--color-border);
+  min-height: 40px;
+  padding: 0 20px;
+  border: none;
   border-radius: 999px;
   font: inherit;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .kb-btn:disabled,
@@ -540,12 +740,29 @@ function submitUpload() {
 .kb-btn-primary {
   background: var(--color-success);
   color: var(--color-on-success);
-  border-color: var(--color-success);
+  box-shadow: 0 4px 12px rgba(47, 107, 79, 0.25);
+}
+
+.kb-btn-primary:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(47, 107, 79, 0.35);
+}
+
+.kb-btn-primary:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .kb-btn-secondary {
-  background: var(--color-surface);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--color-text);
+}
+
+.kb-btn-secondary:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.kb-btn-secondary:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .kb-modal-fade-enter-active,

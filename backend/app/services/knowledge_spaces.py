@@ -117,8 +117,8 @@ def create_knowledge_space(
     *,
     name: str,
     parent_id: str = "",
-    category: str,
-    topic: str,
+    category: str = "",
+    topic: str = "",
     tags: str = "",
     version_label: str = "",
     description: str = "",
@@ -133,10 +133,6 @@ def create_knowledge_space(
 
     if not normalized_name:
         raise ValueError("知识空间名称不能为空")
-    if not normalized_category:
-        raise ValueError("分类不能为空")
-    if not normalized_topic:
-        raise ValueError("主题不能为空")
 
     raw_spaces = _load_raw_spaces()
     if normalized_parent_id and not any(
@@ -172,3 +168,50 @@ def create_knowledge_space(
         raise ValueError("知识空间创建失败")
 
     return created_space
+
+
+def delete_knowledge_space(space_id: str) -> list[str]:
+    normalized_space_id = _normalize_text(space_id)
+    if not normalized_space_id:
+        raise ValueError("知识空间不存在")
+
+    raw_spaces = _load_raw_spaces()
+    existing_ids = {
+        _normalize_text(item.get("space_id"))
+        for item in raw_spaces
+        if _normalize_text(item.get("space_id"))
+    }
+    if normalized_space_id not in existing_ids:
+        raise ValueError("知识空间不存在")
+
+    children_by_parent: dict[str, list[str]] = {}
+    for item in raw_spaces:
+        item_space_id = _normalize_text(item.get("space_id"))
+        if not item_space_id:
+            continue
+
+        parent_id = _normalize_text(item.get("parent_id"))
+        if not parent_id:
+            continue
+
+        children_by_parent.setdefault(parent_id, []).append(item_space_id)
+
+    deleted_space_ids: list[str] = []
+    pending_ids = [normalized_space_id]
+
+    while pending_ids:
+        current_id = pending_ids.pop()
+        if current_id in deleted_space_ids:
+            continue
+
+        deleted_space_ids.append(current_id)
+        pending_ids.extend(children_by_parent.get(current_id, []))
+
+    remaining_spaces = [
+        item
+        for item in raw_spaces
+        if _normalize_text(item.get("space_id")) not in deleted_space_ids
+    ]
+    _save_raw_spaces(remaining_spaces)
+
+    return deleted_space_ids

@@ -19,6 +19,7 @@ from app.services.knowledge_base_jobs import (
 )
 from app.services.knowledge_spaces import (
     create_knowledge_space,
+    delete_knowledge_space,
     get_knowledge_space,
     list_knowledge_spaces,
 )
@@ -63,8 +64,8 @@ class DocumentInfo(BaseModel):
 class KnowledgeSpaceCreateRequest(BaseModel):
     name: str
     parent_id: str = ""
-    category: str
-    topic: str
+    category: str = ""
+    topic: str = ""
     tags: str = ""
     version_label: str = ""
     description: str = ""
@@ -915,6 +916,58 @@ async def delete_document_endpoint(doc_id: str):
         "success": True,
         "message": f"已删除文档（共删除 {deleted_count} 个文本块）",
     }
+
+
+async def _delete_space_and_related_data(space_id: str):
+    """Delete a knowledge space and all descendant spaces/documents."""
+    normalized_space_id = _normalize_metadata_value(space_id)
+    if not normalized_space_id:
+        raise HTTPException(status_code=404, detail="知识空间不存在")
+
+    target_space = get_knowledge_space(normalized_space_id)
+    if target_space is None:
+        raise HTTPException(status_code=404, detail="知识空间不存在")
+
+    docs = list_documents()
+
+    try:
+        deleted_space_ids = delete_knowledge_space(normalized_space_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    deleted_doc_ids: list[str] = []
+    deleted_chunk_count = 0
+
+    for doc in docs:
+        doc_space_id = _normalize_metadata_value(str(doc.get("space_id", "")))
+        if doc_space_id not in deleted_space_ids:
+            continue
+
+        doc_id = _normalize_metadata_value(str(doc.get("doc_id", "")))
+        if not doc_id:
+            continue
+
+        deleted_chunk_count += delete_document(doc_id)
+        delete_document_assets(doc_id)
+        deleted_doc_ids.append(doc_id)
+
+    return {
+        "success": True,
+        "message": f"知识空间“{target_space['path']}”及其关联数据已删除",
+        "deleted_spaces": len(deleted_space_ids),
+        "deleted_documents": len(deleted_doc_ids),
+        "deleted_chunks": deleted_chunk_count,
+    }
+
+
+@router.delete("/spaces/{space_id}")
+async def delete_space_endpoint(space_id: str):
+    return await _delete_space_and_related_data(space_id)
+
+
+@router.post("/spaces/{space_id}/delete")
+async def delete_space_endpoint_fallback(space_id: str):
+    return await _delete_space_and_related_data(space_id)
 
 
 @router.get("/stats", response_model=KnowledgeBaseStats)

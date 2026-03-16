@@ -5,6 +5,7 @@ import {
   LoadingOutlined,
   WarningOutlined
 } from '@ant-design/icons-vue';
+import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import type { DocumentInfo, KnowledgeSpace } from '@/types/knowledgeBase';
 
 defineOptions({
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 
 const targetSpaceId = ref('');
 const localWarning = ref('');
+const confirmVisible = ref(false);
 
 watch(
   () => props.visible,
@@ -32,6 +34,7 @@ watch(
     if (!visible) return;
     targetSpaceId.value = '';
     localWarning.value = '';
+    confirmVisible.value = false;
   }
 );
 
@@ -49,15 +52,60 @@ const selectedSpace = computed(
   () =>
     props.spaces.find((item) => item.space_id === targetSpaceId.value) || null
 );
+const confirmImpactStats = computed(() => [
+  {
+    label: '待迁移文档',
+    value: `${props.ungroupedDocuments.length} 篇`
+  },
+  {
+    label: '预计重建分块',
+    value: `${estimatedChunkCount.value} 个`
+  },
+  {
+    label: '目标空间',
+    value: selectedSpace.value ? selectedSpace.value.path : '尚未选择'
+  }
+]);
+const confirmImpactItems = computed(() => {
+  const previewNames = previewDocuments.value.map(
+    (doc) => `文档：${doc.filename}`
+  );
+  const effects = [
+    '文档分类、主题、标签会改写为目标空间信息',
+    '相关文本分块会重新建立向量索引'
+  ];
+
+  if (hiddenCount.value > 0) {
+    previewNames.push(`其余 ${hiddenCount.value} 篇文档也会一并迁移`);
+  }
+
+  return [...effects, ...previewNames];
+});
 
 function requestClose() {
-  if (props.submitting) return;
+  if (props.submitting || confirmVisible.value) return;
   emit('close');
+}
+
+function closeConfirm() {
+  if (props.submitting) return;
+  confirmVisible.value = false;
 }
 
 function submitMigration() {
   if (!targetSpaceId.value) {
     localWarning.value = '请先选择迁移目标知识空间。';
+    return;
+  }
+
+  localWarning.value = '';
+  confirmVisible.value = true;
+}
+
+function confirmMigration() {
+  if (!targetSpaceId.value) {
+    localWarning.value = '请先选择迁移目标知识空间。';
+    confirmVisible.value = false;
     return;
   }
 
@@ -68,7 +116,7 @@ function submitMigration() {
 <template>
   <Teleport to="body">
     <Transition name="kb-modal-fade">
-      <div v-if="visible" class="kb-modal-backdrop" @click.self="requestClose">
+      <div v-if="visible" class="kb-modal-backdrop">
         <div class="kb-modal-panel kb-migration-panel">
           <div class="kb-modal-head">
             <div>
@@ -171,12 +219,25 @@ function submitMigration() {
               @click="submitMigration">
               <LoadingOutlined v-if="submitting" class="spin" />
               <WarningOutlined v-else />
-              开始迁移并重建索引
+              继续确认迁移
             </button>
           </div>
         </div>
       </div>
     </Transition>
+
+    <KnowledgeDangerConfirmModal
+      :visible="confirmVisible"
+      :title="
+        selectedSpace ? `迁移到“${selectedSpace.name}”` : '确认迁移未归类文档'
+      "
+      :message="'确认后系统会把未归类文档迁入目标空间，并重新写入空间元数据与检索索引。'"
+      :impact-stats="confirmImpactStats"
+      :impact-items="confirmImpactItems"
+      confirm-text="开始迁移并重建索引"
+      :submitting="submitting"
+      @close="closeConfirm"
+      @confirm="confirmMigration" />
   </Teleport>
 </template>
 
@@ -184,24 +245,29 @@ function submitMigration() {
 .kb-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 180;
+  z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(24, 24, 27, 0.16);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .kb-modal-panel {
   width: min(760px, 100%);
   max-height: min(88vh, 920px);
   overflow: auto;
-  padding: 24px;
-  border-radius: 28px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-floating);
+  padding: 32px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.1),
+    0 8px 24px rgba(0, 0, 0, 0.05);
 }
 
 .kb-migration-panel {
@@ -230,13 +296,22 @@ function submitMigration() {
 }
 
 .kb-modal-close {
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--color-border-soft);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
   border-radius: 50%;
-  background: var(--color-surface);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kb-modal-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--color-heading);
 }
 
 .kb-warning-card {
@@ -392,24 +467,44 @@ function submitMigration() {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--color-border);
+  min-height: 40px;
+  padding: 0 20px;
+  border: none;
   border-radius: 999px;
   font: inherit;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .kb-btn-secondary {
-  background: var(--color-surface);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--color-text);
+}
+
+.kb-btn-secondary:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.kb-btn-secondary:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .kb-btn-danger {
   background: var(--color-danger);
   color: var(--color-surface);
-  border-color: var(--color-danger);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+}
+
+.kb-btn-danger:not(:disabled):hover {
+  background: var(--color-danger-strong, #b91c1c);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(220, 38, 38, 0.35);
+}
+
+.kb-btn-danger:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .kb-btn:disabled,

@@ -4,7 +4,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  shell
+} from 'electron';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const API_HOST = '127.0.0.1';
@@ -44,6 +52,62 @@ const allowedConfigKeys = [
 let mainWindow = null;
 let backendProcess = null;
 let backendReady = false;
+
+function createApplicationMenu() {
+  const template = [
+    {
+      label: 'RAG.Agent',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Window',
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { role: 'front' }]
+    }
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function getMacDockIconPath() {
+  const macDockIconPath = join(__dirname, './assets/icon-mac.png');
+  return existsSync(macDockIconPath) ? macDockIconPath : null;
+}
+
+function getDesktopIconPath() {
+  if (process.platform === 'darwin') {
+    const macIconPath = join(__dirname, './assets/icon.icns');
+    if (existsSync(macIconPath)) {
+      return macIconPath;
+    }
+  }
+
+  const iconPath = join(__dirname, '../public/favicon.ico');
+  return existsSync(iconPath) ? iconPath : null;
+}
 
 function getConfigPath() {
   return join(app.getPath('userData'), 'config.json');
@@ -379,6 +443,8 @@ async function restartBackend() {
 }
 
 async function createMainWindow() {
+  const iconPath = getDesktopIconPath();
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -387,6 +453,7 @@ async function createMainWindow() {
     backgroundColor: '#ffffff',
     show: false,
     title: 'RAG.Agent',
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -439,6 +506,13 @@ ipcMain.handle('desktop:open-data-directory', async () => {
 
 app.whenReady().then(async () => {
   try {
+    createApplicationMenu();
+
+    const dockIconPath = getMacDockIconPath();
+    if (process.platform === 'darwin' && dockIconPath) {
+      app.dock.setIcon(nativeImage.createFromPath(dockIconPath));
+    }
+
     await startBackend();
     await createMainWindow();
   } catch (error) {

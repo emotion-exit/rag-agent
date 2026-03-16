@@ -22,7 +22,11 @@ body {
 
 #app {
   min-height: 100vh;
-  background: var(--color-background);
+  background: radial-gradient(
+    circle at 50% 0%,
+    var(--theme-neutral-50) 0%,
+    var(--color-background) 60%
+  );
 }
 
 /* Scrollbar styling */
