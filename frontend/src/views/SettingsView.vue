@@ -3,7 +3,7 @@ defineOptions({
   name: 'SettingsView'
 });
 
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import {
   CheckCircleOutlined,
   CloudServerOutlined,
@@ -24,6 +24,8 @@ import {
   resetPublicFrontendConfig,
   savePublicFrontendConfig
 } from '@/services/publicConfig';
+import { OButton, OCard, OInput, useOToast } from '@/orange-ui';
+import { cn } from '@/utils/cn';
 
 const isDesktop = isDesktopApp();
 const apiBase = getApiBase();
@@ -35,6 +37,7 @@ const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 const advancedExpanded = ref(!isDesktop);
 const providerHealthLoading = ref(false);
 const providerHealth = ref<Record<string, ProviderHealthItem>>({});
+const oToast = useOToast();
 
 interface ProviderHealthItem {
   status: string;
@@ -107,6 +110,16 @@ const providerEntries = computed(() => {
   ];
 });
 
+watch(notice, (nextNotice) => {
+  if (!nextNotice) return;
+  if (nextNotice.type === 'error') {
+    oToast.error(nextNotice.text);
+    return;
+  }
+
+  oToast.success(nextNotice.text);
+});
+
 function getProviderStateLabel(status: string) {
   if (status === 'ok') return '连接正常';
   if (status === 'missing_config') return '缺少配置';
@@ -117,11 +130,48 @@ function getProviderStateLabel(status: string) {
   return '待检测';
 }
 
-function getProviderCardClass(status: string) {
-  if (status === 'ok') return 'provider-card-ok';
-  if (status === 'missing_config') return 'provider-card-missing';
-  if (status === 'auth_error') return 'provider-card-error';
-  return 'provider-card-warning';
+function getStatusChipClass(
+  status: 'unknown' | 'online' | 'offline' | 'restarting'
+) {
+  if (status === 'online') {
+    return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+  }
+
+  if (status === 'offline') {
+    return 'bg-[rgba(177,55,42,0.12)] text-[#9e3328]';
+  }
+
+  return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+}
+
+function getProviderCardTone(
+  status: string
+): 'muted' | 'success' | 'warning' | 'danger' {
+  if (status === 'ok') return 'success';
+  if (status === 'auth_error') return 'danger';
+  if (status === 'missing_config') return 'warning';
+  return 'muted';
+}
+
+function getProviderStateChipClass(status: string) {
+  if (status === 'ok') {
+    return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+  }
+
+  if (
+    status === 'missing_config' ||
+    status === 'timeout' ||
+    status === 'network_error' ||
+    status === 'upstream_error'
+  ) {
+    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+  }
+
+  if (status === 'auth_error') {
+    return 'bg-[rgba(177,55,42,0.12)] text-[#9e3328]';
+  }
+
+  return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
 }
 
 function formatProviderLabel(provider?: string) {
@@ -347,16 +397,20 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="settings-page">
-    <section class="settings-hero panel-surface">
+  <div class="flex flex-col gap-4 pt-4 pb-4.5">
+    <OCard
+      padding="lg"
+      html-class="flex items-start justify-between gap-6 max-[960px]:grid max-[960px]:grid-cols-1">
       <div>
-        <div class="eyebrow">
+        <div
+          class="mb-3 text-xs font-bold uppercase tracking-[0.08em] text-zinc-500">
           {{ isDesktop ? 'Desktop Runtime' : 'Web Runtime' }}
         </div>
-        <h1 class="hero-title">
+        <h1
+          class="m-0 text-[30px] leading-[1.1] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-2xl">
           {{ isDesktop ? '本地服务配置' : '公开高级设置' }}
         </h1>
-        <p class="hero-copy">
+        <p class="mt-2.5 max-w-170 text-[13px] leading-[1.65] text-zinc-500">
           {{
             isDesktop
               ? '桌面端可配置完整运行参数；敏感 API 凭据仍保存在本地环境。'
@@ -364,17 +418,27 @@ onMounted(() => {
           }}
         </p>
       </div>
-      <div class="hero-status">
-        <div :class="['status-chip', `status-${health}`]">
+      <div
+        class="flex min-w-60 flex-col items-end gap-2.5 max-[960px]:min-w-0 max-[960px]:items-start">
+        <div
+          :class="
+            cn(
+              'inline-flex items-center gap-2 rounded-full px-3 py-2 text-[13px] font-semibold',
+              getStatusChipClass(health)
+            )
+          ">
           <CloudServerOutlined />
           <span>{{ healthText }}</span>
         </div>
-        <div class="status-meta">API 地址：{{ apiBase }}</div>
+        <div class="text-[13px] text-zinc-500">API 地址：{{ apiBase }}</div>
       </div>
-    </section>
+    </OCard>
 
-    <section v-if="!isDesktop" class="panel-surface unsupported-panel">
-      <WarningOutlined class="unsupported-icon" />
+    <OCard
+      v-if="!isDesktop"
+      tone="warning"
+      html-class="flex items-center gap-4">
+      <WarningOutlined class="text-[26px] text-[#9e3328]" />
       <div>
         <h2>当前为 Web 公开设置模式</h2>
         <p>
@@ -382,167 +446,188 @@ onMounted(() => {
           Key、Base URL 与 Model 仍由服务端或桌面端托管。
         </p>
       </div>
-    </section>
+    </OCard>
 
-    <section class="settings-grid">
-      <article v-if="isDesktop" class="panel-surface form-panel">
-        <div class="panel-headline">能力配置</div>
-        <div class="field-grid multi-column-grid">
+    <section
+      class="grid grid-cols-[minmax(0,1fr)] gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
+      <OCard v-if="isDesktop" padding="lg" html-class="flex flex-col gap-3.5">
+        <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
+          能力配置
+        </div>
+        <div
+          class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
           <!-- Dialogue Section -->
-          <div class="config-section">
-            <h3 class="section-title">Dialogue (对话)</h3>
-            <label class="field-block">
-              <span class="field-label">对话 API Key</span>
-              <input
+          <div
+            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+            <h3
+              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
+              Dialogue (对话)
+            </h3>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                对话 API Key
+              </span>
+              <OInput
                 v-model="form.CHAT_API_KEY"
-                class="field-input"
                 type="password"
                 placeholder="用于对话能力调用" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 对话模型请求使用的密钥。具体由你接入的 LiteLLM
                 后端或代理策略决定。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">对话 EndPoint</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                对话 EndPoint
+              </span>
+              <OInput
                 v-model="form.CHAT_BASE_URL"
-                class="field-input"
                 type="text"
                 placeholder="请输入对话接口地址" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 对话请求发送到的接口地址。由于底层走
                 LiteLLM，这里不限定具体服务商。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">对话 Model</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                对话 Model
+              </span>
+              <OInput
                 v-model="form.CHAT_MODEL"
-                class="field-input"
                 type="text"
                 placeholder="请输入对话模型标识" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">温度</span>
-              <input
-                v-model.number="form.CHAT_TEMPERATURE"
-                class="field-input"
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">温度</span>
+              <OInput
+                v-model="form.CHAT_TEMPERATURE"
                 type="number"
                 min="0"
                 max="1"
                 step="0.1"
                 placeholder="请输入 0 到 1" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 控制回答稳定性与发散度。值越低越稳，越高越灵活。
               </span>
             </label>
           </div>
 
           <!-- Embedding Section -->
-          <div class="config-section">
-            <h3 class="section-title">Embedding (嵌入)</h3>
-            <label class="field-block">
-              <span class="field-label">嵌入 API Key</span>
-              <input
+          <div
+            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+            <h3
+              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
+              Embedding (嵌入)
+            </h3>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                嵌入 API Key
+              </span>
+              <OInput
                 v-model="form.EMBEDDING_API_KEY"
-                class="field-input"
                 type="password"
                 placeholder="用于嵌入能力调用" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 文档分块和问题向量化所使用的密钥。可以与对话、重排分别使用不同提供商。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">嵌入 EndPoint</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                嵌入 EndPoint
+              </span>
+              <OInput
                 v-model="form.EMBEDDING_BASE_URL"
-                class="field-input"
                 type="text"
                 placeholder="请输入嵌入接口地址" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 嵌入请求发送到的接口地址。可独立于重排和对话配置。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">嵌入 Model</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                嵌入 Model
+              </span>
+              <OInput
                 v-model="form.EMBEDDING_MODEL"
-                class="field-input"
                 type="text"
                 placeholder="请输入嵌入模型标识" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 文档切片与问题向量化所使用的嵌入模型。
               </span>
             </label>
           </div>
 
           <!-- Reranker Section -->
-          <div class="config-section">
-            <h3 class="section-title">Reranker (重排)</h3>
-            <label class="field-block">
-              <span class="field-label">重排 API Key</span>
-              <input
+          <div
+            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+            <h3
+              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
+              Reranker (重排)
+            </h3>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                重排 API Key
+              </span>
+              <OInput
                 v-model="form.RERANKER_API_KEY"
-                class="field-input"
                 type="password"
                 placeholder="用于重排能力调用" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 候选片段二次排序所使用的密钥。需要与嵌入或对话分供应商时单独配置这里。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">重排 EndPoint</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                重排 EndPoint
+              </span>
+              <OInput
                 v-model="form.RERANKER_BASE_URL"
-                class="field-input"
                 type="text"
                 placeholder="请输入重排接口地址" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 重排请求发送到的接口地址。可与嵌入完全不同。
               </span>
             </label>
 
-            <label class="field-block">
-              <span class="field-label">重排 Model</span>
-              <input
+            <label class="flex flex-col gap-1.5">
+              <span class="text-[13px] font-semibold text-zinc-700">
+                重排 Model
+              </span>
+              <OInput
                 v-model="form.RERANKER_MODEL"
-                class="field-input"
                 type="text"
                 placeholder="请输入重排模型标识" />
-              <span class="field-help">
+              <span class="text-xs leading-[1.55] text-zinc-500">
                 用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。
               </span>
             </label>
           </div>
         </div>
-      </article>
+      </OCard>
 
-      <article class="panel-surface form-panel">
+      <OCard padding="lg" html-class="flex flex-col gap-3.5">
         <div
-          class="panel-headline"
-          style="
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          "
+          class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
           @click="toggleAdvanced">
           <span>{{ isDesktop ? '运行维护' : '公开高级设置' }}</span>
           <DownOutlined
-            :class="['advanced-arrow', advancedExpanded ? 'expanded' : '']" />
+            :class="[
+              'transition-transform duration-200',
+              advancedExpanded ? 'rotate-180' : ''
+            ]" />
         </div>
-        <div v-if="advancedExpanded" class="ops-stack">
-          <p class="panel-copy">
+        <div v-if="advancedExpanded" class="flex flex-col gap-3">
+          <p class="text-zinc-500 leading-[1.7]">
             {{
               isDesktop
                 ? '默认情况下只展示常用能力配置。目录、跨域和请求分类等低频参数放在高级设置里，避免干扰日常使用。'
@@ -550,253 +635,257 @@ onMounted(() => {
             }}
           </p>
 
-          <div
-            class="advanced-grid"
-            style="display: flex; flex-direction: column; gap: 16px">
-            <section class="advanced-group config-section">
-              <div class="advanced-group-head">
+          <div class="flex flex-col gap-4 pt-1.5">
+            <section
+              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <div class="flex flex-col gap-1">
                 <h3
-                  class="section-title"
-                  style="
-                    margin-bottom: 4px;
-                    padding-bottom: 4px;
-                    border-bottom: none;
-                  ">
+                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
+                  style="border-bottom: none">
                   {{ requestMetadataGroup.title }}
                 </h3>
                 <div
-                  class="advanced-group-copy field-help"
-                  style="margin-bottom: 8px">
+                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
                   {{ requestMetadataGroup.description }}
                 </div>
               </div>
-              <div class="field-grid multi-column-grid">
-                <label class="field-block">
-                  <span class="field-label">请求来源地址</span>
-                  <input
+              <div
+                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    请求来源地址
+                  </span>
+                  <OInput
                     v-model="form.OPENROUTER_SITE_URL"
-                    class="field-input"
                     type="text"
                     placeholder="https://localhost.invalid" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">应用名称</span>
-                  <input
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    应用名称
+                  </span>
+                  <OInput
                     v-model="form.OPENROUTER_APP_TITLE"
-                    class="field-input"
                     type="text"
                     placeholder="RAG.Agent Desktop" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     当上游网关需要记录请求来自哪个客户端时使用。
                   </span>
                 </label>
 
-                <label class="field-block field-span-2">
-                  <span class="field-label">请求分类标签</span>
-                  <input
+                <label
+                  class="col-span-2 flex flex-col gap-1.5 max-[768px]:col-span-1">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    请求分类标签
+                  </span>
+                  <OInput
                     v-model="form.OPENROUTER_CATEGORIES"
-                    class="field-input"
                     type="text"
                     placeholder="general-chat" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。
                   </span>
                 </label>
               </div>
             </section>
 
-            <section class="advanced-group config-section">
-              <div class="advanced-group-head">
+            <section
+              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <div class="flex flex-col gap-1">
                 <h3
-                  class="section-title"
-                  style="
-                    margin-bottom: 4px;
-                    padding-bottom: 4px;
-                    border-bottom: none;
-                  ">
+                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
+                  style="border-bottom: none">
                   {{ embeddingStrategyGroup.title }}
                 </h3>
                 <div
-                  class="advanced-group-copy field-help"
-                  style="margin-bottom: 8px">
+                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
                   {{ embeddingStrategyGroup.description }}
                 </div>
               </div>
-              <div class="field-grid multi-column-grid">
-                <label class="field-block">
-                  <span class="field-label">Embedding Provider</span>
-                  <input
+              <div
+                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding Provider
+                  </span>
+                  <OInput
                     v-model="form.EMBEDDING_PROVIDER"
-                    class="field-input"
                     type="text"
                     placeholder="openai" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI
                     兼容接口通常填 openai。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">Embedding 最大输入 Token</span>
-                  <input
-                    v-model.number="form.EMBEDDING_MAX_INPUT_TOKENS"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding 最大输入 Token
+                  </span>
+                  <OInput
+                    v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="512" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     单段文本允许进入嵌入接口的最大 token
                     数，超过后会自动继续切分。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">Embedding 目标分块 Token</span>
-                  <input
-                    v-model.number="form.EMBEDDING_TARGET_CHUNK_TOKENS"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding 目标分块 Token
+                  </span>
+                  <OInput
+                    v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="384" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     二次切分时的目标大小。建议小于最大输入 token，上调会减少
                     chunk 数。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">Embedding 重叠 Token</span>
-                  <input
-                    v-model.number="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding 重叠 Token
+                  </span>
+                  <OInput
+                    v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
                     type="number"
                     min="0"
                     step="1"
                     placeholder="48" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     相邻分块之间保留的上下文 token
                     数，用于降低切分边界带来的信息断裂。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">Embedding Tokenizer Model</span>
-                  <input
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding Tokenizer Model
+                  </span>
+                  <OInput
                     v-model="form.EMBEDDING_TOKENIZER_MODEL"
-                    class="field-input"
                     type="text"
                     placeholder="留空时跟随 EMBEDDING_MODEL" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     用于 token 计数的模型标识；留空时默认跟随当前 embedding
                     model。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">Embedding Tokenizer Encoding</span>
-                  <input
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Embedding Tokenizer Encoding
+                  </span>
+                  <OInput
                     v-model="form.EMBEDDING_TOKENIZER_ENCODING"
-                    class="field-input"
                     type="text"
                     placeholder="cl100k_base" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     tokenizer model 无法直接识别时使用的编码兜底值。
                   </span>
                 </label>
               </div>
             </section>
 
-            <section class="advanced-group config-section">
-              <div class="advanced-group-head">
+            <section
+              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <div class="flex flex-col gap-1">
                 <h3
-                  class="section-title"
-                  style="
-                    margin-bottom: 4px;
-                    padding-bottom: 4px;
-                    border-bottom: none;
-                  ">
+                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
+                  style="border-bottom: none">
                   {{ retrievalStrategyGroup.title }}
                 </h3>
                 <div
-                  class="advanced-group-copy field-help"
-                  style="margin-bottom: 8px">
+                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
                   {{ retrievalStrategyGroup.description }}
                 </div>
               </div>
-              <div class="field-grid multi-column-grid">
-                <label class="field-block">
-                  <span class="field-label">Reranker Timeout</span>
-                  <input
-                    v-model.number="form.RERANKER_REQUEST_TIMEOUT"
-                    class="field-input"
+              <div
+                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    Reranker Timeout
+                  </span>
+                  <OInput
+                    v-model="form.RERANKER_REQUEST_TIMEOUT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="20" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     重排请求超时时间，单位秒，用于控制直连 rerank
                     接口的等待上限。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">召回候选数量</span>
-                  <input
-                    v-model.number="form.RETRIEVAL_CANDIDATE_LIMIT"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    召回候选数量
+                  </span>
+                  <OInput
+                    v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="18" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">最终上下文数量</span>
-                  <input
-                    v-model.number="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    最终上下文数量
+                  </span>
+                  <OInput
+                    v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="5" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">引用来源数量</span>
-                  <input
-                    v-model.number="form.RETRIEVAL_SOURCE_LIMIT"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    引用来源数量
+                  </span>
+                  <OInput
+                    v-model="form.RETRIEVAL_SOURCE_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="5" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。
                   </span>
                 </label>
 
-                <label class="field-block">
-                  <span class="field-label">问题扩写数量</span>
-                  <input
-                    v-model.number="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
-                    class="field-input"
+                <label class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    问题扩写数量
+                  </span>
+                  <OInput
+                    v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
                     type="number"
                     min="0"
                     step="1"
                     placeholder="3" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     口语问题会先扩写出多少个更正式的相近问法再做召回。填 0
                     表示关闭扩写。
                   </span>
@@ -804,75 +893,79 @@ onMounted(() => {
               </div>
             </section>
 
-            <section class="advanced-group config-section">
-              <div class="advanced-group-head">
+            <section
+              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <div class="flex flex-col gap-1">
                 <h3
-                  class="section-title"
-                  style="
-                    margin-bottom: 4px;
-                    padding-bottom: 4px;
-                    border-bottom: none;
-                  ">
+                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
+                  style="border-bottom: none">
                   {{ storageRuntimeGroup.title }}
                 </h3>
                 <div
-                  class="advanced-group-copy field-help"
-                  style="margin-bottom: 8px">
+                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
                   {{ storageRuntimeGroup.description }}
                 </div>
               </div>
-              <div class="field-grid multi-column-grid">
-                <label v-if="isDesktop" class="field-block">
-                  <span class="field-label">向量库目录</span>
-                  <div class="path-input-wrap">
-                    <input
+              <div
+                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+                <label v-if="isDesktop" class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    向量库目录
+                  </span>
+                  <div
+                    class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
+                    <OInput
                       v-model="form.CHROMA_PERSIST_DIR"
-                      class="field-input"
                       type="text"
                       placeholder="例如 ./data/chroma" />
-                    <button
-                      type="button"
-                      class="path-button"
+                    <OButton
+                      variant="secondary"
+                      html-class="shrink-0"
                       @click="pickDirectory('CHROMA_PERSIST_DIR')">
                       <FolderOpenOutlined />
                       选择目录
-                    </button>
+                    </OButton>
                   </div>
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     Chroma
                     持久化目录，保存向量索引与本地检索数据。只有在迁移或隔离数据时才需要修改。
                   </span>
                 </label>
 
-                <label v-if="isDesktop" class="field-block">
-                  <span class="field-label">上传文件目录</span>
-                  <div class="path-input-wrap">
-                    <input
+                <label v-if="isDesktop" class="flex flex-col gap-1.5">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    上传文件目录
+                  </span>
+                  <div
+                    class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
+                    <OInput
                       v-model="form.UPLOAD_DIR"
-                      class="field-input"
                       type="text"
                       placeholder="例如 ./data/uploads" />
-                    <button
-                      type="button"
-                      class="path-button"
+                    <OButton
+                      variant="secondary"
+                      html-class="shrink-0"
                       @click="pickDirectory('UPLOAD_DIR')">
                       <FolderOpenOutlined />
                       选择目录
-                    </button>
+                    </OButton>
                   </div>
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     原始上传文档的存放目录。修改后适合把资料与应用程序分开管理。
                   </span>
                 </label>
 
-                <label v-if="isDesktop" class="field-block field-span-2">
-                  <span class="field-label">CORS Origins</span>
-                  <input
+                <label
+                  v-if="isDesktop"
+                  class="col-span-2 flex flex-col gap-1.5 max-[768px]:col-span-1">
+                  <span class="text-[13px] font-semibold text-zinc-700">
+                    CORS Origins
+                  </span>
+                  <OInput
                     v-model="form.CORS_ORIGINS"
-                    class="field-input"
                     type="text"
                     placeholder="http://localhost:5173,http://localhost:3000,null" />
-                  <span class="field-help">
+                  <span class="text-xs leading-[1.55] text-zinc-500">
                     允许访问本地后端的前端来源列表。桌面版通常无需调整，联调其他前端时再修改。
                   </span>
                 </label>
@@ -880,19 +973,18 @@ onMounted(() => {
             </section>
           </div>
         </div>
-      </article>
+      </OCard>
     </section>
 
-    <section class="panel-surface action-panel">
-      <div v-if="notice" :class="['notice-strip', `notice-${notice.type}`]">
-        {{ notice.text }}
-      </div>
-
-      <section class="provider-panel">
-        <div class="provider-panel-head">
+    <OCard padding="lg" html-class="flex flex-col gap-4">
+      <section class="flex flex-col gap-3">
+        <div
+          class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
           <div>
-            <div class="panel-headline provider-headline">Provider 检测</div>
-            <div class="provider-subtitle">
+            <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
+              Provider 检测
+            </div>
+            <div class="mt-1.5 text-[13px] text-zinc-500">
               {{
                 isDesktop
                   ? '检查 Embedding、Reranker 和 Chat 三类上游配置是否可用。'
@@ -900,32 +992,38 @@ onMounted(() => {
               }}
             </div>
           </div>
-          <button
-            type="button"
-            class="secondary-action"
+          <OButton
+            variant="secondary"
             :disabled="loading || saving || providerHealthLoading"
+            :loading="providerHealthLoading"
             @click="checkProviderHealth()">
-            <ReloadOutlined :class="{ spin: providerHealthLoading }" />
             {{ providerHealthLoading ? '检测中...' : '检测 Provider 连接' }}
-          </button>
+          </OButton>
         </div>
 
-        <div class="provider-grid">
-          <article
+        <div class="grid grid-cols-3 gap-3 max-[768px]:grid-cols-1">
+          <OCard
             v-for="entry in providerEntries"
             :key="entry.key"
-            :class="[
-              'provider-card',
-              getProviderCardClass(entry.item?.status || '')
-            ]">
-            <div class="provider-card-head">
+            padding="sm"
+            :tone="getProviderCardTone(entry.item?.status || '')"
+            html-class="flex flex-col gap-2.5">
+            <div class="flex items-start justify-between gap-2.5">
               <div class="provider-title-wrap">
-                <div class="provider-title">{{ entry.title }}</div>
-                <div class="provider-model">
+                <div class="text-[15px] font-bold text-zinc-900">
+                  {{ entry.title }}
+                </div>
+                <div class="break-all text-xs leading-6 text-zinc-500">
                   {{ entry.item?.model || '未检测' }}
                 </div>
               </div>
-              <div class="provider-state-chip">
+              <div
+                :class="
+                  cn(
+                    'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-bold whitespace-nowrap',
+                    getProviderStateChipClass(entry.item?.status || '')
+                  )
+                ">
                 <CheckCircleOutlined v-if="entry.item?.status === 'ok'" />
                 <WarningOutlined v-else />
                 <span>
@@ -933,42 +1031,48 @@ onMounted(() => {
                 </span>
               </div>
             </div>
-            <div class="provider-message">
+            <div class="break-all text-xs leading-6 text-zinc-500">
               {{ entry.item?.message || '尚未执行检测。' }}
             </div>
-            <div v-if="entry.item?.detail" class="provider-detail">
+            <div
+              v-if="entry.item?.detail"
+              class="rounded-[14px] border border-black/6 bg-black/4 px-3 py-2.5 text-xs leading-6 text-zinc-600 wrap-break-word whitespace-pre-wrap">
               {{ entry.item.detail }}
             </div>
-            <div class="provider-kv-list">
-              <div class="provider-kv-item">
-                <span class="provider-kv-label">Provider</span>
-                <span class="provider-kv-value">
+            <div class="grid gap-2">
+              <div
+                class="flex items-start justify-between gap-3 border-t border-black/6 pt-2">
+                <span class="text-xs text-zinc-500">Provider</span>
+                <span class="text-right text-xs font-semibold text-zinc-800">
                   {{ formatProviderLabel(entry.item?.provider) }}
                 </span>
               </div>
-              <div class="provider-kv-item">
-                <span class="provider-kv-label">探测方式</span>
-                <span class="provider-kv-value">
+              <div
+                class="flex items-start justify-between gap-3 border-t border-black/6 pt-2">
+                <span class="text-xs text-zinc-500">探测方式</span>
+                <span class="text-right text-xs font-semibold text-zinc-800">
                   {{ formatProbeMode(entry.item?.probe_mode) }}
                 </span>
               </div>
-              <div class="provider-kv-item">
-                <span class="provider-kv-label">Token</span>
-                <span class="provider-kv-value">
+              <div
+                class="flex items-start justify-between gap-3 border-t border-black/6 pt-2">
+                <span class="text-xs text-zinc-500">Token</span>
+                <span class="text-right text-xs font-semibold text-zinc-800">
                   {{ formatTokenUsage(entry.item?.token_usage) }}
                 </span>
               </div>
             </div>
-            <div class="provider-meta">{{ entry.item?.base_url || '—' }}</div>
-          </article>
+            <div class="break-all text-xs leading-6 text-zinc-500">
+              {{ entry.item?.base_url || '—' }}
+            </div>
+          </OCard>
         </div>
       </section>
 
-      <div class="action-row">
-        <button
-          type="button"
-          class="primary-action"
+      <div class="flex flex-wrap gap-3 max-[768px]:flex-col">
+        <OButton
           :disabled="loading || saving"
+          :loading="saving"
           @click="saveConfig">
           {{
             isDesktop
@@ -979,536 +1083,31 @@ onMounted(() => {
                 ? '正在保存浏览器设置...'
                 : '保存浏览器设置'
           }}
-        </button>
-        <button
+        </OButton>
+        <OButton
           v-if="isDesktop"
-          type="button"
-          class="secondary-action"
+          variant="secondary"
           :disabled="loading || saving"
           @click="restartBackend">
           <ReloadOutlined />
           手动重启服务
-        </button>
-        <button
+        </OButton>
+        <OButton
           v-if="isDesktop"
-          type="button"
-          class="secondary-action"
+          variant="secondary"
           :disabled="loading || saving"
           @click="openDataDirectory">
           <FolderOpenOutlined />
           打开数据目录
-        </button>
-        <button
+        </OButton>
+        <OButton
           v-if="!isDesktop"
-          type="button"
-          class="secondary-action"
+          variant="secondary"
           :disabled="saving"
           @click="resetWebConfig">
           恢复默认设置
-        </button>
+        </OButton>
       </div>
-    </section>
+    </OCard>
   </div>
 </template>
-
-<style scoped>
-.settings-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding-top: 16px;
-  padding-bottom: 18px;
-}
-
-.panel-surface {
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  box-shadow: 0 20px 50px rgba(24, 24, 27, 0.04);
-  border-radius: 22px;
-  padding: 22px;
-}
-
-.settings-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 24px;
-  align-items: flex-start;
-}
-
-.eyebrow {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #71717a;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
-
-.hero-title {
-  margin: 0;
-  font-size: 30px;
-  line-height: 1.1;
-  letter-spacing: -0.04em;
-  color: #18181b;
-}
-
-.hero-copy {
-  margin: 10px 0 0;
-  max-width: 680px;
-  line-height: 1.65;
-  color: #71717a;
-  font-size: 13px;
-}
-
-.hero-status {
-  min-width: 240px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-end;
-}
-
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.status-online {
-  background: rgba(37, 99, 65, 0.12);
-  color: #1f6b42;
-}
-
-.status-restarting,
-.status-unknown {
-  background: rgba(180, 125, 29, 0.12);
-  color: #9f670f;
-}
-
-.status-offline {
-  background: rgba(177, 55, 42, 0.12);
-  color: #9e3328;
-}
-
-.status-browser {
-  background: var(--color-success-soft);
-  color: var(--color-success-strong);
-}
-
-.status-meta {
-  font-size: 13px;
-  color: #71717a;
-}
-
-.unsupported-panel {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.unsupported-icon {
-  font-size: 26px;
-  color: #9e3328;
-}
-
-.panel-headline {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: #18181b;
-}
-
-.panel-copy {
-  line-height: 1.7;
-  color: #71717a;
-}
-
-.ops-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.advanced-arrow {
-  transition: transform 0.2s ease;
-}
-
-.advanced-arrow.expanded {
-  transform: rotate(180deg);
-}
-
-.advanced-grid {
-  padding-top: 6px;
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-}
-
-.form-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.multi-column-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  align-items: start;
-}
-
-.config-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  background: linear-gradient(180deg, #fcfcfd 0%, #f7f7f8 100%);
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(24, 24, 27, 0.07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
-}
-
-.section-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #18181b;
-  margin-bottom: 4px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(24, 24, 27, 0.06);
-}
-
-.advanced-group {
-  gap: 16px;
-}
-
-.advanced-group-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.advanced-group-copy {
-  max-width: 760px;
-}
-
-.single-column-grid {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.field-span-2 {
-  grid-column: span 2;
-}
-
-.field-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #3f3f46;
-}
-
-.field-help {
-  font-size: 12px;
-  line-height: 1.55;
-  color: #71717a;
-}
-
-.field-input {
-  width: 100%;
-  min-height: 40px;
-  border-radius: 12px;
-  border: 1px solid rgba(24, 24, 27, 0.12);
-  background: #fcfcfd;
-  padding: 10px 12px;
-  font-size: 14px;
-  color: #18181b;
-  outline: none;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
-}
-
-.field-input:focus {
-  border-color: var(--color-success-border);
-  box-shadow: 0 0 0 4px var(--color-success-soft);
-  background: #ffffff;
-}
-
-.path-input-wrap {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-}
-
-.path-button,
-.secondary-action,
-.primary-action {
-  border: none;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    opacity 0.18s ease;
-}
-
-.path-button,
-.secondary-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 0 16px;
-  min-height: 40px;
-  background: #f4f4f5;
-  color: #3f3f46;
-  font-weight: 600;
-}
-
-.primary-action {
-  min-height: 42px;
-  border-radius: 12px;
-  padding: 0 20px;
-  background: linear-gradient(135deg, #18181b, #27272a);
-  color: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.16);
-}
-
-.path-button:hover,
-.secondary-action:hover,
-.primary-action:hover {
-  transform: translateY(-1px);
-}
-
-.path-button:disabled,
-.secondary-action:disabled,
-.primary-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-  transform: none;
-}
-
-.action-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.provider-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.provider-panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.provider-headline {
-  font-size: 18px;
-}
-
-.provider-subtitle {
-  margin-top: 6px;
-  color: #71717a;
-  font-size: 13px;
-}
-
-.provider-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.provider-card {
-  border-radius: 18px;
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.provider-card-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.provider-title {
-  color: #18181b;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.provider-model,
-.provider-meta,
-.provider-message {
-  color: #71717a;
-  font-size: 12px;
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.provider-detail {
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(24, 24, 27, 0.04);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  color: #52525b;
-  font-size: 12px;
-  line-height: 1.6;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-
-.provider-kv-list {
-  display: grid;
-  gap: 8px;
-}
-
-.provider-kv-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  padding-top: 8px;
-  border-top: 1px solid rgba(24, 24, 27, 0.06);
-}
-
-.provider-kv-label {
-  color: #71717a;
-  font-size: 12px;
-}
-
-.provider-kv-value {
-  color: #27272a;
-  font-size: 12px;
-  font-weight: 600;
-  text-align: right;
-}
-
-.provider-state-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.provider-card-ok .provider-state-chip {
-  background: rgba(37, 99, 65, 0.12);
-  color: #1f6b42;
-}
-
-.provider-card-missing .provider-state-chip,
-.provider-card-warning .provider-state-chip {
-  background: rgba(180, 125, 29, 0.12);
-  color: #9f670f;
-}
-
-.provider-card-error .provider-state-chip {
-  background: rgba(177, 55, 42, 0.12);
-  color: #9e3328;
-}
-
-.action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.notice-strip {
-  border-radius: 14px;
-  padding: 12px 14px;
-  font-size: 13px;
-}
-
-.notice-success {
-  background: rgba(37, 99, 65, 0.12);
-  color: #1f6b42;
-}
-
-.notice-error {
-  background: rgba(177, 55, 42, 0.12);
-  color: #9e3328;
-}
-
-@media (max-width: 960px) {
-  .settings-hero,
-  .settings-grid {
-    grid-template-columns: 1fr;
-    display: grid;
-  }
-
-  .multi-column-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-status {
-    align-items: flex-start;
-    min-width: auto;
-  }
-}
-
-@media (max-width: 768px) {
-  .panel-surface {
-    padding: 16px;
-    border-radius: 18px;
-  }
-
-  .hero-title {
-    font-size: 24px;
-  }
-
-  .field-grid,
-  .path-input-wrap {
-    grid-template-columns: 1fr;
-  }
-
-  .multi-column-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .provider-panel-head,
-  .provider-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .field-span-2 {
-    grid-column: span 1;
-  }
-
-  .action-row {
-    flex-direction: column;
-  }
-}
-</style>

@@ -29,6 +29,7 @@
     "vue-router": "^5.0.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
     "@tsconfig/node24": "^24.0.4",
     "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.11.0",
@@ -38,6 +39,7 @@
     "electron": "^37.4.0",
     "electron-builder": "^26.0.12",
     "npm-run-all2": "^8.0.4",
+    "tailwindcss": "4.2.1",
     "typescript": "~5.9.3",
     "vite": "^7.3.1",
     "vite-plugin-vue-devtools": "^8.0.6",
@@ -73,7 +75,7 @@
       "category": "public.app-category.productivity"
     },
     "win": {
-      "icon": "public/favicon.ico",
+      "icon": "electron/assets/icon.png",
       "target": [
         "portable"
       ]

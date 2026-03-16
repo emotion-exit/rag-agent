@@ -7,7 +7,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
   CaretDownOutlined,
   CaretRightOutlined,
-  CheckCircleOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   FilePdfOutlined,
@@ -25,6 +24,7 @@ import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDa
 import KnowledgeBaseTaskProgressModal from '@/components/knowledge-base/KnowledgeBaseTaskProgressModal.vue';
 import KnowledgeUploadModal from '@/components/knowledge-base/KnowledgeUploadModal.vue';
 import UngroupedMigrationModal from '@/components/knowledge-base/UngroupedMigrationModal.vue';
+import { OButton, OCard, OTree, useOToast } from '@/orange-ui';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
 import { getApiBase } from '@/services/runtime';
 import type {
@@ -50,7 +50,6 @@ interface KnowledgeSpaceCreateResponsePayload {
   space?: KnowledgeSpace;
 }
 
-type ToastType = 'success' | 'error';
 type DangerActionType = 'delete-space' | 'delete-document';
 
 interface DangerImpactStat {
@@ -101,11 +100,6 @@ const uploadModalVisible = ref(false);
 const migrationModalVisible = ref(false);
 const taskProgressVisible = ref(false);
 const currentTask = ref<KnowledgeBaseJobStatus | null>(null);
-const toast = ref<{ visible: boolean; type: ToastType; message: string }>({
-  visible: false,
-  type: 'success',
-  message: ''
-});
 const dangerConfirm = ref<DangerConfirmState>({
   visible: false,
   action: null,
@@ -118,6 +112,7 @@ const dangerConfirm = ref<DangerConfirmState>({
   impactItems: []
 });
 const expandedSpaceIds = ref<string[]>([]);
+const oToast = useOToast();
 let taskPollingTimer: number | null = null;
 
 const createSpaceForm = ref<KnowledgeSpaceCreateForm>({
@@ -230,11 +225,13 @@ function buildDefaultCreateSpaceForm(parentId = ''): KnowledgeSpaceCreateForm {
   };
 }
 
-function showToast(message: string, type: ToastType = 'success') {
-  toast.value = { visible: true, type, message };
-  window.setTimeout(() => {
-    toast.value.visible = false;
-  }, 2800);
+function showToast(message: string, type: 'success' | 'error' = 'success') {
+  if (type === 'error') {
+    oToast.error(message);
+    return;
+  }
+
+  oToast.success(message);
 }
 
 function clearTaskPollingTimer() {
@@ -972,6 +969,14 @@ function assignSelectedSpaceAsParent() {
   openCreateSpaceModal(selectedSpace.value?.space_id || '');
 }
 
+function getSpaceTreeCount(
+  space:
+    | { direct_document_count: number; total_document_count: number }
+    | Record<string, any>
+) {
+  return `${space.direct_document_count}/${space.total_document_count}`;
+}
+
 onMounted(() => {
   refreshKnowledgeBase();
   restorePersistedKnowledgeBaseTask();
@@ -983,64 +988,116 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="kb-page">
-    <section class="kb-hero">
-      <div class="kb-hero-head">
+  <div class="mx-auto flex w-full max-w-full flex-col gap-4 pb-4.5">
+    <section
+      class="flex items-center justify-between gap-6 px-1 pt-3 pb-1 max-[720px]:flex-col max-[720px]:items-stretch">
+      <div class="m-0 flex-none">
         <div>
-          <h1 class="kb-title">知识空间</h1>
+          <h1
+            class="m-0 text-[20px] leading-[1.05] font-bold tracking-tight text-zinc-900 max-[720px]:text-[22px]">
+            知识空间
+          </h1>
         </div>
       </div>
 
-      <div class="kb-summary-grid">
-        <article
+      <div class="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        <OCard
           v-for="item in summaryItems"
           :key="item.label"
-          :class="['kb-summary-card', `kb-summary-card-${item.tone}`]">
-          <div class="kb-summary-label">{{ item.label }}</div>
-          <div class="kb-summary-value">{{ item.value }}</div>
-        </article>
+          :tone="
+            item.tone === 'success'
+              ? 'success'
+              : item.tone === 'warning'
+                ? 'warning'
+                : 'default'
+          "
+          padding="sm"
+          :html-class="'min-h-28'">
+          <div class="text-xs text-zinc-500">{{ item.label }}</div>
+          <div class="mt-0 text-base font-bold text-zinc-900">
+            {{ item.value }}
+          </div>
+        </OCard>
       </div>
     </section>
 
-    <section class="kb-layout">
-      <aside class="kb-panel kb-sidebar">
-        <div class="kb-section-head">
-          <div>
-            <div class="kb-section-title">空间树</div>
-            <div class="kb-tree-subtitle">
+    <section
+      class="grid grid-cols-[minmax(360px,430px)_minmax(0,1fr)] items-start gap-5 max-[1024px]:grid-cols-1">
+      <OCard padding="lg" html-class="min-w-0 sticky top-0 max-[1024px]:static">
+        <div
+          class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
+          <div class="min-w-0 flex-1">
+            <div class="text-base font-bold text-zinc-900">空间树</div>
+            <div class="mt-1.5 text-xs leading-6 text-zinc-500">
               {{ flatSpaces.length }} 个正式空间 ·
               {{ spaceSummary.ungrouped_documents }} 篇待归类文档
             </div>
           </div>
-          <button
+          <OButton
             v-if="selectedSpace"
-            type="button"
-            class="kb-chip-btn"
+            variant="secondary"
+            size="sm"
+            html-class="rounded-full"
             :disabled="hasActiveTask"
             @click="assignSelectedSpaceAsParent">
             <PlusOutlined />
             子空间
-          </button>
+          </OButton>
         </div>
 
-        <div class="kb-tree-list">
-          <div class="kb-tree-row" :style="{ '--tree-depth': '0' }">
-            <span class="kb-tree-toggle kb-tree-toggle-placeholder" />
+        <div
+          class="mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-3.5 shadow-inner">
+          <div
+            class="grid min-h-18 grid-cols-[auto_minmax(0,1fr)] items-stretch gap-2.5 pl-0">
+            <span
+              class="pointer-events-none invisible inline-flex min-h-full w-8 items-center justify-center rounded-xl bg-black/4 text-zinc-500" />
             <button
               type="button"
               :class="[
-                'kb-tree-item',
-                !selectedSpaceId ? 'kb-tree-item-active' : ''
+                'relative flex min-h-18 w-full items-center justify-between gap-3.5 rounded-[22px] border px-4.5 py-4 pr-4.5 pl-5 text-left transition',
+                !selectedSpaceId
+                  ? 'border-transparent bg-linear-to-br from-zinc-900 to-zinc-800 shadow-[0_20px_34px_rgba(24,24,27,0.18)]'
+                  : 'border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] hover:border-black/14 hover:shadow-[0_10px_20px_rgba(24,24,27,0.05)]'
               ]"
               @click="selectedSpaceId = ''">
-              <div class="kb-tree-main">
-                <FolderOpenOutlined class="kb-tree-icon" />
-                <div class="kb-tree-copy">
-                  <div class="kb-tree-name">未归类文档</div>
-                  <div class="kb-tree-path">旧数据过渡区，不建议继续上传</div>
+              <span
+                :class="[
+                  'absolute top-3 bottom-3 left-2.5 w-1 rounded-full opacity-70',
+                  !selectedSpaceId ? 'bg-white/35' : 'bg-black/8'
+                ]" />
+              <div class="flex min-w-0 items-center gap-3.5">
+                <FolderOpenOutlined
+                  :class="
+                    !selectedSpaceId
+                      ? 'text-lg text-white'
+                      : 'text-lg text-zinc-500'
+                  " />
+                <div class="grid min-w-0 gap-1">
+                  <div
+                    :class="
+                      !selectedSpaceId
+                        ? 'text-sm leading-[1.4] font-bold text-white'
+                        : 'text-sm leading-[1.4] font-bold text-zinc-900'
+                    ">
+                    未归类文档
+                  </div>
+                  <div
+                    :class="
+                      !selectedSpaceId
+                        ? 'text-xs wrap-break-word text-white'
+                        : 'text-xs wrap-break-word text-(--color-text-muted)'
+                    ">
+                    旧数据过渡区，不建议继续上传
+                  </div>
                 </div>
               </div>
-              <span class="kb-tree-count">
+              <span
+                :class="[
+                  'min-w-15 shrink-0 rounded-full border px-3 py-2 text-center text-xs font-bold',
+                  !selectedSpaceId
+                    ? 'border-transparent bg-white/12 text-white'
+                    : 'border-black/8 bg-zinc-100 text-zinc-600'
+                ]">
                 {{ spaceSummary.ungrouped_documents }}
               </span>
             </button>
@@ -1048,233 +1105,241 @@ onBeforeUnmount(() => {
 
           <div
             v-if="flatSpaces.length === 0"
-            class="kb-empty kb-empty-tree kb-empty-tree-compact">
-            <FolderOpenOutlined class="kb-empty-icon" />
+            class="mt-1 flex min-h-60 flex-col items-center justify-center rounded-[22px] border border-dashed border-black/12 bg-white/70 px-4.5 py-8 text-center text-zinc-500">
+            <FolderOpenOutlined class="mb-3 text-3xl text-zinc-400" />
             <p>还没有知识空间，请先创建一个顶级空间。</p>
-            <button
-              type="button"
-              class="kb-btn kb-btn-secondary"
-              @click="openCreateSpaceModal()">
+            <OButton variant="secondary" @click="openCreateSpaceModal()">
               <PlusOutlined />
               创建第一个空间
-            </button>
+            </OButton>
           </div>
 
-          <div
-            v-for="space in visibleTreeSpaces"
-            :key="space.space_id"
-            class="kb-tree-row"
-            :style="{ '--tree-depth': String(space.depth) }">
-            <button
-              v-if="hasChildSpaces(space)"
-              type="button"
-              class="kb-tree-toggle"
-              :title="
-                isSpaceExpanded(space.space_id) ? '收起子空间' : '展开子空间'
-              "
-              @click.stop="toggleSpaceExpanded(space.space_id)">
-              <CaretDownOutlined v-if="isSpaceExpanded(space.space_id)" />
-              <CaretRightOutlined v-else />
-            </button>
-            <span v-else class="kb-tree-toggle kb-tree-toggle-placeholder" />
-
-            <button
-              type="button"
-              :class="[
-                'kb-tree-item',
-                selectedSpaceId === space.space_id ? 'kb-tree-item-active' : ''
-              ]"
-              @click="selectSpace(space.space_id)">
-              <div class="kb-tree-main">
-                <FolderOpenOutlined class="kb-tree-icon" />
-                <div class="kb-tree-copy">
-                  <div class="kb-tree-name">{{ space.name }}</div>
-                  <div class="kb-tree-path">{{ space.path }}</div>
-                </div>
-              </div>
-              <span class="kb-tree-count">
-                {{ space.direct_document_count }}/{{
-                  space.total_document_count
-                }}
-              </span>
-            </button>
-          </div>
+          <OTree
+            v-if="flatSpaces.length > 0"
+            :items="visibleTreeSpaces"
+            :selected-key="selectedSpaceId"
+            :expanded-keys="expandedSpaceIds"
+            :get-key="(space) => space.space_id"
+            :get-label="(space) => space.name"
+            :get-description="(space) => space.path"
+            :get-count="(space) => getSpaceTreeCount(space)"
+            :get-children="(space) => space.children || []"
+            :get-depth="(space) => space.depth"
+            @select="selectSpace($event.space_id)"
+            @toggle="toggleSpaceExpanded($event.space_id)" />
         </div>
-      </aside>
+      </OCard>
 
-      <div class="kb-main">
-        <article v-if="selectedSpace" class="kb-panel kb-focus-panel">
-          <div class="kb-section-head kb-focus-head">
-            <div>
-              <div class="kb-section-title">
+      <div class="grid min-w-0 gap-4.5">
+        <OCard v-if="selectedSpace" padding="lg" html-class="kb-focus-panel">
+          <div
+            class="mb-4.5 flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
+            <div class="min-w-0 flex-1">
+              <div class="text-base font-bold text-zinc-900">
                 {{ selectedSpace ? selectedSpace.name : '未归类文档' }}
               </div>
-              <div class="kb-section-desc">
+              <div class="text-[13px] leading-[1.7] text-(--color-text-muted)">
                 {{ selectedSpace ? selectedSpace.path : '历史遗留数据过渡区' }}
               </div>
             </div>
-            <div class="kb-focus-actions">
-              <button
+            <div
+              class="flex flex-wrap items-start justify-end gap-3 max-[720px]:justify-start">
+              <OButton
                 v-if="selectedSpace"
-                type="button"
-                class="kb-btn kb-btn-danger"
+                variant="danger"
                 :disabled="hasActiveTask || deletingSpace"
                 @click="openDeleteSpaceConfirm">
                 <DeleteOutlined />
                 {{ deletingSpace ? '删除中...' : '删除空间' }}
-              </button>
-              <button
+              </OButton>
+              <OButton
                 v-if="selectedSpace"
-                type="button"
-                class="kb-btn kb-btn-secondary kb-btn-wide"
+                variant="secondary"
                 :disabled="hasActiveTask"
                 @click="assignSelectedSpaceAsParent">
                 <PlusOutlined />
                 新建子空间
-              </button>
-              <button
-                type="button"
-                class="kb-btn kb-btn-primary kb-btn-wide"
+              </OButton>
+              <OButton
                 :disabled="!selectedSpace || hasActiveTask"
                 @click="openUploadModal">
                 <UploadOutlined />
                 上传到当前空间
-              </button>
+              </OButton>
             </div>
           </div>
 
-          <div class="kb-focus-stats">
-            <div class="kb-focus-stat">
-              <span class="kb-focus-stat-label">直属文档</span>
-              <strong class="kb-focus-stat-value">
+          <div
+            class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+            <div
+              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
+              <span class="text-xs text-zinc-500">直属文档</span>
+              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
                 {{ selectedSpace.direct_document_count }}
               </strong>
             </div>
-            <div class="kb-focus-stat">
-              <span class="kb-focus-stat-label">全部文档</span>
-              <strong class="kb-focus-stat-value">
+            <div
+              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
+              <span class="text-xs text-zinc-500">全部文档</span>
+              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
                 {{ selectedSpace.total_document_count }}
               </strong>
             </div>
-            <div class="kb-focus-stat">
-              <span class="kb-focus-stat-label">子空间</span>
-              <strong class="kb-focus-stat-value">
+            <div
+              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
+              <span class="text-xs text-zinc-500">子空间</span>
+              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
                 {{ selectedSpace.child_count }}
               </strong>
             </div>
-            <div class="kb-focus-stat">
-              <span class="kb-focus-stat-label">创建时间</span>
-              <strong class="kb-focus-stat-value kb-focus-stat-time">
+            <div
+              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
+              <span class="text-xs text-zinc-500">创建时间</span>
+              <strong
+                class="mt-1.5 block text-sm leading-6 font-bold text-zinc-900">
                 {{ formatDate(selectedSpace.created_at) }}
               </strong>
             </div>
           </div>
 
-          <div class="kb-meta-row">
-            <span class="kb-meta-chip">
+          <div class="mt-4 flex flex-wrap gap-2">
+            <span
+              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
               分类 · {{ formatMetadata(selectedSpace.category) }}
             </span>
-            <span class="kb-meta-chip">
+            <span
+              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
               主题 · {{ formatMetadata(selectedSpace.topic) }}
             </span>
             <span
               v-if="selectedSpace.version_label"
-              class="kb-meta-chip kb-meta-chip-success">
+              class="inline-flex min-h-7.5 items-center rounded-full bg-[rgba(37,99,65,0.12)] px-2.5 py-1 text-xs font-semibold text-[#1f6b42]">
               版本 · {{ selectedSpace.version_label }}
             </span>
             <span
               v-for="tag in formatTagList(selectedSpace.tags)"
               :key="`${selectedSpace.space_id}-${tag}`"
-              class="kb-meta-chip">
+              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
               {{ tag }}
             </span>
           </div>
 
-          <p class="kb-focus-description">
+          <p class="mt-4 text-[13px] leading-[1.7] text-(--color-text-muted)">
             {{ selectedSpace.description || '当前空间未填写额外说明。' }}
           </p>
 
-          <div v-if="childSpaces.length > 0" class="kb-children-wrap">
-            <div class="kb-children-title">下一级空间</div>
-            <div class="kb-children-grid">
+          <div v-if="childSpaces.length > 0" class="mt-5">
+            <div class="text-[13px] font-bold text-(--color-text-secondary)">
+              下一级空间
+            </div>
+            <div
+              class="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
               <button
                 v-for="space in childSpaces"
                 :key="space.space_id"
                 type="button"
-                class="kb-child-card"
+                class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-black/14 hover:shadow-[0_12px_24px_rgba(24,24,27,0.06)]"
                 @click="selectSpace(space.space_id)">
-                <div class="kb-child-name">{{ space.name }}</div>
-                <div class="kb-child-path">{{ space.path }}</div>
-                <div class="kb-child-meta">
+                <div class="font-bold text-zinc-900">{{ space.name }}</div>
+                <div
+                  class="mt-1.5 text-[13px] leading-[1.7] text-(--color-text-muted)">
+                  {{ space.path }}
+                </div>
+                <div
+                  class="mt-1.5 text-[13px] leading-[1.7] text-(--color-text-muted)">
                   {{ space.child_count }} 个子空间 ·
                   {{ space.total_document_count }} 篇文档
                 </div>
               </button>
             </div>
           </div>
-        </article>
+        </OCard>
 
-        <article class="kb-panel kb-docs-panel">
-          <div class="kb-section-head">
-            <div>
-              <div class="kb-section-title">{{ documentPanelTitle }}</div>
-              <div class="kb-section-desc">{{ documentPanelSubtitle }}</div>
+        <OCard padding="lg" html-class="kb-docs-panel">
+          <div
+            class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
+            <div class="min-w-0 flex-1">
+              <div class="text-base font-bold text-zinc-900">
+                {{ documentPanelTitle }}
+              </div>
+              <div class="text-[13px] leading-[1.7] text-(--color-text-muted)">
+                {{ documentPanelSubtitle }}
+              </div>
             </div>
-            <div class="kb-doc-tools">
-              <button
-                type="button"
-                class="kb-btn kb-btn-ghost kb-btn-compact"
+            <div
+              class="flex flex-wrap items-center justify-end gap-2.5 max-[720px]:justify-start">
+              <OButton
+                variant="secondary"
+                size="sm"
                 :disabled="loading"
                 @click="refreshKnowledgeBase(selectedSpaceId)">
-                <ReloadOutlined :class="{ spin: loading }" />
+                <ReloadOutlined :class="loading ? 'animate-spin' : ''" />
                 刷新
-              </button>
-              <div class="kb-doc-count">{{ visibleDocuments.length }} 篇</div>
+              </OButton>
+              <div
+                class="min-w-15 shrink-0 rounded-full border border-black/8 bg-zinc-100 px-3 py-2 text-center text-xs font-bold text-zinc-900">
+                {{ visibleDocuments.length }} 篇
+              </div>
             </div>
           </div>
 
-          <div v-if="!selectedSpace" class="kb-ungrouped-module">
-            <div class="kb-ungrouped-copy">
-              <div class="kb-ungrouped-title">未归类文档过渡区</div>
-              <div class="kb-ungrouped-text">
+          <OCard
+            v-if="!selectedSpace"
+            tone="warning"
+            padding="md"
+            html-class="mb-4.5">
+            <div>
+              <div class="text-base font-bold text-zinc-900">
+                未归类文档过渡区
+              </div>
+              <div
+                class="mt-2 max-w-190 text-[13px] leading-[1.7] text-zinc-600">
                 当前是历史遗留数据的过渡视图。建议尽快创建正式知识空间，并将这些文档迁移到目标空间以重建索引。
               </div>
             </div>
-            <div class="kb-ungrouped-note">
+            <div
+              class="mt-4 flex items-start justify-between gap-4 border-t border-[rgba(180,125,29,0.12)] pt-4 max-[720px]:flex-col">
               <div>
-                <div class="kb-alert-title">迁移时会重新 embedding</div>
-                <div class="kb-alert-text">
+                <div class="text-sm font-bold text-[#9f670f]">
+                  迁移时会重新 embedding
+                </div>
+                <div class="mt-1 text-[13px] leading-[1.6] text-zinc-500">
                   批量迁移会把目标空间的元数据重新写入这些文档，并重建对应向量索引，请尽量在低峰时段操作。
                 </div>
               </div>
-              <div class="kb-ungrouped-actions">
-                <button
+              <div
+                class="flex flex-wrap justify-end gap-2.5 max-[720px]:w-full max-[720px]:justify-stretch">
+                <OButton
                   v-if="spaceSummary.ungrouped_documents > 0"
-                  type="button"
-                  class="kb-btn kb-btn-warning kb-btn-wide"
+                  variant="warning"
+                  html-class="min-w-38.5"
                   :disabled="hasActiveTask"
                   @click="openMigrationModal">
                   <WarningOutlined />
                   批量迁移并重建索引
-                </button>
-                <button
-                  type="button"
-                  class="kb-btn kb-btn-secondary kb-btn-wide"
+                </OButton>
+                <OButton
+                  variant="secondary"
+                  html-class="min-w-38.5"
                   :disabled="hasActiveTask"
                   @click="openCreateSpaceModal()">
                   <PlusOutlined />
                   新建顶级空间
-                </button>
+                </OButton>
               </div>
             </div>
-          </div>
+          </OCard>
 
-          <div v-if="loading && documents.length === 0" class="kb-empty">
-            <LoadingOutlined class="spin kb-empty-icon" />
+          <div
+            v-if="loading && documents.length === 0"
+            class="flex flex-col items-center justify-center rounded-[18px] border border-dashed border-black/12 bg-[rgba(250,250,250,0.5)] px-5 py-10.5 text-center text-zinc-500">
+            <LoadingOutlined class="mb-3 animate-spin text-3xl text-zinc-400" />
             <p>正在加载文档列表...</p>
           </div>
-          <div v-else-if="visibleDocuments.length === 0" class="kb-empty">
-            <DatabaseOutlined class="kb-empty-icon" />
+          <div
+            v-else-if="visibleDocuments.length === 0"
+            class="flex flex-col items-center justify-center rounded-[18px] border border-dashed border-black/12 bg-[rgba(250,250,250,0.5)] px-5 py-10.5 text-center text-zinc-500">
+            <DatabaseOutlined class="mb-3 text-3xl text-zinc-400" />
             <p>
               {{
                 selectedSpace
@@ -1283,25 +1348,36 @@ onBeforeUnmount(() => {
               }}
             </p>
           </div>
-          <div v-else class="kb-doc-grid">
-            <TransitionGroup name="list">
-              <article
+          <div
+            v-else
+            class="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3 max-[720px]:grid-cols-1">
+            <TransitionGroup
+              enter-active-class="transition duration-200 ease-out"
+              leave-active-class="transition duration-200 ease-out"
+              enter-from-class="translate-y-3 opacity-0"
+              leave-to-class="translate-y-3 opacity-0">
+              <OCard
                 v-for="doc in visibleDocuments"
                 :key="doc.doc_id"
-                class="kb-doc-card">
-                <div class="kb-doc-head">
-                  <div class="kb-doc-title-wrap">
-                    <div class="kb-doc-icon-box">
+                padding="md"
+                html-class="kb-doc-card">
+                <div
+                  class="flex items-center justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
+                  <div class="flex min-w-0 flex-1 items-start gap-3">
+                    <div
+                      class="flex h-10.5 w-10.5 shrink-0 items-center justify-center rounded-[14px] bg-zinc-100">
                       <component
                         :is="getFileIcon(doc.filename)"
-                        class="kb-doc-icon" />
+                        class="shrink-0 text-lg text-zinc-600" />
                     </div>
-                    <h3 class="kb-doc-title" :title="doc.filename">
+                    <h3
+                      class="wrap-break-word text-sm leading-normal font-bold text-zinc-900"
+                      :title="doc.filename">
                       {{ doc.filename }}
                     </h3>
                   </div>
                   <button
-                    class="kb-icon-btn kb-icon-btn-danger"
+                    class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-transparent text-[#9e3328] transition hover:bg-[rgba(177,55,42,0.08)] disabled:cursor-not-allowed disabled:opacity-55"
                     type="button"
                     title="删除文档"
                     @click="openDeleteDocumentConfirm(doc)">
@@ -1309,69 +1385,71 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
 
-                <div class="kb-doc-tags">
-                  <span class="kb-doc-tag">
+                <div class="mt-3.5 flex flex-wrap gap-2">
+                  <span
+                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
                     {{ formatMetadata(doc.category) }}
                   </span>
-                  <span class="kb-doc-tag">
+                  <span
+                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
                     {{ formatMetadata(doc.knowledge_space) }}
                   </span>
-                  <span v-if="doc.topic" class="kb-doc-tag">
+                  <span
+                    v-if="doc.topic"
+                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
                     {{ doc.topic }}
                   </span>
                   <template v-if="doc.tags">
                     <span
                       v-for="tag in formatTagList(doc.tags)"
                       :key="`${doc.doc_id}-${tag}`"
-                      class="kb-doc-tag">
+                      class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
                       {{ tag }}
                     </span>
                   </template>
                   <span
                     v-if="doc.version_label"
-                    class="kb-doc-tag kb-doc-tag-success">
+                    class="inline-flex min-h-7.5 items-center rounded-full bg-[rgba(37,99,65,0.12)] px-2.5 py-1 text-xs font-semibold text-[#1f6b42]">
                     {{ doc.version_label }}
                   </span>
                 </div>
 
-                <div class="kb-doc-footer">
-                  <div class="kb-doc-meta-item">
-                    <span class="kb-doc-meta-label">上传于</span>
-                    <span class="kb-doc-meta-value">
+                <div
+                  class="mt-4 flex flex-wrap items-center justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="text-[13px] leading-[1.7] text-(--color-text-muted)">
+                      上传于
+                    </span>
+                    <span
+                      class="text-[13px] leading-[1.7] text-(--color-text-muted)">
                       {{ formatDate(doc.upload_time) }}
                     </span>
                   </div>
-                  <div class="kb-doc-meta-item">
-                    <span class="kb-doc-badge">
+                  <div class="flex items-center gap-2">
+                    <span
+                      class="inline-flex min-h-7 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
                       {{ formatChunkCount(doc.chunk_count) }}
                     </span>
                   </div>
-                  <div class="kb-doc-meta-item">
+                  <div class="flex items-center gap-2">
                     <span
                       :class="[
-                        'kb-doc-badge',
+                        'inline-flex min-h-7 items-center rounded-full px-2.5 py-1 text-xs font-semibold',
                         doc.image_count > 0
-                          ? 'kb-doc-badge-success'
-                          : 'kb-doc-badge-muted'
+                          ? 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]'
+                          : 'bg-zinc-100 text-zinc-600'
                       ]">
                       {{ formatImageCount(doc.image_count) }}
                     </span>
                   </div>
                 </div>
-              </article>
+              </OCard>
             </TransitionGroup>
           </div>
-        </article>
+        </OCard>
       </div>
     </section>
-
-    <Transition name="toast">
-      <div v-if="toast.visible" :class="['kb-toast', `kb-toast-${toast.type}`]">
-        <CheckCircleOutlined v-if="toast.type === 'success'" />
-        <WarningOutlined v-else />
-        <span>{{ toast.message }}</span>
-      </div>
-    </Transition>
 
     <KnowledgeSpaceCreateModal
       :visible="createModalVisible"
@@ -1415,898 +1493,3 @@ onBeforeUnmount(() => {
       @close="closeTaskProgressModal" />
   </div>
 </template>
-
-<style scoped>
-.kb-page {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  width: 100%;
-  max-width: 100%;
-  margin: 0 auto;
-  padding-top: 0;
-  padding-bottom: 18px;
-}
-
-.kb-panel {
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  box-shadow: 0 20px 50px rgba(24, 24, 27, 0.04);
-  border-radius: 22px;
-  padding: 22px;
-}
-
-.kb-hero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0;
-  padding: 12px 4px 4px;
-  gap: 24px;
-}
-
-.kb-hero-head,
-.kb-section-head,
-.kb-doc-head,
-.kb-doc-footer {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.kb-hero-head {
-  flex: 0 0 auto;
-  margin: 0;
-}
-
-.kb-eyebrow {
-  color: #71717a;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.kb-title {
-  margin-top: 0;
-  color: #18181b;
-  font-size: 20px;
-  line-height: 1.05;
-  letter-spacing: -0.04em;
-  margin-bottom: 0;
-}
-
-.kb-subtitle,
-.kb-section-desc,
-.kb-tree-path,
-.kb-focus-description,
-.kb-child-path,
-.kb-child-meta,
-.kb-doc-meta-label,
-.kb-doc-meta-value {
-  color: var(--color-text-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.kb-subtitle {
-  max-width: 680px;
-  margin-top: 10px;
-}
-
-.kb-hero-head > :first-child,
-.kb-section-head > :first-child,
-.kb-doc-head > :first-child {
-  min-width: 0;
-  flex: 1;
-}
-
-.kb-focus-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.kb-action-cluster,
-.kb-empty-actions,
-.kb-ungrouped-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.kb-action-cluster-primary {
-  justify-content: flex-end;
-}
-
-.kb-focus-actions,
-.kb-empty-actions,
-.kb-ungrouped-actions {
-  justify-content: flex-end;
-}
-
-.kb-btn,
-.kb-chip-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
-  min-width: 116px;
-  border: none;
-  border-radius: 12px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.kb-btn:hover,
-.kb-chip-btn:hover {
-  transform: translateY(-1px);
-}
-
-.kb-btn:disabled,
-.kb-chip-btn:disabled,
-.kb-icon-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.kb-btn-primary {
-  background: linear-gradient(135deg, #18181b, #27272a);
-  color: #ffffff;
-  box-shadow: 0 18px 36px rgba(24, 24, 27, 0.16);
-}
-
-.kb-btn-warning {
-  background: #f4f4f5;
-  color: #3f3f46;
-}
-
-.kb-btn-danger {
-  background: rgba(177, 55, 42, 0.1);
-  color: #9e3328;
-}
-
-.kb-btn-secondary,
-.kb-chip-btn {
-  background: #f4f4f5;
-  color: #3f3f46;
-}
-
-.kb-btn-ghost {
-  background: #f4f4f5;
-  color: #3f3f46;
-}
-
-.kb-btn-wide {
-  min-width: 154px;
-}
-
-.kb-btn-compact {
-  min-width: 88px;
-}
-
-.kb-summary-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 0;
-  flex: 1;
-}
-
-.kb-summary-card {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
-}
-
-.kb-summary-card-success {
-  border-color: rgba(24, 24, 27, 0.08);
-}
-
-.kb-summary-card-warning {
-  border-color: rgba(24, 24, 27, 0.08);
-}
-
-.kb-summary-card-success .kb-summary-value {
-  color: var(--color-success-strong);
-}
-
-.kb-summary-card-warning .kb-summary-value {
-  color: var(--color-warning-strong);
-}
-
-.kb-summary-label,
-.kb-focus-stat-label {
-  color: #71717a;
-  font-size: 12px;
-}
-
-.kb-summary-value,
-.kb-focus-stat-value,
-.kb-tree-name,
-.kb-child-name,
-.kb-doc-title,
-.kb-section-title {
-  color: #18181b;
-  font-weight: 700;
-}
-
-.kb-summary-value {
-  margin-top: 0;
-  font-size: 16px;
-}
-
-.kb-layout {
-  display: grid;
-  grid-template-columns: minmax(360px, 430px) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.kb-sidebar,
-.kb-main {
-  min-width: 0;
-}
-
-.kb-sidebar {
-  position: sticky;
-  top: 0;
-}
-
-.kb-main {
-  display: grid;
-  gap: 18px;
-}
-
-.kb-tree-subtitle {
-  margin-top: 6px;
-  color: #8a8a94;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.kb-tree-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
-  padding: 14px;
-  max-height: min(72vh, 820px);
-  overflow: auto;
-  border-radius: 22px;
-  border: 1px solid rgba(24, 24, 27, 0.05);
-  background: linear-gradient(
-    180deg,
-    rgba(24, 24, 27, 0.015) 0%,
-    rgba(24, 24, 27, 0.04) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 18px 32px rgba(24, 24, 27, 0.04);
-}
-
-.kb-tree-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: stretch;
-  padding-left: calc(var(--tree-depth, 0) * 18px);
-  min-height: 72px;
-}
-
-.kb-tree-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  min-height: 100%;
-  border: none;
-  border-radius: 12px;
-  background: rgba(24, 24, 27, 0.04);
-  color: #71717a;
-  cursor: pointer;
-  transition:
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.kb-tree-toggle:hover {
-  background: rgba(24, 24, 27, 0.08);
-  color: #18181b;
-}
-
-.kb-tree-toggle-placeholder {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.kb-tree-item {
-  position: relative;
-  width: 100%;
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  border-radius: 22px;
-  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  min-height: 72px;
-  padding: 16px 18px 16px 20px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease;
-}
-
-.kb-tree-item::before {
-  content: '';
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 10px;
-  width: 4px;
-  border-radius: 999px;
-  background: rgba(24, 24, 27, 0.08);
-  transition:
-    background 0.2s ease,
-    opacity 0.2s ease;
-  opacity: 0.7;
-}
-
-.kb-tree-item:hover {
-  border-color: rgba(24, 24, 27, 0.14);
-  box-shadow: 0 10px 20px rgba(24, 24, 27, 0.05);
-}
-
-.kb-tree-item:active {
-  transform: none;
-}
-
-.kb-tree-item-active {
-  border-color: transparent;
-  background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
-  box-shadow: 0 20px 34px rgba(24, 24, 27, 0.18);
-}
-
-.kb-tree-item-active::before {
-  background: rgba(255, 255, 255, 0.34);
-}
-
-.kb-tree-item-active .kb-tree-name,
-.kb-tree-item-active .kb-tree-path,
-.kb-tree-item-active .kb-tree-count,
-.kb-tree-item-active .kb-tree-icon {
-  color: #ffffff;
-}
-
-.kb-tree-item-active .kb-tree-count {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: transparent;
-}
-
-.kb-tree-main,
-.kb-doc-title-wrap {
-  min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.kb-tree-main {
-  align-items: center;
-  gap: 14px;
-}
-
-.kb-tree-icon,
-.kb-doc-icon {
-  flex-shrink: 0;
-}
-
-.kb-tree-icon {
-  font-size: 18px;
-  color: #71717a;
-}
-
-.kb-tree-copy {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-
-.kb-tree-name {
-  line-height: 1.4;
-  font-size: 15px;
-}
-
-.kb-tree-path {
-  word-break: break-word;
-  font-size: 12px;
-}
-
-.kb-tree-count,
-.kb-doc-count {
-  flex-shrink: 0;
-  min-width: 60px;
-  text-align: center;
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: #f4f4f5;
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  color: #52525b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.kb-doc-count {
-  color: #18181b;
-}
-
-.kb-doc-tools {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.kb-focus-head {
-  margin-bottom: 18px;
-}
-
-.kb-focus-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-}
-
-.kb-focus-stat {
-  padding: 14px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
-  border: 1px solid rgba(24, 24, 27, 0.08);
-}
-
-.kb-focus-stat-value {
-  display: block;
-  margin-top: 6px;
-  font-size: 20px;
-}
-
-.kb-focus-stat-time {
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.kb-meta-row,
-.kb-doc-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.kb-meta-row {
-  margin-top: 16px;
-}
-
-.kb-meta-chip,
-.kb-doc-tag {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f4f4f5;
-  color: #52525b;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.kb-meta-chip-success,
-.kb-doc-tag-success,
-.kb-doc-badge-success {
-  background: rgba(37, 99, 65, 0.12);
-  color: #1f6b42;
-}
-
-.kb-focus-description {
-  margin-top: 16px;
-}
-
-.kb-children-wrap {
-  margin-top: 20px;
-}
-
-.kb-children-title {
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.kb-children-grid,
-.kb-doc-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.kb-children-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  margin-top: 10px;
-}
-
-.kb-child-card,
-.kb-doc-card {
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  border-radius: 18px;
-  background: linear-gradient(180deg, #fcfcfd 0%, #f5f5f5 100%);
-}
-
-.kb-child-card {
-  padding: 16px;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    transform 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.kb-child-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(24, 24, 27, 0.14);
-  box-shadow: 0 12px 24px rgba(24, 24, 27, 0.06);
-}
-
-.kb-child-path,
-.kb-child-meta {
-  margin-top: 6px;
-}
-
-.kb-doc-grid {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.kb-doc-card {
-  padding: 18px;
-}
-
-.kb-doc-head {
-  align-items: center;
-}
-
-.kb-doc-icon-box {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  background: #f4f4f5;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.kb-doc-icon {
-  font-size: 18px;
-  color: #52525b;
-}
-
-.kb-doc-title {
-  font-size: 15px;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.kb-icon-btn {
-  flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 50%;
-  background: transparent;
-  color: #a1a1aa;
-  cursor: pointer;
-}
-
-.kb-icon-btn-danger {
-  background: transparent;
-  color: #9e3328;
-}
-
-.kb-doc-tags {
-  margin-top: 14px;
-}
-
-.kb-doc-footer {
-  margin-top: 16px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.kb-doc-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.kb-doc-badge,
-.kb-doc-badge-muted {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f4f4f5;
-  color: #52525b;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.kb-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 42px 20px;
-  border-radius: 18px;
-  border: 1px dashed rgba(24, 24, 27, 0.12);
-  background: rgba(250, 250, 250, 0.5);
-  color: #71717a;
-  text-align: center;
-}
-
-.kb-empty-tree {
-  margin-top: 4px;
-}
-
-.kb-empty-tree-compact {
-  min-height: 240px;
-  padding: 32px 18px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.68);
-}
-
-.kb-empty-focus {
-  padding: 32px 20px;
-}
-
-.kb-empty-actions {
-  margin-top: 18px;
-  justify-content: center;
-}
-
-.kb-empty-warning {
-  background: rgba(250, 250, 250, 0.5);
-  border-color: rgba(24, 24, 27, 0.12);
-}
-
-.kb-ungrouped-module {
-  margin-bottom: 18px;
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(180, 125, 29, 0.14);
-  background: linear-gradient(
-    180deg,
-    rgba(180, 125, 29, 0.08) 0%,
-    rgba(180, 125, 29, 0.14) 100%
-  );
-}
-
-.kb-ungrouped-title {
-  color: #18181b;
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.kb-ungrouped-text {
-  margin-top: 8px;
-  color: #52525b;
-  font-size: 13px;
-  line-height: 1.7;
-  max-width: 760px;
-}
-
-.kb-ungrouped-note {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid rgba(180, 125, 29, 0.12);
-}
-
-.kb-alert-title {
-  color: #9f670f;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.kb-alert-text {
-  margin-top: 4px;
-  color: #71717a;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.kb-empty-icon {
-  margin-bottom: 12px;
-  font-size: 30px;
-  color: #a1a1aa;
-}
-
-.kb-toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 12050;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 0 16px;
-  border-radius: 999px;
-  box-shadow: var(--shadow-floating);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.kb-toast-success {
-  background: rgba(37, 99, 65, 0.12);
-  color: var(--color-success-strong);
-  border: 1px solid rgba(37, 99, 65, 0.18);
-}
-
-.kb-toast-error {
-  background: rgba(180, 125, 29, 0.14);
-  color: var(--color-warning-strong);
-  border: 1px solid rgba(180, 125, 29, 0.22);
-}
-
-.toast-enter-active,
-.toast-leave-active,
-.list-enter-active,
-.list-leave-active {
-  transition: all 0.24s ease;
-}
-
-.toast-enter-from,
-.toast-leave-to,
-.list-enter-from,
-.list-leave-to {
-  opacity: 0;
-  transform: translateY(12px);
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 1024px) {
-  .kb-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .kb-sidebar {
-    position: static;
-  }
-
-  .kb-focus-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 720px) {
-  .kb-page {
-    padding-top: 12px;
-    padding-bottom: 16px;
-  }
-
-  .kb-panel {
-    padding: 16px;
-    border-radius: 18px;
-  }
-
-  .kb-hero {
-    padding: 12px 4px 4px;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .kb-title {
-    font-size: 22px;
-  }
-
-  .kb-hero-head,
-  .kb-section-head,
-  .kb-doc-head,
-  .kb-doc-footer {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .kb-focus-actions {
-    justify-content: flex-start;
-  }
-
-  .kb-action-cluster,
-  .kb-empty-actions,
-  .kb-ungrouped-actions {
-    width: 100%;
-  }
-
-  .kb-action-cluster-primary,
-  .kb-empty-actions,
-  .kb-ungrouped-actions {
-    justify-content: stretch;
-  }
-
-  .kb-doc-tools {
-    justify-content: flex-start;
-  }
-
-  .kb-ungrouped-note {
-    flex-direction: column;
-  }
-
-  .kb-btn,
-  .kb-chip-btn {
-    width: 100%;
-  }
-
-  .kb-alert-banner {
-    flex-direction: column;
-  }
-
-  .kb-summary-grid {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .kb-summary-card {
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .kb-focus-stats,
-  .kb-doc-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .kb-toast {
-    right: 14px;
-    left: 14px;
-    bottom: 14px;
-    justify-content: center;
-  }
-}
-</style>

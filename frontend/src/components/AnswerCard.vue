@@ -7,6 +7,7 @@ import {
   WarningOutlined,
   DownOutlined
 } from '@ant-design/icons-vue';
+import { cn } from '@/utils/cn';
 
 export interface ClarificationOption {
   field: 'knowledge_space' | 'category';
@@ -164,131 +165,188 @@ function toggleThought() {
 </script>
 
 <template>
-  <div :class="['message-row', isUser ? 'user-row' : 'assistant-row']">
+  <div
+    :class="[
+      'mb-6 flex w-full animate-o-fade-in',
+      isUser ? 'justify-end' : 'justify-start'
+    ]">
     <div
-      :class="[
-        'message-shell',
-        isUser ? 'user-shell' : 'assistant-shell',
-        isError ? 'error-shell' : '',
-        isNoResult ? 'no-result-shell' : ''
-      ]">
-      <div v-if="!isUser" class="message-head">
-        <div class="agent-badge">
-          <RobotOutlined v-if="!isLoading" class="agent-icon" />
-          <LoadingOutlined v-else class="agent-icon spin" />
+      :class="
+        cn(
+          'max-w-full',
+          isUser
+            ? 'w-fit max-w-[min(78%,640px)] rounded-[24px_24px_8px_24px] bg-zinc-900 px-4 py-3.5 text-white shadow-[0_12px_32px_rgba(24,24,27,0.12)] max-sm:max-w-[88%]'
+            : 'w-full max-w-[min(100%,760px)]',
+          !isUser && isError && 'text-red-950',
+          !isUser && isNoResult && 'text-amber-900'
+        )
+      ">
+      <div
+        v-if="!isUser"
+        class="mb-4 flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
+        <div
+          class="inline-flex items-center gap-2.5 rounded-full border border-black/6 bg-white/80 px-3.5 py-2 text-xs font-semibold tracking-[0.01em] text-zinc-800 shadow-sm">
+          <RobotOutlined v-if="!isLoading" class="text-zinc-900" />
+          <LoadingOutlined v-else class="animate-spin text-zinc-900" />
           <span>RAG.Agent</span>
         </div>
-        <span v-if="formattedTime" class="msg-time">{{ formattedTime }}</span>
+        <span v-if="formattedTime" class="text-xs text-zinc-400">
+          {{ formattedTime }}
+        </span>
       </div>
 
       <section
         v-if="!isUser && hasProgressSection"
         :class="[
-          'progress-flow',
-          hasAnswerSection ? 'answer-progress-flow' : ''
+          'rounded-2xl border border-black/6 bg-white/90 px-5 py-4 shadow-sm',
+          hasAnswerSection ? 'mb-5 mt-4' : 'mt-1'
         ]">
-        <div class="progress-flow-head">
+        <div
+          class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
           <button
             type="button"
-            class="progress-flow-toggle"
+            class="w-full bg-transparent p-0 text-left"
             :disabled="progressSteps.length <= 1"
             @click="toggleProgress">
-            <div class="progress-flow-title">过程</div>
-            <div class="progress-flow-summary">
-              <span class="progress-flow-summary-text">
+            <div
+              class="text-xs font-bold uppercase tracking-wide text-zinc-600">
+              进度
+            </div>
+            <div
+              class="inline-flex min-w-0 items-center gap-2 max-sm:flex max-sm:w-full max-sm:justify-between">
+              <span
+                class="max-w-80 truncate text-xs text-zinc-500 max-sm:max-w-none max-sm:whitespace-normal">
                 {{ progressSummary }}
               </span>
               <DownOutlined
                 v-if="progressSteps.length > 1"
                 :class="[
-                  'progress-flow-arrow',
-                  progressExpanded ? 'expanded' : ''
+                  'text-xs text-zinc-500 transition-transform duration-200',
+                  progressExpanded ? 'rotate-180' : ''
                 ]" />
             </div>
           </button>
         </div>
         <div
           v-if="progressExpanded && progressSteps.length > 0"
-          class="progress-flow-list">
+          class="mt-2.5 flex flex-col gap-2">
           <div
             v-for="(step, index) in progressSteps"
             :key="`${message.id}-progress-${index}`"
             :class="[
-              'progress-flow-item',
-              index === progressSteps.length - 1
-                ? 'progress-flow-item-active'
-                : ''
+              'flex items-start gap-2.5 text-[13px] leading-6 text-zinc-500',
+              index === progressSteps.length - 1 ? 'text-zinc-900' : ''
             ]">
-            <span class="progress-flow-dot" />
+            <span
+              :class="[
+                'mt-1.5 h-2 w-2 shrink-0 rounded-full bg-zinc-300',
+                index === progressSteps.length - 1
+                  ? 'bg-zinc-900 shadow-[0_0_0_4px_rgba(24,24,27,0.08)]'
+                  : ''
+              ]" />
             <span>{{ step }}</span>
           </div>
         </div>
       </section>
 
-      <section v-if="!isUser && hasThoughtSection" class="thought-wrap">
-        <button type="button" class="thought-toggle" @click="toggleThought">
-          <span class="thought-label">思考过程</span>
-          <span class="thought-meta">
+      <section v-if="!isUser && hasThoughtSection" class="ml-2 max-sm:ml-0">
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 rounded-2xl bg-zinc-100 px-4 py-3 text-zinc-700 transition-all duration-200 hover:bg-zinc-200 hover:shadow-sm"
+          @click="toggleThought">
+          <span class="text-sm font-semibold">思考过程</span>
+          <span class="ml-auto text-xs font-semibold text-zinc-500">
             {{ thoughtExpanded ? '收起' : '展开' }}
           </span>
           <DownOutlined
-            :class="['thought-arrow', thoughtExpanded ? 'expanded' : '']" />
+            :class="[
+              'text-xs transition-transform duration-200',
+              thoughtExpanded ? 'rotate-180' : ''
+            ]" />
         </button>
         <div
           v-if="thoughtExpanded"
-          class="markdown-body thought-panel"
+          class="o-markdown mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-5 py-4 text-zinc-500 shadow-inner"
           v-html="renderedThought" />
       </section>
 
       <template v-if="isLoading && !message.content">
-        <div class="loading-block">
-          <div class="skeleton-line w-92" />
-          <div class="skeleton-line w-84" />
-          <div class="skeleton-line w-60" />
+        <div class="ml-2 flex flex-col gap-3 max-sm:ml-0">
+          <div
+            class="h-3.5 w-[92%] animate-pulse rounded-full bg-linear-to-r from-zinc-100 via-zinc-200 to-zinc-100" />
+          <div
+            class="h-3.5 w-[84%] animate-pulse rounded-full bg-linear-to-r from-zinc-100 via-zinc-200 to-zinc-100" />
+          <div
+            class="h-3.5 w-[60%] animate-pulse rounded-full bg-linear-to-r from-zinc-100 via-zinc-200 to-zinc-100" />
         </div>
       </template>
 
       <template v-else-if="isNoResult">
-        <div class="notice-block">
-          <WarningOutlined class="notice-icon" />
-          <div class="notice-copy markdown-body" v-html="renderedAnswer" />
+        <div
+          class="ml-2 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm max-sm:ml-0">
+          <WarningOutlined class="mt-1 text-base text-amber-600" />
+          <div
+            class="o-markdown flex-1 text-amber-800"
+            v-html="renderedAnswer" />
         </div>
       </template>
 
       <template v-else>
-        <section v-if="!isUser && hasAnswerSection" class="answer-wrap">
-          <div class="section-kicker">答案</div>
-          <div class="markdown-body answer-body" v-html="renderedAnswer" />
-          <div v-if="hasSources" class="sources-inline-wrap">
-            <div class="sources-inline-label">引用来源</div>
-            <div class="source-badges">
+        <section
+          v-if="!isUser && hasAnswerSection"
+          :class="
+            cn(
+              'ml-2 mt-5 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
+              isError && 'border-red-200 bg-red-50'
+            )
+          ">
+          <div
+            class="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-400">
+            答案
+          </div>
+          <div class="o-markdown answer-body" v-html="renderedAnswer" />
+          <div
+            v-if="hasSources"
+            class="mt-4 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4">
+            <div
+              class="pt-1.5 text-xs font-bold uppercase tracking-wide text-zinc-500">
+              引用来源
+            </div>
+            <div class="flex flex-1 flex-wrap gap-2">
               <button
                 v-for="source in sourceItems"
                 :key="`${message.id}-${source.doc_id}-${source.chunk_index}`"
                 type="button"
-                class="source-badge"
+                class="flex w-48 max-w-full items-start gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-zinc-300 hover:bg-zinc-100 hover:shadow-sm"
                 @click="selectSource(source)">
-                <span class="source-badge-index">{{ source.index }}</span>
-                <span class="source-badge-copy">
-                  <span class="source-filename">{{ source.filename }}</span>
+                <span
+                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-zinc-950 shadow-sm ring-1 ring-black/5">
+                  {{ source.index }}
+                </span>
+                <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                  <span class="block max-w-35 truncate">
+                    {{ source.filename }}
+                  </span>
                   <span
                     v-if="buildSourceSummary(source)"
-                    class="source-summary">
+                    class="o-source-summary text-left text-[11px] text-zinc-500">
                     {{ buildSourceSummary(source) }}
                   </span>
-                  <span v-else-if="buildSourceMeta(source)" class="source-meta">
+                  <span
+                    v-else-if="buildSourceMeta(source)"
+                    class="whitespace-nowrap text-[11px] text-zinc-500">
                     {{ buildSourceMeta(source) }}
                   </span>
                 </span>
               </button>
             </div>
           </div>
-          <div v-if="hasClarification" class="clarification-wrap">
+          <div v-if="hasClarification" class="mt-4 flex flex-wrap gap-3">
             <button
               v-for="option in clarificationOptions"
               :key="`${message.id}-${option.field}-${option.value}`"
               type="button"
-              class="clarification-chip"
+              class="rounded-full border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition-all duration-200 hover:border-(--color-success-border) hover:bg-[rgba(238,247,241,0.92)] hover:text-(--color-success-strong) hover:shadow"
               @click="applyClarification(option)">
               {{ option.label }}
             </button>
@@ -297,27 +355,45 @@ function toggleThought() {
 
         <div
           v-else-if="!isUser"
-          class="markdown-body answer-body"
+          :class="
+            cn(
+              'o-markdown ml-2 max-sm:ml-0',
+              isError &&
+                'rounded-2xl border border-red-200 bg-red-50 px-6 py-5 shadow-sm'
+            )
+          "
           v-html="renderedContent" />
 
         <div
           v-if="!isUser && !hasAnswerSection && hasSources"
-          class="sources-inline-wrap">
-          <div class="sources-inline-label">引用来源</div>
-          <div class="source-badges">
+          class="ml-2 mt-4 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4 max-sm:ml-0">
+          <div
+            class="pt-1.5 text-xs font-bold uppercase tracking-wide text-zinc-500">
+            引用来源
+          </div>
+          <div class="flex flex-1 flex-wrap gap-2">
             <button
               v-for="source in sourceItems"
               :key="`${message.id}-fallback-${source.doc_id}-${source.chunk_index}`"
               type="button"
-              class="source-badge"
+              class="flex w-48 max-w-full items-start gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-zinc-300 hover:bg-zinc-100 hover:shadow-sm"
               @click="selectSource(source)">
-              <span class="source-badge-index">{{ source.index }}</span>
-              <span class="source-badge-copy">
-                <span class="source-filename">{{ source.filename }}</span>
-                <span v-if="buildSourceSummary(source)" class="source-summary">
+              <span
+                class="flex h-5 min-w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-zinc-950 shadow-sm ring-1 ring-black/5">
+                {{ source.index }}
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                <span class="block max-w-35 truncate">
+                  {{ source.filename }}
+                </span>
+                <span
+                  v-if="buildSourceSummary(source)"
+                  class="o-source-summary text-left text-[11px] text-zinc-500">
                   {{ buildSourceSummary(source) }}
                 </span>
-                <span v-else-if="buildSourceMeta(source)" class="source-meta">
+                <span
+                  v-else-if="buildSourceMeta(source)"
+                  class="whitespace-nowrap text-[11px] text-zinc-500">
                   {{ buildSourceMeta(source) }}
                 </span>
               </span>
@@ -325,566 +401,12 @@ function toggleThought() {
           </div>
         </div>
 
-        <div v-else-if="isUser" class="user-text">{{ message.content }}</div>
+        <div
+          v-else-if="isUser"
+          class="whitespace-pre-wrap text-sm leading-relaxed">
+          {{ message.content }}
+        </div>
       </template>
     </div>
   </div>
 </template>
-
-<style scoped>
-.message-row {
-  display: flex;
-  width: 100%;
-  margin-bottom: 28px;
-  animation: fadeIn 0.32s ease-out;
-}
-
-.user-row {
-  justify-content: flex-end;
-}
-
-.assistant-row {
-  justify-content: flex-start;
-}
-
-.message-shell {
-  max-width: 100%;
-}
-
-.user-shell {
-  width: fit-content;
-  max-width: min(78%, 640px);
-  background: #18181b;
-  color: #ffffff;
-  border-radius: 24px 24px 8px 24px;
-  padding: 16px 18px;
-  box-shadow: 0 12px 32px rgba(24, 24, 27, 0.12);
-}
-
-.assistant-shell {
-  width: 100%;
-  max-width: min(100%, 760px);
-}
-
-.message-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.agent-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  border-radius: 999px;
-  padding: 6px 10px;
-  color: #27272a;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.agent-icon {
-  color: #18181b;
-}
-
-.msg-time {
-  color: #a1a1aa;
-  font-size: 12px;
-}
-
-.loading-block,
-.answer-wrap,
-.thought-wrap,
-.notice-block,
-.assistant-shell > .answer-body {
-  margin-left: 8px;
-}
-
-.loading-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.clarification-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.clarification-chip {
-  border: 1px solid rgba(24, 24, 27, 0.1);
-  border-radius: 999px;
-  background: #ffffff;
-  color: #18181b;
-  padding: 9px 14px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.clarification-chip:hover {
-  border-color: var(--color-success-border);
-  background: rgba(238, 247, 241, 0.92);
-  color: var(--color-success-strong);
-}
-
-.progress-flow {
-  margin-top: 2px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-}
-
-.answer-progress-flow {
-  margin-top: 16px;
-  margin-bottom: 16px;
-}
-
-.progress-flow-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.progress-flow-toggle {
-  width: 100%;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  text-align: left;
-  cursor: default;
-}
-
-.progress-flow-toggle:not(:disabled) {
-  cursor: pointer;
-}
-
-.progress-flow-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: #52525b;
-}
-
-.progress-flow-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.progress-flow-summary-text {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #71717a;
-  font-size: 12px;
-}
-
-.progress-flow-arrow {
-  font-size: 12px;
-  color: #71717a;
-  transition: transform 0.2s ease;
-}
-
-.progress-flow-arrow.expanded {
-  transform: rotate(180deg);
-}
-
-.progress-flow-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.progress-flow-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  color: #71717a;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.progress-flow-item-active {
-  color: #18181b;
-}
-
-.progress-flow-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: #d4d4d8;
-}
-
-.progress-flow-item-active .progress-flow-dot {
-  background: #18181b;
-  box-shadow: 0 0 0 4px rgba(24, 24, 27, 0.08);
-}
-
-.thought-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 0;
-  background: #f5f5f5;
-  color: #3f3f46;
-  border-radius: 14px;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.thought-toggle:hover {
-  background: #ededed;
-}
-
-.thought-label,
-.thought-meta {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.thought-meta {
-  margin-left: auto;
-  color: #71717a;
-}
-
-.thought-arrow {
-  font-size: 12px;
-  transition: transform 0.2s ease;
-}
-
-.thought-arrow.expanded {
-  transform: rotate(180deg);
-}
-
-.thought-panel {
-  margin-top: 10px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: #fafafa;
-  border: 1px solid #ededed;
-  color: #71717a;
-}
-
-.skeleton-line {
-  height: 12px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #f4f4f5 0%, #e4e4e7 50%, #f4f4f5 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.3s linear infinite;
-}
-
-.w-92 {
-  width: 92%;
-}
-
-.w-84 {
-  width: 84%;
-}
-
-.w-60 {
-  width: 60%;
-}
-
-.answer-wrap {
-  margin-top: 16px;
-  padding: 18px 20px;
-  background: #ffffff;
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  border-radius: 20px;
-  box-shadow: 0 10px 30px rgba(24, 24, 27, 0.04);
-}
-
-.section-kicker {
-  margin-bottom: 10px;
-  color: #a1a1aa;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.sources-inline-wrap {
-  margin-top: 12px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding-top: 12px;
-  border-top: 1px solid rgba(24, 24, 27, 0.08);
-}
-
-.sources-inline-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #71717a;
-  padding-top: 5px;
-}
-
-.source-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  flex: 1;
-}
-
-.source-badge {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 6px;
-  background: #f4f4f5;
-  border: 1px solid #e4e4e7;
-  border-radius: 14px;
-  padding: 4px 10px 4px 6px;
-  width: 180px;
-  max-width: 100%;
-  box-sizing: border-box;
-  font-size: 12px;
-  color: #3f3f46;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.source-badge:hover {
-  background: #e4e4e7;
-  border-color: rgba(24, 24, 27, 0.1);
-  color: #18181b;
-}
-
-.source-badge-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.source-badge-index {
-  background: #ffffff;
-  color: #1a1a1a;
-  font-weight: 600;
-  font-size: 10px;
-  min-width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
-}
-
-.source-filename {
-  display: block;
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.source-meta {
-  color: #71717a;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.source-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  color: #71717a;
-  font-size: 11px;
-  line-height: 1.5;
-  text-align: left;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.notice-block {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-}
-
-.notice-icon {
-  color: #d97706;
-  margin-top: 2px;
-}
-
-.notice-copy {
-  color: #92400e;
-}
-
-.error-shell .answer-wrap,
-.error-shell > .answer-body {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-
-.user-text {
-  white-space: pre-wrap;
-  line-height: 1.7;
-  font-size: 15px;
-}
-
-.markdown-body {
-  font-size: 15px;
-  line-height: 1.78;
-  color: #18181b;
-  word-break: break-word;
-}
-
-.answer-body :deep(p),
-.thought-panel :deep(p),
-.notice-copy :deep(p) {
-  margin: 0 0 10px;
-}
-
-.answer-body :deep(p:last-child),
-.thought-panel :deep(p:last-child),
-.notice-copy :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.markdown-body :deep(ul),
-.markdown-body :deep(ol) {
-  padding-left: 22px;
-  margin: 10px 0;
-}
-
-.markdown-body :deep(li) {
-  margin-bottom: 6px;
-}
-
-.markdown-body :deep(code) {
-  background: #f4f4f5;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 13px;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-}
-
-.markdown-body :deep(pre) {
-  background: #18181b;
-  color: #f4f4f5;
-  padding: 16px;
-  border-radius: 14px;
-  overflow-x: auto;
-  margin: 12px 0;
-}
-
-.markdown-body :deep(pre code) {
-  background: transparent;
-  padding: 0;
-  color: inherit;
-}
-
-.markdown-body :deep(blockquote) {
-  border-left: 3px solid #d4d4d8;
-  padding-left: 14px;
-  margin: 12px 0;
-  color: #71717a;
-}
-
-.markdown-body :deep(h1),
-.markdown-body :deep(h2),
-.markdown-body :deep(h3) {
-  margin: 18px 0 10px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-@media (max-width: 640px) {
-  .user-shell {
-    width: fit-content;
-    max-width: 88%;
-  }
-
-  .answer-wrap,
-  .thought-wrap,
-  .sources-inline-wrap,
-  .notice-block,
-  .assistant-shell > .answer-body,
-  .loading-block {
-    margin-left: 0;
-  }
-
-  .progress-flow {
-    margin-left: 0;
-  }
-
-  .progress-flow-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .progress-flow-summary {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .progress-flow-summary-text {
-    max-width: none;
-    white-space: normal;
-  }
-
-  .message-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-</style>

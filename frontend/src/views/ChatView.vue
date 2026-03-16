@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
 import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
+import { OButton, OCard } from '@/orange-ui';
 import type {
   ClarificationOption,
   Message,
@@ -382,40 +383,68 @@ function handleKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="chat-container">
+  <div class="relative flex min-h-0 flex-1 flex-col pt-0">
     <div
-      class="messages-area"
+      class="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-5 pt-6 [scrollbar-color:rgba(113,113,122,0.45)_transparent] [scrollbar-width:thin] max-sm:px-0 max-sm:pb-4.5 max-sm:pt-5"
       ref="messagesContainer"
       @scroll="handleMessagesScroll">
-      <div v-if="messages.length === 0" class="welcome-container">
-        <div class="welcome-heading">
-          <RobotOutlined class="welcome-icon" />
-          <h2>有什么我可以帮您的？</h2>
+      <div
+        v-if="messages.length === 0"
+        class="flex flex-1 animate-o-fade-in flex-col items-center justify-center text-center">
+        <div class="mb-3 flex flex-col items-center gap-4">
+          <div
+            class="rounded-full bg-(--oui-color-primary-soft) p-5 text-[46px] text-(--oui-color-heading)">
+            <RobotOutlined />
+          </div>
+          <h2
+            class="m-0 text-2xl font-bold leading-tight tracking-tight text-(--oui-color-heading) max-sm:text-xl">
+            有什么我可以帮您的？
+          </h2>
         </div>
-        <p class="welcome-subtitle">
+        <p class="mb-8 text-sm leading-relaxed text-(--oui-color-text-muted)">
           基于您的私有知识库直接作答；范围不明确时会先向您确认。
         </p>
-        <div class="suggestions">
-          <div class="suggestion-item">
-            <span>01</span>
+        <div class="grid w-full max-w-140 gap-3">
+          <OCard
+            padding="md"
+            html-class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+            <span
+              class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+              01
+            </span>
             <div>
-              <strong>上传资料</strong>
-              <p>先在知识库页面导入 PDF、Markdown 或文档资料。</p>
+              <strong
+                class="mb-1.5 block text-sm font-semibold text-(--oui-color-heading)">
+                上传资料
+              </strong>
+              <p
+                class="m-0 text-xs leading-relaxed text-(--oui-color-text-muted)">
+                先在知识库页面导入 PDF、Markdown 或文档资料。
+              </p>
             </div>
-          </div>
-          <div class="suggestion-item">
-            <span>02</span>
+          </OCard>
+          <OCard
+            padding="md"
+            html-class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+            <span
+              class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+              02
+            </span>
             <div>
-              <strong>直接提问</strong>
-              <p>
+              <strong
+                class="mb-1.5 block text-sm font-semibold text-(--oui-color-heading)">
+                直接提问
+              </strong>
+              <p
+                class="m-0 text-xs leading-relaxed text-(--oui-color-text-muted)">
                 我会优先返回结论；命中范围不明确时先请您选择知识空间或分类。
               </p>
             </div>
-          </div>
+          </OCard>
         </div>
       </div>
 
-      <div v-else class="messages-stack">
+      <div v-else class="mt-auto flex w-full flex-col box-border pt-21">
         <template v-for="msg in messages" :key="msg.id">
           <AnswerCard
             :message="msg"
@@ -431,321 +460,46 @@ function handleKeyDown(e: KeyboardEvent) {
       :query-text="selectedSource?.summary || selectedSource?.filename || ''"
       @close="closeSourceModal" />
 
-    <button
+    <OButton
       v-if="showScrollBack"
-      class="scroll-back-btn"
-      type="button"
+      html-class="absolute right-6 bottom-30 z-10 rounded-full shadow-floating max-sm:right-3 max-sm:bottom-27"
       @click="scrollToBottom(true)">
       <VerticalAlignBottomOutlined />
       查看最新消息
-    </button>
+    </OButton>
 
-    <div class="input-container">
-      <div class="input-wrapper">
-        <button
-          class="icon-btn danger-btn"
-          type="button"
+    <div class="bg-transparent pb-5">
+      <div
+        class="grid grid-cols-[auto_1fr_auto] items-end gap-2.5 rounded-3xl border border-black/8 bg-white/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(24,24,27,0.08)] backdrop-blur-xl transition-all duration-200 focus-within:border-black/20 focus-within:shadow-[0_12px_48px_rgba(24,24,27,0.12)]">
+        <OButton
+          variant="ghost"
+          size="sm"
+          html-class="h-10 w-10 rounded-full p-0 transition-all duration-200 hover:bg-(--oui-color-danger-soft) hover:text-(--oui-color-danger)"
           title="清空对话"
           @click="clearMessages">
           <ClearOutlined />
-        </button>
+        </OButton>
         <textarea
           ref="inputRef"
           v-model="inputText"
-          class="chat-input"
+          class="min-h-10 max-h-45 w-full resize-none border-0 bg-transparent px-1 py-2 text-sm leading-relaxed text-(--oui-color-heading) outline-none placeholder:text-(--oui-color-text-subtle) disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="给 RAG Agent 发送消息..."
           :disabled="isLoading"
           rows="1"
           @input="resizeTextarea"
           @keydown="handleKeyDown" />
-        <button
-          class="send-btn"
-          type="button"
+        <OButton
+          size="sm"
+          html-class="h-10 w-10 rounded-full p-0 transition-all duration-200"
           :disabled="isLoading || !inputText.trim()"
           @click="sendMessage">
           <SendOutlined />
-        </button>
+        </OButton>
       </div>
-      <div class="input-footer">内容基于知识库生成，请结合原文核实结论。</div>
+      <div
+        class="mt-3 text-center text-xs leading-relaxed text-(--oui-color-text-subtle)">
+        内容基于知识库生成，请结合原文核实结论。
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.chat-container {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  position: relative;
-  padding-top: 0;
-}
-
-.messages-area {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
-  padding: 24px 8px 20px;
-  display: flex;
-  flex-direction: column;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(113, 113, 122, 0.45) transparent;
-}
-
-.messages-area::-webkit-scrollbar {
-  width: 6px;
-}
-
-.messages-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.messages-area::-webkit-scrollbar-thumb {
-  background: rgba(113, 113, 122, 0.36);
-  border-radius: 999px;
-}
-
-.messages-area::-webkit-scrollbar-thumb:hover {
-  background: rgba(82, 82, 91, 0.56);
-}
-
-.messages-stack {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  margin-top: auto;
-  padding-top: 84px;
-  box-sizing: border-box;
-}
-
-.welcome-container {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  flex: 1;
-  text-align: center;
-  animation: fadeIn 0.4s ease-out;
-}
-
-.welcome-heading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-
-.welcome-icon {
-  font-size: 46px;
-  color: #1a1a1a;
-  background: #f4f4f5;
-  padding: 20px;
-  border-radius: 50%;
-}
-
-.welcome-heading h2 {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: #1a1a1a;
-}
-
-.welcome-subtitle {
-  margin: 0 0 36px;
-  font-size: 15px;
-  color: #71717a;
-}
-
-.suggestions {
-  width: 100%;
-  max-width: 560px;
-  display: grid;
-  gap: 14px;
-}
-
-.suggestion-item {
-  display: grid;
-  grid-template-columns: 48px 1fr;
-  gap: 16px;
-  align-items: start;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(24, 24, 27, 0.06);
-  border-radius: 22px;
-  padding: 18px 20px;
-  text-align: left;
-}
-
-.suggestion-item span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #18181b;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.suggestion-item strong {
-  display: block;
-  font-size: 15px;
-  color: #18181b;
-  margin-bottom: 4px;
-}
-
-.suggestion-item p {
-  margin: 0;
-  color: #71717a;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.scroll-back-btn {
-  position: absolute;
-  right: 24px;
-  bottom: 120px;
-  z-index: 10;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  border-radius: 999px;
-  background: #18181b;
-  color: #ffffff;
-  padding: 10px 14px;
-  font-size: 13px;
-  cursor: pointer;
-  box-shadow: 0 16px 32px rgba(24, 24, 27, 0.16);
-}
-
-.input-container {
-  padding: 0 0 20px;
-  background: transparent;
-}
-
-.input-wrapper {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: end;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(24, 24, 27, 0.08);
-  border-radius: 28px;
-  padding: 10px 12px;
-  box-shadow: 0 18px 42px rgba(24, 24, 27, 0.06);
-}
-
-.input-wrapper:focus-within {
-  border-color: rgba(24, 24, 27, 0.18);
-}
-
-.icon-btn,
-.send-btn {
-  width: 40px;
-  height: 40px;
-  border: 0;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.icon-btn {
-  background: transparent;
-  color: #71717a;
-}
-
-.icon-btn:hover {
-  background: #f4f4f5;
-  color: #18181b;
-}
-
-.danger-btn:hover {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.chat-input {
-  width: 100%;
-  min-height: 40px;
-  max-height: 180px;
-  resize: none;
-  border: 0;
-  background: transparent;
-  color: #18181b;
-  font-size: 15px;
-  line-height: 1.7;
-  outline: none;
-  padding: 8px 2px;
-  font-family: inherit;
-}
-
-.chat-input::placeholder {
-  color: #a1a1aa;
-}
-
-.send-btn {
-  background: #18181b;
-  color: #ffffff;
-}
-
-.send-btn:hover:not(:disabled) {
-  background: #27272a;
-}
-
-.send-btn:disabled,
-.icon-btn:disabled,
-.chat-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.input-footer {
-  text-align: center;
-  margin-top: 12px;
-  color: #a1a1aa;
-  font-size: 12px;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (max-width: 640px) {
-  .messages-area {
-    padding: 20px 0 18px;
-  }
-
-  .welcome-heading h2 {
-    font-size: 24px;
-  }
-
-  .suggestion-item {
-    grid-template-columns: 40px 1fr;
-    padding: 16px;
-  }
-
-  .suggestion-item span {
-    width: 40px;
-    height: 40px;
-  }
-
-  .scroll-back-btn {
-    right: 12px;
-    bottom: 108px;
-  }
-}
-</style>

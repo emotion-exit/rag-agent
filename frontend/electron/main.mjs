@@ -93,7 +93,7 @@ function createApplicationMenu() {
 }
 
 function getMacDockIconPath() {
-  const macDockIconPath = join(__dirname, './assets/icon-mac.png');
+  const macDockIconPath = join(__dirname, './assets/icon.png');
   return existsSync(macDockIconPath) ? macDockIconPath : null;
 }
 
@@ -105,7 +105,7 @@ function getDesktopIconPath() {
     }
   }
 
-  const iconPath = join(__dirname, '../public/favicon.ico');
+  const iconPath = join(__dirname, './assets/icon.png');
   return existsSync(iconPath) ? iconPath : null;
 }
 
