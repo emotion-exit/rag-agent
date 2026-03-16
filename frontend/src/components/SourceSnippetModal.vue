@@ -456,9 +456,9 @@ function highlightKeywords(text: string, keywords: string[]) {
   min-height: 28px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: #f5f8ff;
-  border: 1px solid rgba(37, 99, 235, 0.12);
-  color: #2563eb;
+  background: var(--color-success-soft);
+  border: 1px solid var(--color-success-border);
+  color: var(--color-success-strong);
   font-size: 12px;
   font-weight: 600;
 }
@@ -555,7 +555,7 @@ function highlightKeywords(text: string, keywords: string[]) {
 
 .source-image-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(37, 99, 235, 0.24);
+  border-color: var(--color-success-border);
   box-shadow: 0 12px 28px rgba(24, 24, 27, 0.08);
 }
 

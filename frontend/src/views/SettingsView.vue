@@ -1095,8 +1095,8 @@ onMounted(() => {
 }
 
 .status-browser {
-  background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  background: var(--color-success-soft);
+  color: var(--color-success-strong);
 }
 
 .status-meta {
@@ -1232,8 +1232,8 @@ onMounted(() => {
 }
 
 .field-input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+  border-color: var(--color-success-border);
+  box-shadow: 0 0 0 4px var(--color-success-soft);
   background: #ffffff;
 }
 

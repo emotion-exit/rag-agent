@@ -139,6 +139,33 @@ def get_document_chunk(doc_id: str, chunk_index: int) -> dict | None:
     }
 
 
+def get_document_chunks(doc_id: str) -> list[dict]:
+    """Return all stored chunks for a document, sorted by chunk index."""
+    collection = _get_collection()
+    result = collection.get(
+        where={"doc_id": {"$eq": doc_id}},
+        include=["documents", "metadatas"],
+    )
+
+    items = [
+        {
+            "id": item_id,
+            "content": document,
+            "metadata": metadata or {},
+        }
+        for item_id, document, metadata in zip(
+            result.get("ids", []),
+            result.get("documents", []),
+            result.get("metadatas", []),
+        )
+    ]
+
+    return sorted(
+        items,
+        key=lambda item: int(item["metadata"].get("chunk_index", 0) or 0),
+    )
+
+
 def delete_document(doc_id: str) -> int:
     """Delete all chunks belonging to a document."""
     collection = _get_collection()

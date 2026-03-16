@@ -85,8 +85,8 @@ const keepAliveIncludes = computed(() =>
 .app-layout {
   height: 100vh;
   overflow: hidden;
-  background-color: #fafafa;
-  color: #1a1a1a;
+  background: var(--color-background);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -115,15 +115,13 @@ const keepAliveIncludes = computed(() =>
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.76);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   padding: 12px 16px 12px 20px;
   border-radius: 100px;
-  box-shadow:
-    0 4px 24px -8px rgba(0, 0, 0, 0.05),
-    0 1px 3px rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-subtle);
+  border: 1px solid var(--color-border-soft);
 }
 
 .logo-area {
@@ -133,8 +131,8 @@ const keepAliveIncludes = computed(() =>
 }
 
 .logo-icon-wrapper {
-  background: #1a1a1a;
-  color: #fff;
+  background: var(--color-heading);
+  color: var(--color-surface);
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -148,13 +146,13 @@ const keepAliveIncludes = computed(() =>
   font-weight: 700;
   font-size: 16px;
   letter-spacing: -0.3px;
-  color: #1a1a1a;
+  color: var(--color-heading);
 }
 
 .nav-menu {
   display: flex;
   gap: 8px;
-  background: #f4f4f5;
+  background: var(--color-surface-muted);
   padding: 4px;
   border-radius: 100px;
 }
@@ -167,19 +165,19 @@ const keepAliveIncludes = computed(() =>
   border-radius: 100px;
   font-size: 14px;
   font-weight: 500;
-  color: #71717a;
+  color: var(--color-text-muted);
   text-decoration: none;
   transition: all 0.2s ease;
 }
 
 .nav-item:hover {
-  color: #1a1a1a;
+  color: var(--color-heading);
 }
 
 .nav-item-active {
-  background: #ffffff;
-  color: #1a1a1a;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--color-surface);
+  color: var(--color-heading);
+  box-shadow: 0 2px 8px rgba(24, 24, 27, 0.06);
 }
 
 .app-main {
@@ -224,6 +222,23 @@ const keepAliveIncludes = computed(() =>
 
   .app-main-aligned {
     padding-top: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .header-content {
+    flex-direction: column;
+    align-items: stretch;
+    border-radius: 24px;
+  }
+
+  .nav-menu {
+    width: 100%;
+  }
+
+  .nav-item {
+    flex: 1;
+    justify-content: center;
   }
 }
 </style>

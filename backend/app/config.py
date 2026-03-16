@@ -96,6 +96,14 @@ class Settings(BaseModel):
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
     upload_dir: str = Field(default="./data/uploads", alias="UPLOAD_DIR")
+    knowledge_base_job_retention_hours: int = Field(
+        default=2,
+        alias="KNOWLEDGE_BASE_JOB_RETENTION_HOURS",
+    )
+    knowledge_base_job_history_limit: int = Field(
+        default=200,
+        alias="KNOWLEDGE_BASE_JOB_HISTORY_LIMIT",
+    )
 
     # CORS
     cors_origins: str = Field(

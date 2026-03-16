@@ -57,9 +57,12 @@ const emit = defineEmits<{
 
 const markdown = new MarkdownIt({
   breaks: true,
-  linkify: true,
+  linkify: false,
   html: false
 });
+
+markdown.renderer.rules.link_open = () => '';
+markdown.renderer.rules.link_close = () => '';
 
 const isUser = computed(() => props.message.role === 'user');
 const isLoading = computed(() => props.message.status === 'loading');
@@ -429,9 +432,9 @@ function toggleThought() {
 }
 
 .clarification-chip:hover {
-  border-color: rgba(37, 99, 235, 0.24);
-  background: rgba(239, 246, 255, 0.92);
-  color: #1d4ed8;
+  border-color: var(--color-success-border);
+  background: rgba(238, 247, 241, 0.92);
+  color: var(--color-success-strong);
 }
 
 .progress-flow {
@@ -709,6 +712,7 @@ function toggleThought() {
   font-size: 11px;
   line-height: 1.5;
   text-align: left;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }

@@ -384,7 +384,7 @@ async function createMainWindow() {
     height: 960,
     minWidth: 1180,
     minHeight: 760,
-    backgroundColor: '#f4efe5',
+    backgroundColor: '#ffffff',
     show: false,
     title: 'RAG.Agent',
     webPreferences: {

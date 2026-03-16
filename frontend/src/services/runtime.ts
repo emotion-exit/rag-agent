@@ -28,6 +28,18 @@ export interface DesktopAppConfig {
   CORS_ORIGINS: string;
 }
 
+const DESKTOP_REQUIRED_CONFIG_FIELDS = [
+  'EMBEDDING_API_KEY',
+  'EMBEDDING_BASE_URL',
+  'EMBEDDING_MODEL',
+  'RERANKER_API_KEY',
+  'RERANKER_BASE_URL',
+  'RERANKER_MODEL',
+  'CHAT_API_KEY',
+  'CHAT_BASE_URL',
+  'CHAT_MODEL'
+] as const satisfies readonly (keyof DesktopAppConfig)[];
+
 const FALLBACK_API_BASE =
   import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -71,4 +83,26 @@ export function getApiBase() {
 
 export function cloneDefaultDesktopConfig(): DesktopAppConfig {
   return { ...DEFAULT_DESKTOP_CONFIG };
+}
+
+export function hasRequiredDesktopProviderConfig(
+  source: Partial<DesktopAppConfig>
+) {
+  return DESKTOP_REQUIRED_CONFIG_FIELDS.every((field) => {
+    const value = source[field];
+    return typeof value === 'string' && value.trim().length > 0;
+  });
+}
+
+export async function shouldRedirectToSettingsOnDesktop() {
+  if (!isDesktopApp() || !window.desktopApp) {
+    return false;
+  }
+
+  try {
+    const config = await window.desktopApp.getConfig();
+    return !hasRequiredDesktopProviderConfig(config);
+  } catch {
+    return false;
+  }
 }
