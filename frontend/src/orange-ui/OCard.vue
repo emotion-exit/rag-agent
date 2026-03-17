@@ -13,6 +13,7 @@ const props = withDefaults(
     padding?: 'none' | 'sm' | 'md' | 'lg';
     tone?: 'default' | 'muted' | 'success' | 'warning' | 'danger';
     interactive?: boolean;
+    class?: any;
   }>(),
   {
     padding: 'md',
@@ -40,7 +41,7 @@ const classes = computed(() =>
       'border-(--oui-color-danger-border) bg-linear-to-b from-[rgba(255,246,246,0.95)] to-[rgba(254,242,242,0.92)] shadow-[inset_0_1px_0_rgba(255,255,255,0.8),0_12px_30px_rgba(177,55,42,0.06)]',
     props.interactive &&
       'hover:-translate-y-1.5 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_20px_48px_rgba(24,24,27,0.12)] cursor-pointer active:translate-y-0 active:shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_12px_30px_rgba(24,24,27,0.04)]',
-    attrs.class
+    props.class
   )
 );
 

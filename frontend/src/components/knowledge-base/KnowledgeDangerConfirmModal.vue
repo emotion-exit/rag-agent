@@ -59,36 +59,25 @@ function requestConfirm() {
     width="min(540px, 100%)"
     @confirm="requestConfirm"
     @close="requestClose">
-    <div class="space-y-3.5">
-      <div
-        v-if="impactStats.length > 0"
-        class="grid grid-cols-[repeat(auto-fit,minmax(145px,1fr))] gap-2.5">
+    <div class="space-y-3 flex flex-col gap-3">
+      <div v-if="impactStats.length > 0" class="grid grid-cols-2 gap-2.5">
         <OCard
           v-for="item in impactStats"
           :key="item.label"
           tone="danger"
-          padding="sm"
+          padding="none"
           :class="[
-            'flex min-h-22 flex-col justify-between border-transparent! rounded-2xl! shadow-[0_2px_8px_rgba(177,55,42,0.08),0_1px_2px_rgba(177,55,42,0.04)]!',
-            item.kind === 'context'
-              ? 'bg-[linear-gradient(135deg,rgba(255,252,252,0.98),rgba(254,249,249,0.96))]!'
-              : 'bg-[linear-gradient(180deg,rgba(255,254,254,0.98),rgba(255,251,251,0.96))]!'
+            'flex flex-col justify-center px-3.5 py-2.5 border border-[#fcb5b5]/30 rounded-xl! shadow-none bg-[#fef2f2]!'
           ]">
           <div
             :class="[
               item.kind === 'context'
-                ? 'text-[15px] font-semibold leading-[1.4] text-(--oui-color-heading) line-clamp-2'
-                : 'text-[26px] font-bold leading-none tracking-[-0.02em] text-(--oui-color-danger)'
+                ? 'text-[13px] font-semibold leading-[1.4] text-(--oui-color-heading) line-clamp-1'
+                : 'text-[18px] font-bold leading-none text-(--oui-color-danger)'
             ]">
             {{ item.value }}
           </div>
-          <div
-            :class="[
-              'mt-1.5 text-[11px] font-medium leading-[1.4] tracking-wide',
-              item.kind === 'context'
-                ? 'text-(--oui-color-text-muted) opacity-75'
-                : 'text-(--oui-color-text-muted)'
-            ]">
+          <div :class="['mt-1 text-[11px] font-medium text-[#b1372a]/70']">
             {{ item.label }}
           </div>
         </OCard>
@@ -97,13 +86,13 @@ function requestConfirm() {
       <OCard
         v-if="impactItems.length > 0"
         tone="danger"
-        padding="sm"
-        class="border-transparent! rounded-2xl! shadow-[0_2px_8px_rgba(177,55,42,0.08),0_1px_2px_rgba(177,55,42,0.04)]! bg-[linear-gradient(180deg,rgba(255,254,254,0.98),rgba(255,251,251,0.96))]!">
-        <div class="text-[13px] font-bold leading-5 text-(--oui-color-danger)">
-          此操作会同时影响
+        padding="none"
+        class="border border-[#fcb5b5]/30 rounded-xl! px-4 py-3 shadow-none bg-[#fef2f2]!">
+        <div class="text-[12px] font-bold leading-5 text-(--oui-color-danger)">
+          此操作会删除以下数据：
         </div>
         <ul
-          class="mt-2 list-disc space-y-0.5 pl-4 text-[13px] leading-[1.7] text-(--oui-color-text-secondary)">
+          class="mt-1.5 list-disc space-y-0.5 pl-4 text-[12px] leading-[1.6] text-(--oui-color-danger)/80">
           <li v-for="item in impactItems" :key="item">{{ item }}</li>
         </ul>
       </OCard>

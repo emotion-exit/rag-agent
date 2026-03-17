@@ -25,6 +25,7 @@ import {
   savePublicFrontendConfig
 } from '@/services/publicConfig';
 import {
+  OBadge,
   OButton,
   OCard,
   OFormItem,
@@ -137,18 +138,18 @@ function getProviderStateLabel(status: string) {
   return '待检测';
 }
 
-function getStatusChipClass(
+function getStatusVariant(
   status: 'unknown' | 'online' | 'offline' | 'restarting'
-) {
+): 'success' | 'danger' | 'warning' {
   if (status === 'online') {
-    return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+    return 'success';
   }
 
   if (status === 'offline') {
-    return 'bg-[rgba(177,55,42,0.12)] text-[#9e3328]';
+    return 'danger';
   }
 
-  return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+  return 'warning';
 }
 
 function getProviderCardTone(
@@ -410,14 +411,14 @@ onMounted(() => {
       class="flex items-start justify-between gap-6 max-[960px]:grid max-[960px]:grid-cols-1">
       <div>
         <div
-          class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
+          class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
           {{ isDesktop ? 'Desktop Runtime' : 'Web Runtime' }}
         </div>
         <h1
-          class="m-0 text-[24px] leading-[1.08] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-[22px]">
+          class="m-0 text-[24px] leading-[1.08] font-bold tracking-tight text-heading max-[768px]:text-[22px]">
           {{ isDesktop ? '本地服务配置' : '公开高级设置' }}
         </h1>
-        <p class="mt-1.5 max-w-160 text-[12px] leading-[1.6] text-zinc-500">
+        <p class="mt-1.5 max-w-160 text-[13px] leading-[1.6] text-secondary">
           {{
             isDesktop
               ? '桌面端可配置完整运行参数；敏感 API 凭据仍保存在本地环境。'
@@ -427,17 +428,10 @@ onMounted(() => {
       </div>
       <div
         class="flex min-w-56 flex-col items-end gap-2 max-[960px]:min-w-0 max-[960px]:items-start">
-        <div
-          :class="
-            cn(
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold',
-              getStatusChipClass(health)
-            )
-          ">
+        <OBadge :variant="getStatusVariant(health)" size="lg">
           <CloudServerOutlined />
           <span>{{ healthText }}</span>
-        </div>
-        <!-- <div class="text-[12px] text-zinc-500">API 地址：{{ apiBase }}</div> -->
+        </OBadge>
       </div>
     </OCard>
 

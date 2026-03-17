@@ -5,6 +5,7 @@ defineOptions({
 
 import { computed, useAttrs } from 'vue';
 import { cn } from '@/utils/cn';
+import { cva, type VariantProps } from 'class-variance-authority';
 
 const attrs = useAttrs();
 
@@ -17,6 +18,7 @@ const props = withDefaults(
     min?: number | string;
     max?: number | string;
     step?: number | string;
+    class?: any;
   }>(),
   {
     modelValue: '',
@@ -36,13 +38,30 @@ const emit = defineEmits<{
   input: [event: Event];
 }>();
 
+const inputVariants = cva(
+  'group relative flex min-h-12 items-center gap-2 rounded-2xl border bg-white px-4 text-[14px] font-medium leading-6 transition-all duration-300',
+  {
+    variants: {
+      status: {
+        default:
+          'border-black/8 text-body shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_4px_12px_rgba(24,24,27,0.03)] hover:border-black/15 hover:shadow-[0_6px_16px_rgba(24,24,27,0.05)] focus-within:border-brand-soft focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.04),inset_0_1px_0_rgba(255,255,255,0.92),0_8px_20px_rgba(24,24,27,0.08)]',
+        error:
+          'border-danger-border text-danger shadow-sm focus-within:border-danger focus-within:ring-4 focus-within:ring-danger/20'
+      },
+      disabled: {
+        true: 'cursor-not-allowed bg-surface-muted border-black/5 text-subtle shadow-none hover:border-black/5 hover:shadow-none opacity-80',
+        false: ''
+      }
+    },
+    defaultVariants: {
+      status: 'default',
+      disabled: false
+    }
+  }
+);
+
 const wrapperClass = computed(() =>
-  cn(
-    'group relative flex min-h-12 items-center gap-2 rounded-[16px] border border-black/8 bg-linear-to-b from-white to-[rgba(248,248,249,0.96)] px-4 text-[14px] font-medium leading-6 text-(--oui-color-text) transition-all duration-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_6px_18px_rgba(24,24,27,0.04)] hover:border-black/12 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),inset_0_-1px_0_rgba(24,24,27,0.03),0_10px_24px_rgba(24,24,27,0.06)] focus-within:-translate-y-[1px] focus-within:border-black/18 focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06),inset_0_1px_0_rgba(255,255,255,0.92),0_12px_28px_rgba(24,24,27,0.08)] focus-within:bg-white',
-    props.disabled &&
-      'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-60 shadow-none hover:border-black/8 hover:shadow-none',
-    attrs.class
-  )
+  cn(inputVariants({ disabled: props.disabled }), props.class)
 );
 
 const rootAttrs = computed(() => {
@@ -71,7 +90,7 @@ function handleInput(event: Event) {
       :min="props.min"
       :max="props.max"
       :step="props.step"
-      class="w-full border-0 bg-transparent p-0 text-inherit leading-inherit font-inherit outline-none placeholder:font-normal placeholder:text-(--oui-color-text-subtle)"
+      class="w-full border-0 bg-transparent p-0 text-inherit leading-inherit font-inherit outline-none placeholder:font-normal placeholder:text-subtle disabled:cursor-not-allowed"
       @input="handleInput"
       @blur="emit('blur', $event)"
       @keydown="emit('keydown', $event)" />

@@ -23,7 +23,10 @@
     "@ant-design/icons-vue": "^7.0.1",
     "@types/uuid": "^10.0.0",
     "axios": "^1.13.6",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "markdown-it": "^14.1.1",
+    "tailwind-merge": "^3.5.0",
     "uuid": "^13.0.0",
     "vue": "^3.5.29",
     "vue-router": "^5.0.3"

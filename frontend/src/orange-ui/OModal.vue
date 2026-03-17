@@ -24,6 +24,7 @@ const props = withDefaults(
     cancelDisabled?: boolean;
     confirmDisabled?: boolean;
     confirmLoading?: boolean;
+    class?: any;
   }>(),
   {
     title: '',
@@ -90,7 +91,7 @@ function requestConfirm() {
             :class="
               cn(
                 'flex max-h-[88vh] flex-col overflow-hidden rounded-3xl border border-white/90 bg-[rgba(255,255,255,0.98)] shadow-[0_20px_60px_rgba(24,24,27,0.16),inset_0_1px_0_rgba(255,255,255,0.9)] backdrop-blur-3xl backdrop-saturate-200',
-                attrs.class
+                props.class
               )
             "
             @click.stop>

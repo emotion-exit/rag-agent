@@ -16,6 +16,7 @@ const props = withDefaults(
     disabled?: boolean;
     resize?: 'none' | 'vertical' | 'auto';
     appearance?: 'default' | 'plain';
+    class?: any;
   }>(),
   {
     modelValue: '',
@@ -46,7 +47,7 @@ const wrapperClass = computed(() =>
       (props.appearance === 'default'
         ? 'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-60 shadow-none hover:border-black/8 hover:shadow-none'
         : 'cursor-not-allowed opacity-60'),
-    attrs.class
+    props.class
   )
 );
 

@@ -3,12 +3,52 @@
 @import 'tailwindcss';
 
 @theme {
-  --shadow-panel:
-    0 12px 30px rgba(24, 24, 27, 0.04), 0 4px 12px rgba(24, 24, 27, 0.02);
-  --shadow-floating:
-    0 20px 60px rgba(24, 24, 27, 0.16), 0 8px 24px rgba(24, 24, 27, 0.08);
-  --shadow-subtle:
-    0 8px 20px rgba(24, 24, 27, 0.05), 0 2px 6px rgba(24, 24, 27, 0.02);
+  --shadow-panel: var(
+    --oui-shadow-panel,
+    0 12px 30px rgba(24, 24, 27, 0.04),
+    0 4px 12px rgba(24, 24, 27, 0.02)
+  );
+  --shadow-floating: var(
+    --oui-shadow-floating,
+    0 20px 60px rgba(24, 24, 27, 0.16),
+    0 8px 24px rgba(24, 24, 27, 0.08)
+  );
+  --shadow-subtle: var(
+    --oui-shadow-subtle,
+    0 8px 20px rgba(24, 24, 27, 0.05),
+    0 2px 6px rgba(24, 24, 27, 0.02)
+  );
+
+  --color-brand: var(--oui-color-primary);
+  --color-brand-soft: var(--oui-color-primary-soft);
+  --color-brand-strong: var(--oui-color-primary-strong);
+  --color-brand-foreground: var(--oui-color-on-primary);
+
+  --color-surface: var(--oui-color-surface);
+  --color-surface-soft: var(--oui-color-surface-soft);
+  --color-surface-muted: var(--oui-color-surface-muted);
+
+  --color-border: var(--oui-color-border);
+  --color-border-soft: var(--oui-color-border-soft);
+  --color-border-strong: var(--oui-color-border-strong);
+
+  --color-heading: var(--oui-color-heading);
+  --color-body: var(--oui-color-text);
+  --color-secondary: var(--oui-color-text-secondary);
+  --color-muted: var(--oui-color-text-muted);
+  --color-subtle: var(--oui-color-text-subtle);
+
+  --color-success: var(--oui-color-success);
+  --color-success-soft: var(--oui-color-success-soft);
+  --color-success-border: var(--oui-color-success-border);
+
+  --color-danger: var(--oui-color-danger);
+  --color-danger-soft: var(--oui-color-danger-soft);
+  --color-danger-border: var(--oui-color-danger-border);
+
+  --color-warning: var(--oui-color-warning);
+  --color-warning-soft: var(--oui-color-warning-soft);
+  --color-warning-border: var(--oui-color-warning-border);
 
   --animate-o-fade-in: o-fade-in 0.24s ease-out;
   --animate-o-scale-in: o-scale-in 0.24s ease-out;

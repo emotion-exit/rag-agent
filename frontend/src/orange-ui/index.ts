@@ -1,5 +1,7 @@
 export { default as OAlert } from './OAlert.vue';
+export { default as OBadge } from './OBadge.vue';
 export { default as OButton } from './OButton.vue';
+export { default as OEmptyState } from './OEmptyState.vue';
 export { default as OCard } from './OCard.vue';
 export { default as OConfigProvider } from './OConfigProvider.vue';
 export { default as OFormItem } from './OFormItem.vue';

@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
 import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
-import { OButton, OCard, OTextarea } from '@/orange-ui';
+import { OButton, OCard, OTextarea, OEmptyState } from '@/orange-ui';
 import type {
   ClarificationOption,
   Message,
@@ -390,58 +390,48 @@ function handleKeyDown(e: KeyboardEvent) {
       @scroll="handleMessagesScroll">
       <div
         v-if="messages.length === 0"
-        class="flex flex-1 animate-o-fade-in flex-col items-center justify-center text-center">
-        <div class="mb-3 flex flex-col items-center gap-4">
-          <div
-            class="rounded-full flex justify-center items-center bg-(--oui-color-primary-soft) p-5 text-[46px] text-(--oui-color-heading)">
+        class="flex flex-1 items-center justify-center">
+        <OEmptyState
+          title="有什么我可以帮您的？"
+          description="基于您的私有知识库直接作答；范围不明确时会先向您确认。">
+          <template #icon>
             <RobotOutlined />
+          </template>
+          <div class="grid w-full gap-3">
+            <OCard
+              padding="md"
+              class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-300 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+              <span
+                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+                01
+              </span>
+              <div>
+                <strong class="mb-1.5 block text-sm font-semibold text-heading">
+                  上传资料
+                </strong>
+                <p class="m-0 text-xs leading-relaxed text-muted">
+                  先在知识库页面导入 PDF、Markdown 或文档资料。
+                </p>
+              </div>
+            </OCard>
+            <OCard
+              padding="md"
+              class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+              <span
+                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+                02
+              </span>
+              <div>
+                <strong class="mb-1.5 block text-sm font-semibold text-heading">
+                  直接提问
+                </strong>
+                <p class="m-0 text-xs leading-relaxed text-muted">
+                  我会优先返回结论；命中范围不明确时先请您选择知识空间或分类。
+                </p>
+              </div>
+            </OCard>
           </div>
-          <h2
-            class="m-0 text-2xl font-bold leading-tight tracking-tight text-(--oui-color-heading) max-sm:text-xl">
-            有什么我可以帮您的？
-          </h2>
-        </div>
-        <p class="mb-8 text-sm leading-relaxed text-(--oui-color-text-muted)">
-          基于您的私有知识库直接作答；范围不明确时会先向您确认。
-        </p>
-        <div class="grid w-full max-w-140 gap-3">
-          <OCard
-            padding="md"
-            class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-300 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
-            <span
-              class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
-              01
-            </span>
-            <div>
-              <strong
-                class="mb-1.5 block text-sm font-semibold text-(--oui-color-heading)">
-                上传资料
-              </strong>
-              <p
-                class="m-0 text-xs leading-relaxed text-(--oui-color-text-muted)">
-                先在知识库页面导入 PDF、Markdown 或文档资料。
-              </p>
-            </div>
-          </OCard>
-          <OCard
-            padding="md"
-            class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
-            <span
-              class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
-              02
-            </span>
-            <div>
-              <strong
-                class="mb-1.5 block text-sm font-semibold text-(--oui-color-heading)">
-                直接提问
-              </strong>
-              <p
-                class="m-0 text-xs leading-relaxed text-(--oui-color-text-muted)">
-                我会优先返回结论；命中范围不明确时先请您选择知识空间或分类。
-              </p>
-            </div>
-          </OCard>
-        </div>
+        </OEmptyState>
       </div>
 
       <div v-else class="mt-auto flex w-full flex-col box-border pt-21">

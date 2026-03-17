@@ -24,7 +24,14 @@ import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDa
 import KnowledgeBaseTaskProgressModal from '@/components/knowledge-base/KnowledgeBaseTaskProgressModal.vue';
 import KnowledgeUploadModal from '@/components/knowledge-base/KnowledgeUploadModal.vue';
 import UngroupedMigrationModal from '@/components/knowledge-base/UngroupedMigrationModal.vue';
-import { OButton, OCard, OTree, useOToast } from '@/orange-ui';
+import {
+  OBadge,
+  OButton,
+  OCard,
+  OEmptyState,
+  OTree,
+  useOToast
+} from '@/orange-ui';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
 import { getApiBase } from '@/services/runtime';
 import type {
@@ -242,14 +249,14 @@ const knowledgeHeaderStatusLabel = computed(() => {
 });
 const knowledgeHeaderStatusClass = computed(() => {
   if (hasActiveTask.value || loading.value) {
-    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+    return 'warning';
   }
 
   if (spaceSummary.value.ungrouped_documents > 0) {
-    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+    return 'warning';
   }
 
-  return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+  return 'success';
 });
 
 function buildDefaultCreateSpaceForm(parentId = ''): KnowledgeSpaceCreateForm {
@@ -1097,14 +1104,10 @@ onBeforeUnmount(() => {
         </div>
         <div
           class="flex min-w-56 flex-col items-end gap-2 max-[960px]:min-w-0 max-[960px]:items-start">
-          <div
-            :class="[
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold',
-              knowledgeHeaderStatusClass
-            ]">
+          <OBadge :variant="knowledgeHeaderStatusClass" size="lg">
             <DatabaseOutlined />
             <span>{{ knowledgeHeaderStatusLabel }}</span>
-          </div>
+          </OBadge>
           <div class="text-[12px] text-zinc-500">
             正式空间 {{ spaceSummary.total_spaces }} 个 · 文档
             {{ stats.total_documents }} 篇
@@ -1164,7 +1167,7 @@ onBeforeUnmount(() => {
     </OCard>
 
     <section
-      class="grid grid-cols-[minmax(360px,430px)_minmax(0,1fr)] items-start gap-5 max-[1024px]:grid-cols-1">
+      class="grid grid-cols-[minmax(260px,320px)_minmax(0,1fr)] items-start gap-5 max-[1024px]:grid-cols-1">
       <OCard padding="lg" class="min-w-0 sticky top-2 max-[1024px]:static">
         <div
           class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
@@ -1188,7 +1191,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          class="o-scroll-fade mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-3.5 shadow-inner">
+          class="o-scroll-fade mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-1 shadow-inner">
           <OTree
             :items="treeItems"
             :selected-key="selectedTreeKey"
@@ -1214,15 +1217,20 @@ onBeforeUnmount(() => {
             </template>
           </OTree>
 
-          <div
-            v-if="flatSpaces.length === 0"
-            class="mt-1 flex min-h-60 flex-col items-center justify-center rounded-[22px] border border-dashed border-black/12 bg-white/70 px-4.5 py-8 text-center text-zinc-500">
-            <FolderOpenOutlined class="mb-3 text-3xl text-zinc-400" />
-            <p>还没有知识空间，请先创建一个顶级空间。</p>
-            <OButton variant="secondary" @click="openCreateSpaceModal()">
-              <PlusOutlined />
-              创建第一个空间
-            </OButton>
+          <div v-if="flatSpaces.length === 0" class="mt-1">
+            <OEmptyState
+              title="暂无知识空间"
+              description="还没有知识空间，请先创建一个顶级空间系统化管理您的知识。">
+              <template #icon>
+                <FolderOpenOutlined class="text-[32px] text-muted p-2" />
+              </template>
+              <div class="flex justify-center mt-2">
+                <OButton variant="secondary" @click="openCreateSpaceModal()">
+                  <PlusOutlined />
+                  创建第一个空间
+                </OButton>
+              </div>
+            </OEmptyState>
           </div>
         </div>
       </OCard>
@@ -1267,33 +1275,33 @@ onBeforeUnmount(() => {
           </div>
 
           <div
-            class="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+            class="grid grid-cols-4 gap-3 max-xl:grid-cols-4 max-sm:grid-cols-1">
             <div
-              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
-              <span class="text-xs text-zinc-500">直属文档</span>
-              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
+              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
+              <span class="text-[11px] text-zinc-500">直属文档</span>
+              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
                 {{ selectedSpace.direct_document_count }}
               </strong>
             </div>
             <div
-              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
-              <span class="text-xs text-zinc-500">全部文档</span>
-              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
+              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
+              <span class="text-[11px] text-zinc-500">全部文档</span>
+              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
                 {{ selectedSpace.total_document_count }}
               </strong>
             </div>
             <div
-              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
-              <span class="text-xs text-zinc-500">子空间</span>
-              <strong class="mt-1.5 block text-xl font-bold text-zinc-900">
+              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
+              <span class="text-[11px] text-zinc-500">子空间</span>
+              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
                 {{ selectedSpace.child_count }}
               </strong>
             </div>
             <div
-              class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3.5">
-              <span class="text-xs text-zinc-500">创建时间</span>
+              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
+              <span class="text-[11px] text-zinc-500">创建时间</span>
               <strong
-                class="mt-1.5 block text-sm leading-6 font-bold text-zinc-900">
+                class="mt-1 block text-[13px] leading-relaxed font-bold text-zinc-900">
                 {{ formatDate(selectedSpace.created_at) }}
               </strong>
             </div>
@@ -1433,17 +1441,18 @@ onBeforeUnmount(() => {
             <LoadingOutlined class="mb-3 animate-spin text-3xl text-zinc-400" />
             <p>正在加载文档列表...</p>
           </div>
-          <div
-            v-else-if="visibleDocuments.length === 0"
-            class="flex flex-col items-center justify-center rounded-[18px] border border-dashed border-black/12 bg-[rgba(250,250,250,0.5)] px-5 py-10.5 text-center text-zinc-500">
-            <DatabaseOutlined class="mb-3 text-3xl text-zinc-400" />
-            <p>
-              {{
+          <div v-else-if="visibleDocuments.length === 0" class="mt-2">
+            <OEmptyState
+              :title="selectedSpace ? '当前空间暂无直属文档' : '暂无未归类文档'"
+              :description="
                 selectedSpace
-                  ? '当前空间还没有直属文档，可以先上传文件，或进入子空间继续查看。'
-                  : '暂无未归类文档。'
-              }}
-            </p>
+                  ? '可以先上传文件，或进入子空间继续查看。'
+                  : '历史遗留数据已全部归类或本身为空。'
+              ">
+              <template #icon>
+                <DatabaseOutlined class="text-[32px] text-muted p-2" />
+              </template>
+            </OEmptyState>
           </div>
           <div
             v-else
