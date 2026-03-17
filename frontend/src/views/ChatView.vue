@@ -407,30 +407,28 @@ function handleKeyDown(e: KeyboardEvent) {
 <template>
   <div class="relative flex min-h-0 flex-1 flex-col pt-0">
     <div
-      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-black/6 bg-white/88 px-4 py-3 shadow-[0_8px_28px_rgba(24,24,27,0.06)] backdrop-blur-xl max-sm:mb-3 max-sm:rounded-2xl">
-      <div class="flex min-w-0 flex-1 flex-col gap-1">
-        <div
-          class="text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
-          当前会话
-        </div>
-        <div class="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
-          <span
-            class="rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-700">
-            会话 ID：{{ sessionId.slice(0, 8) }}
-          </span>
-          <span
-            v-if="sessionKnowledgeSpaceLabel"
-            class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1 font-medium text-zinc-900">
-            所属知识空间：{{ sessionKnowledgeSpaceLabel }}
-          </span>
-          <span
-            v-else
-            class="rounded-full border border-dashed border-black/10 bg-white px-3 py-1 text-zinc-500">
-            所属知识空间：未固定
-          </span>
-        </div>
+      class="absolute right-4 top-4 z-20 flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-black/6 bg-white/50 px-3 py-2 opacity-20 shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/90 hover:opacity-100 hover:shadow-md max-sm:right-2 max-sm:top-2">
+      <div class="flex items-center gap-2 text-xs text-zinc-600">
+        <span class="font-medium max-sm:hidden">
+          会话 ID：{{ sessionId.slice(0, 8) }}
+        </span>
+        <span
+          v-if="sessionKnowledgeSpaceLabel"
+          class="rounded-full bg-zinc-100/80 px-2 py-0.5"
+          title="所属知识空间">
+          {{ sessionKnowledgeSpaceLabel }}
+        </span>
+        <span
+          v-else
+          class="rounded-full border border-dashed border-black/10 bg-white/50 px-2 py-0.5 text-zinc-400 max-sm:hidden">
+          未固定空间
+        </span>
       </div>
-      <OButton variant="secondary" @click="startNewSession">新建会话</OButton>
+      <OButton
+        variant="secondary"
+        size="sm"
+        class="h-6 px-2 text-xs"
+        @click="startNewSession">新建会话</OButton>
     </div>
 
     <div
