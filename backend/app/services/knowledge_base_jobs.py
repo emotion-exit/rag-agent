@@ -149,7 +149,6 @@ def complete_job(job_id: str, *, message: str, result: dict | None = None) -> di
         finished_at = _now_iso()
         snapshot["status"] = "completed"
         snapshot["message"] = message
-        snapshot["current_document"] = ""
         snapshot["result"] = deepcopy(result or {})
         snapshot["finished_at"] = finished_at
         snapshot["updated_at"] = finished_at

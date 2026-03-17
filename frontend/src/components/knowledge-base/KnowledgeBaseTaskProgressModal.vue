@@ -52,6 +52,24 @@ const chunkProgressText = computed(() => {
   }
   return '等待分块统计';
 });
+const currentDocumentText = computed(() => {
+  if (!props.task) return '等待开始';
+
+  const currentDocument = String(props.task.current_document || '').trim();
+  if (currentDocument) {
+    return currentDocument;
+  }
+
+  if (props.task.status === 'completed') {
+    return '已完成当前任务';
+  }
+
+  if (props.task.status === 'failed') {
+    return '任务已中断';
+  }
+
+  return '等待开始';
+});
 
 function requestClose() {
   if (isRunning.value) return;
@@ -114,7 +132,7 @@ function requestClose() {
           <div class="text-xs text-(--oui-color-text-muted)">当前文件</div>
           <div
             class="mt-1.5 truncate text-sm font-semibold leading-6 text-(--oui-color-heading)">
-            {{ task.current_document || '等待开始' }}
+            {{ currentDocumentText }}
           </div>
         </OCard>
       </div>
