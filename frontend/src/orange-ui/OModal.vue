@@ -98,35 +98,39 @@ function requestConfirm() {
               v-if="props.title || props.subtitle || $slots.header"
               class="shrink-0 px-8 pt-8">
               <div class="flex items-start justify-between gap-4">
-              <slot name="header">
-                <div>
-                  <div
-                    v-if="props.title"
-                    class="text-xl font-bold text-(--oui-color-heading)">
-                    {{ props.title }}
+                <slot name="header">
+                  <div>
+                    <div
+                      v-if="props.title"
+                      class="text-xl font-bold text-(--oui-color-heading)">
+                      {{ props.title }}
+                    </div>
+                    <div
+                      v-if="props.subtitle"
+                      class="mt-1.5 text-[13px] leading-6 text-(--oui-color-text-muted)">
+                      {{ props.subtitle }}
+                    </div>
                   </div>
-                  <div
-                    v-if="props.subtitle"
-                    class="mt-1.5 text-[13px] leading-6 text-(--oui-color-text-muted)">
-                    {{ props.subtitle }}
-                  </div>
-                </div>
-              </slot>
-              <button
-                v-if="props.closable"
-                type="button"
-                class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/4 text-(--oui-color-text-secondary) transition-all duration-200 hover:bg-black/8 hover:text-(--oui-color-heading) hover:scale-105 active:scale-95"
-                @click="requestClose">
-                <CloseOutlined />
-              </button>
+                </slot>
+                <button
+                  v-if="props.closable"
+                  type="button"
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/4 text-(--oui-color-text-secondary) transition-all duration-200 hover:bg-black/8 hover:text-(--oui-color-heading) hover:scale-105 active:scale-95"
+                  @click="requestClose">
+                  <CloseOutlined />
+                </button>
               </div>
             </div>
 
             <div
               :class="[
                 'min-h-0 flex-1 overflow-y-auto px-8',
-                props.title || props.subtitle || $slots.header ? 'pt-5' : 'pt-8',
-                $slots.footer || props.cancelText || props.confirmText ? 'pb-5' : 'pb-8'
+                props.title || props.subtitle || $slots.header
+                  ? 'pt-5'
+                  : 'pt-8',
+                $slots.footer || props.cancelText || props.confirmText
+                  ? 'pb-5'
+                  : 'pb-8'
               ]">
               <slot />
             </div>
@@ -135,23 +139,23 @@ function requestConfirm() {
               v-if="$slots.footer || props.cancelText || props.confirmText"
               class="shrink-0 px-8 pb-8 pt-5">
               <div class="flex justify-end gap-2.5">
-              <slot name="footer">
-                <OButton
-                  v-if="props.cancelText"
-                  variant="secondary"
-                  :disabled="props.cancelDisabled"
-                  @click="requestClose">
-                  {{ props.cancelText }}
-                </OButton>
-                <OButton
-                  v-if="props.confirmText"
-                  :variant="props.confirmVariant"
-                  :disabled="props.confirmDisabled"
-                  :loading="props.confirmLoading"
-                  @click="requestConfirm">
-                  {{ props.confirmText }}
-                </OButton>
-              </slot>
+                <slot name="footer">
+                  <OButton
+                    v-if="props.cancelText"
+                    variant="secondary"
+                    :disabled="props.cancelDisabled"
+                    @click="requestClose">
+                    {{ props.cancelText }}
+                  </OButton>
+                  <OButton
+                    v-if="props.confirmText"
+                    :variant="props.confirmVariant"
+                    :disabled="props.confirmDisabled"
+                    :loading="props.confirmLoading"
+                    @click="requestConfirm">
+                    {{ props.confirmText }}
+                  </OButton>
+                </slot>
               </div>
             </div>
           </div>
