@@ -1,14 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { WarningOutlined } from '@ant-design/icons-vue';
 import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import type { DocumentInfo, KnowledgeSpace } from '@/types/knowledgeBase';
 import {
   OAlert,
-  OButton,
   OCard,
   OFormItem,
   OModal,
+  OPanelRow,
   OSelect
 } from '@/orange-ui';
 
@@ -131,7 +130,14 @@ function confirmMigration() {
     title="迁移未归类文档"
     subtitle="将历史未归类文档统一迁移到正式知识空间，并重建对应索引。"
     :closable="!submitting"
+    cancel-text="取消"
+    :cancel-disabled="submitting"
+    confirm-text="继续确认迁移"
+    confirm-variant="danger"
+    :confirm-loading="submitting"
+    :confirm-disabled="submitting || !targetSpaceId"
     width="min(720px, 100%)"
+    @confirm="submitMigration"
     @close="requestClose">
     <div class="space-y-4.5">
       <OAlert tone="warning" title="此操作会重新 embedding">
@@ -175,10 +181,7 @@ function confirmMigration() {
           本次会处理的文档
         </div>
         <div class="mt-3 space-y-2">
-          <div
-            v-for="doc in previewDocuments"
-            :key="doc.doc_id"
-            class="flex items-center justify-between gap-3 rounded-(--oui-radius-md) border border-(--oui-color-border-soft) px-4 py-3">
+          <OPanelRow v-for="doc in previewDocuments" :key="doc.doc_id">
             <div
               class="min-w-0 truncate text-sm font-medium text-(--oui-color-heading)">
               {{ doc.filename }}
@@ -187,7 +190,7 @@ function confirmMigration() {
               class="shrink-0 text-xs leading-5 text-(--oui-color-text-muted)">
               {{ doc.chunk_count }} 个分块
             </div>
-          </div>
+          </OPanelRow>
           <div
             v-if="hiddenCount > 0"
             class="text-sm leading-6 text-(--oui-color-text-muted)">
@@ -198,20 +201,6 @@ function confirmMigration() {
 
       <OAlert v-if="localWarning" tone="warning">{{ localWarning }}</OAlert>
     </div>
-
-    <template #footer>
-      <OButton variant="secondary" :disabled="submitting" @click="requestClose">
-        取消
-      </OButton>
-      <OButton
-        variant="danger"
-        :loading="submitting"
-        :disabled="submitting || !targetSpaceId"
-        @click="submitMigration">
-        <WarningOutlined v-if="!submitting" />
-        继续确认迁移
-      </OButton>
-    </template>
   </OModal>
 
   <KnowledgeDangerConfirmModal

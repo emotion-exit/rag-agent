@@ -3,9 +3,12 @@
 @import 'tailwindcss';
 
 @theme {
-  --shadow-panel: 0 12px 30px rgba(24, 24, 27, 0.04);
-  --shadow-floating: 0 20px 48px rgba(24, 24, 27, 0.12);
-  --shadow-subtle: 0 8px 20px rgba(24, 24, 27, 0.05);
+  --shadow-panel:
+    0 12px 30px rgba(24, 24, 27, 0.04), 0 4px 12px rgba(24, 24, 27, 0.02);
+  --shadow-floating:
+    0 20px 60px rgba(24, 24, 27, 0.16), 0 8px 24px rgba(24, 24, 27, 0.08);
+  --shadow-subtle:
+    0 8px 20px rgba(24, 24, 27, 0.05), 0 2px 6px rgba(24, 24, 27, 0.02);
 
   --animate-o-fade-in: o-fade-in 0.24s ease-out;
   --animate-o-scale-in: o-scale-in 0.24s ease-out;
@@ -96,26 +99,24 @@ body {
   ::selection {
     background: rgba(24, 24, 27, 0.14);
   }
-
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: rgba(24, 24, 27, 0.15);
-    border-radius: 999px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: rgba(24, 24, 27, 0.25);
-  }
 }
 
 @layer components {
+  .o-page-stack {
+    @apply flex w-full min-w-0 flex-col gap-4 py-4;
+  }
+
+  .o-page-scroll {
+    scrollbar-gutter: stable both-edges;
+  }
+
+  .o-scroll-fade {
+    scrollbar-gutter: stable both-edges;
+    overscroll-behavior: contain;
+  }
+
   .o-focus-ring {
-    @apply outline-none focus-visible:ring-4 focus-visible:ring-black/10;
+    @apply outline-none focus-visible:ring-4 focus-visible:ring-black/8;
   }
 
   .spin {
@@ -132,7 +133,7 @@ body {
   }
 
   .o-markdown {
-    @apply break-words text-sm leading-relaxed text-zinc-900;
+    @apply wrap-break-word text-sm leading-relaxed text-zinc-900;
   }
 
   .o-markdown p {
@@ -204,10 +205,9 @@ body {
   }
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -215,10 +215,27 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--theme-neutral-300);
-  border-radius: 3px;
+  background: rgba(24, 24, 27, 0.02);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--theme-neutral-400);
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb {
+  background: rgba(24, 24, 27, 0.16);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+*:hover::-webkit-scrollbar-thumb:hover,
+*:focus-within::-webkit-scrollbar-thumb:hover {
+  background: rgba(24, 24, 27, 0.24);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.o-scroll-fade::-webkit-scrollbar-track,
+.o-page-scroll::-webkit-scrollbar-track {
+  margin-block: 10px;
 }

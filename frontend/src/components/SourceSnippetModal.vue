@@ -288,8 +288,7 @@ function highlightKeywords(text: string, keywords: string[]) {
     :title="source.filename"
     :subtitle="`片段 ${source.chunk_index + 1}`"
     width="min(760px, 100%)"
-    panel-class="border border-black/5 bg-white/95 p-0 shadow-[0_24px_60px_rgba(24,24,27,0.22)]"
-    body-class="overflow-hidden"
+    class="border border-black/5 bg-white/95 p-0 shadow-[0_24px_60px_rgba(24,24,27,0.22)]"
     @close="closeModal">
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-2 pr-4">
@@ -310,55 +309,59 @@ function highlightKeywords(text: string, keywords: string[]) {
       </div>
     </template>
 
-    <div
-      class="border-t border-zinc-100 px-6 pt-4 text-[13px] text-zinc-500 sm:px-8">
-      已按当前问题中的命中关键词进行高亮。
-    </div>
+    <div class="overflow-hidden">
+      <div
+        class="border-t border-zinc-100 px-6 pt-4 text-[13px] text-zinc-500 sm:px-8">
+        已按当前问题中的命中关键词进行高亮。
+      </div>
 
-    <div
-      v-if="loading"
-      class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-7 text-zinc-500 sm:px-8">
-      正在加载原文片段...
-    </div>
-    <div
-      v-else-if="error"
-      class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-7 text-red-600 sm:px-8">
-      片段加载失败：{{ error }}
-    </div>
-    <div
-      v-else
-      class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-[1.85] text-zinc-800 sm:px-8">
-      <div class="source-excerpt" v-html="highlightedExcerpt" />
-      <section
-        v-if="images.length > 0"
-        class="mt-5 border-t border-zinc-100 pt-4.5">
-        <div class="mb-3 text-sm font-bold text-zinc-900">文档附图</div>
-        <div class="flex flex-col gap-4.5">
-          <section
-            v-for="group in groupedImages"
-            :key="group.title"
-            class="flex flex-col gap-2.5">
-            <div class="text-xs font-bold text-zinc-600">{{ group.title }}</div>
-            <div
-              class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
-              <button
-                v-for="image in group.items"
-                :key="image.image_id"
-                type="button"
-                class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-(--color-success-border) hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
-                @click="openImagePreview(image.image_id)">
-                <img
-                  :src="image.url"
-                  :alt="image.filename || image.source_label"
-                  class="aspect-4/3 w-full rounded-xl bg-zinc-100 object-cover" />
-                <span class="text-xs font-semibold text-zinc-700">
-                  {{ image.source_label }}
-                </span>
-              </button>
-            </div>
-          </section>
-        </div>
-      </section>
+      <div
+        v-if="loading"
+        class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-7 text-zinc-500 sm:px-8">
+        正在加载原文片段...
+      </div>
+      <div
+        v-else-if="error"
+        class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-7 text-red-600 sm:px-8">
+        片段加载失败：{{ error }}
+      </div>
+      <div
+        v-else
+        class="max-h-[calc(80vh-110px)] overflow-y-auto px-6 pb-6 pt-4 text-sm leading-[1.85] text-zinc-800 sm:px-8">
+        <div class="source-excerpt" v-html="highlightedExcerpt" />
+        <section
+          v-if="images.length > 0"
+          class="mt-5 border-t border-zinc-100 pt-4.5">
+          <div class="mb-3 text-sm font-bold text-zinc-900">文档附图</div>
+          <div class="flex flex-col gap-4.5">
+            <section
+              v-for="group in groupedImages"
+              :key="group.title"
+              class="flex flex-col gap-2.5">
+              <div class="text-xs font-bold text-zinc-600">
+                {{ group.title }}
+              </div>
+              <div
+                class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+                <button
+                  v-for="image in group.items"
+                  :key="image.image_id"
+                  type="button"
+                  class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-(--color-success-border) hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                  @click="openImagePreview(image.image_id)">
+                  <img
+                    :src="image.url"
+                    :alt="image.filename || image.source_label"
+                    class="aspect-4/3 w-full rounded-xl bg-zinc-100 object-cover" />
+                  <span class="text-xs font-semibold text-zinc-700">
+                    {{ image.source_label }}
+                  </span>
+                </button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
     </div>
   </OModal>
 

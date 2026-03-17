@@ -39,15 +39,15 @@ function iconForTone(tone: OToastItem['tone']) {
           v-for="item in props.items"
           :key="item.id"
           :class="[
-            'pointer-events-auto flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-floating backdrop-blur-xl',
+            'pointer-events-auto flex items-start gap-3 rounded-2xl border px-4 py-3 shadow-[0_20px_48px_rgba(24,24,27,0.14),inset_0_1px_0_rgba(255,255,255,0.8)] backdrop-blur-xl backdrop-saturate-200',
             item.tone === 'success' &&
-              'border-(--oui-color-success-border) bg-[rgba(238,247,241,0.96)] text-(--oui-color-success)',
+              'border-(--oui-color-success-border) bg-[rgba(238,247,241,0.98)] text-(--oui-color-success)',
             item.tone === 'error' &&
               'border-(--oui-color-danger-border) bg-[rgba(254,242,242,0.98)] text-(--oui-color-danger)',
             item.tone === 'warning' &&
               'border-(--oui-color-warning-border) bg-[rgba(255,247,237,0.98)] text-(--oui-color-warning)',
             item.tone === 'info' &&
-              'border-(--oui-color-border-soft) bg-[rgba(255,255,255,0.96)] text-(--oui-color-text-secondary)'
+              'border-(--oui-color-border-soft) bg-[rgba(255,255,255,0.98)] text-(--oui-color-text-secondary)'
           ]">
           <component :is="iconForTone(item.tone)" class="mt-0.5 text-base" />
           <div class="min-w-0 flex-1">
@@ -62,7 +62,7 @@ function iconForTone(tone: OToastItem['tone']) {
           </div>
           <button
             type="button"
-            class="inline-flex h-7 w-7 items-center justify-center rounded-full text-current/70 transition hover:bg-black/5 hover:text-current"
+            class="inline-flex h-7 w-7 items-center justify-center rounded-full text-current/70 transition-all duration-200 hover:bg-black/10 hover:text-current hover:scale-105 active:scale-95"
             @click="emit('remove', item.id)">
             <CloseOutlined />
           </button>

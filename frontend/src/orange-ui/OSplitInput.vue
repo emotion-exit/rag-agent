@@ -61,7 +61,7 @@ function handleKeydown(index: number, event: KeyboardEvent) {
       :value="cell"
       :disabled="props.disabled"
       maxlength="1"
-      class="o-focus-ring h-11 w-10 rounded-(--oui-radius-sm) border border-(--oui-color-border-soft) bg-(--oui-color-surface) text-center text-base font-semibold text-(--oui-color-heading) outline-none"
+      class="o-focus-ring h-11 w-10 rounded-(--oui-radius-sm) border border-(--oui-color-border-soft) bg-white text-center text-base font-semibold text-(--oui-color-heading) outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-300 hover:border-(--oui-color-border) focus:border-(--oui-color-border-strong) focus:shadow-[0_0_0_4px_rgba(24,24,27,0.08),inset_0_1px_2px_rgba(0,0,0,0.02)] disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-(--oui-color-surface-soft)"
       @input="
         updateValue(
           index,

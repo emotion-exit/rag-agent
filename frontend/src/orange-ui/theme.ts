@@ -69,9 +69,12 @@ export const defaultOrangeTheme: OrangeThemeTokens = {
   colorWarningBorder: '#ffedd5',
   colorOnPrimary: '#ffffff',
   colorOnSuccess: '#ffffff',
-  shadowPanel: '0 12px 30px rgba(24, 24, 27, 0.04)',
-  shadowFloating: '0 20px 48px rgba(24, 24, 27, 0.12)',
-  shadowSubtle: '0 8px 20px rgba(24, 24, 27, 0.05)',
+  shadowPanel:
+    '0 12px 30px rgba(24, 24, 27, 0.04), 0 4px 12px rgba(24, 24, 27, 0.02)',
+  shadowFloating:
+    '0 20px 60px rgba(24, 24, 27, 0.16), 0 8px 24px rgba(24, 24, 27, 0.08)',
+  shadowSubtle:
+    '0 8px 20px rgba(24, 24, 27, 0.05), 0 2px 6px rgba(24, 24, 27, 0.02)',
   radiusXs: '10px',
   radiusSm: '14px',
   radiusMd: '18px',

@@ -40,8 +40,7 @@ import type {
 
 interface KnowledgeBaseJobCreatedResponsePayload {
   job_id: string;
-  status: string;
-  message: string;
+  message?: string;
 }
 
 interface KnowledgeSpaceCreateResponsePayload {
@@ -50,12 +49,12 @@ interface KnowledgeSpaceCreateResponsePayload {
   space?: KnowledgeSpace;
 }
 
-type DangerActionType = 'delete-space' | 'delete-document';
-
 interface DangerImpactStat {
   label: string;
   value: string;
 }
+
+type DangerActionType = 'delete-space' | 'delete-document';
 
 interface DangerConfirmState {
   visible: boolean;
@@ -134,6 +133,10 @@ function flattenSpaces(nodes: KnowledgeSpace[]): KnowledgeSpace[] {
   return nodes.flatMap((node) => [node, ...flattenSpaces(node.children || [])]);
 }
 
+const UNGROUPED_TREE_ITEM_ID = '__ungrouped__';
+
+type KnowledgeTreeItem = Record<string, any>;
+
 const flatSpaces = computed(() => flattenSpaces(spaces.value));
 const spaceMap = computed(
   () => new Map(flatSpaces.value.map((item) => [item.space_id, item]))
@@ -162,6 +165,22 @@ const visibleTreeSpaces = computed(() => {
   walk(spaces.value);
   return items;
 });
+const treeItems = computed<KnowledgeTreeItem[]>(() => [
+  {
+    space_id: UNGROUPED_TREE_ITEM_ID,
+    name: '未归类文档',
+    path: '旧数据过渡区，不建议继续上传',
+    depth: 0,
+    direct_document_count: spaceSummary.value.ungrouped_documents,
+    total_document_count: spaceSummary.value.ungrouped_documents,
+    children: [],
+    isUngrouped: true
+  },
+  ...visibleTreeSpaces.value
+]);
+const selectedTreeKey = computed(
+  () => selectedSpaceId.value || UNGROUPED_TREE_ITEM_ID
+);
 const childSpaces = computed(() =>
   flatSpaces.value.filter((item) => item.parent_id === selectedSpaceId.value)
 );
@@ -212,6 +231,25 @@ const documentPanelSubtitle = computed(() =>
     ? '当前列表仅展示所选空间的直属文档，继续下钻请点击子空间。'
     : '这里只显示历史遗留的未归类文档，建议逐步迁移到正式空间。'
 );
+const knowledgeHeaderStatusLabel = computed(() => {
+  if (hasActiveTask.value) return '后台任务执行中';
+  if (loading.value) return '正在同步知识库';
+  if (spaceSummary.value.ungrouped_documents > 0) {
+    return `${spaceSummary.value.ungrouped_documents} 篇待迁移文档`;
+  }
+  return '知识库结构已就绪';
+});
+const knowledgeHeaderStatusClass = computed(() => {
+  if (hasActiveTask.value || loading.value) {
+    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+  }
+
+  if (spaceSummary.value.ungrouped_documents > 0) {
+    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+  }
+
+  return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+});
 
 function buildDefaultCreateSpaceForm(parentId = ''): KnowledgeSpaceCreateForm {
   return {
@@ -308,6 +346,50 @@ function formatChunkCount(value: number) {
 
 function hasChildSpaces(space: KnowledgeSpace) {
   return Array.isArray(space.children) && space.children.length > 0;
+}
+
+function isUngroupedTreeItem(item: Record<string, any>) {
+  return item.space_id === UNGROUPED_TREE_ITEM_ID;
+}
+
+function getTreeItemDescription(item: Record<string, any>) {
+  return isUngroupedTreeItem(item) ? item.path : item.path;
+}
+
+function getTreeItemCount(item: Record<string, any>) {
+  return isUngroupedTreeItem(item)
+    ? `${spaceSummary.value.ungrouped_documents}`
+    : getSpaceTreeCount(item);
+}
+
+function getTreeItemChildren(item: Record<string, any>) {
+  return isUngroupedTreeItem(item) ? [] : item.children || [];
+}
+
+function getTreeItemDepth(item: Record<string, any>) {
+  return isUngroupedTreeItem(item) ? 0 : item.depth;
+}
+
+function getTreeItemRowClass(item: Record<string, any>) {
+  if (!isUngroupedTreeItem(item)) return undefined;
+
+  return selectedTreeKey.value === UNGROUPED_TREE_ITEM_ID
+    ? 'border-[rgba(180,125,29,0.28)] bg-[rgba(180,125,29,0.14)] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_16px_rgba(180,125,29,0.08)]'
+    : 'border-[rgba(180,125,29,0.14)] bg-[rgba(180,125,29,0.06)] hover:border-[rgba(180,125,29,0.24)] hover:bg-[rgba(180,125,29,0.1)]';
+}
+
+function selectTreeItem(item: Record<string, any>) {
+  if (isUngroupedTreeItem(item)) {
+    selectedSpaceId.value = '';
+    return;
+  }
+
+  selectSpace(item.space_id);
+}
+
+function toggleTreeItem(item: Record<string, any>) {
+  if (isUngroupedTreeItem(item)) return;
+  toggleSpaceExpanded(item.space_id);
 }
 
 function isSpaceExpanded(spaceId: string) {
@@ -988,19 +1070,71 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto flex w-full max-w-full flex-col gap-4 pb-4.5">
-    <section
-      class="flex items-center justify-between gap-6 px-1 pt-3 pb-1 max-[720px]:flex-col max-[720px]:items-stretch">
-      <div class="m-0 flex-none">
+  <div class="o-page-stack mx-auto max-w-full">
+    <OCard padding="md" class="flex flex-col gap-4 max-md:gap-3.5">
+      <div
+        class="flex items-start justify-between gap-5 max-[960px]:grid max-[960px]:grid-cols-1">
         <div>
+          <div
+            class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
+            Knowledge Base
+          </div>
           <h1
-            class="m-0 text-[20px] leading-[1.05] font-bold tracking-tight text-zinc-900 max-[720px]:text-[22px]">
+            class="m-0 text-[24px] leading-[1.08] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-[22px]">
             知识空间
           </h1>
+          <p class="mt-1.5 max-w-160 text-[12px] leading-[1.6] text-zinc-500">
+            管理知识空间层级、上传文档、清理遗留数据，并维护当前知识库的目录结构与索引状态。
+          </p>
+        </div>
+        <div
+          class="flex min-w-56 flex-col items-end gap-2 max-[960px]:min-w-0 max-[960px]:items-start">
+          <div
+            :class="[
+              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold',
+              knowledgeHeaderStatusClass
+            ]">
+            <DatabaseOutlined />
+            <span>{{ knowledgeHeaderStatusLabel }}</span>
+          </div>
+          <div class="text-[12px] text-zinc-500">
+            正式空间 {{ spaceSummary.total_spaces }} 个 · 文档
+            {{ stats.total_documents }} 篇
+          </div>
         </div>
       </div>
 
-      <div class="grid grid-cols-4 gap-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div
+        class="flex flex-wrap items-center gap-2.5 max-[720px]:grid max-[720px]:grid-cols-1">
+        <OButton
+          variant="secondary"
+          size="sm"
+          :disabled="loading"
+          @click="refreshKnowledgeBase(selectedSpaceId)">
+          <ReloadOutlined :class="loading ? 'animate-spin' : ''" />
+          刷新知识库
+        </OButton>
+        <OButton
+          v-if="spaceSummary.ungrouped_documents > 0"
+          variant="warning"
+          size="sm"
+          :disabled="hasActiveTask"
+          @click="openMigrationModal">
+          <WarningOutlined />
+          迁移未归类文档
+        </OButton>
+        <OButton
+          v-if="hasActiveTask"
+          variant="secondary"
+          size="sm"
+          @click="taskProgressVisible = true">
+          <LoadingOutlined class="animate-spin" />
+          查看任务进度
+        </OButton>
+      </div>
+
+      <div
+        class="grid grid-cols-4 gap-2.5 max-lg:grid-cols-2 max-sm:grid-cols-1">
         <OCard
           v-for="item in summaryItems"
           :key="item.label"
@@ -1012,18 +1146,18 @@ onBeforeUnmount(() => {
                 : 'default'
           "
           padding="sm"
-          :html-class="'min-h-28'">
+          :class="'min-h-22'">
           <div class="text-xs text-zinc-500">{{ item.label }}</div>
-          <div class="mt-0 text-base font-bold text-zinc-900">
+          <div class="mt-0.5 text-[15px] font-bold text-zinc-900">
             {{ item.value }}
           </div>
         </OCard>
       </div>
-    </section>
+    </OCard>
 
     <section
       class="grid grid-cols-[minmax(360px,430px)_minmax(0,1fr)] items-start gap-5 max-[1024px]:grid-cols-1">
-      <OCard padding="lg" html-class="min-w-0 sticky top-0 max-[1024px]:static">
+      <OCard padding="lg" class="min-w-0 sticky top-2 max-[1024px]:static">
         <div
           class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
           <div class="min-w-0 flex-1">
@@ -1037,7 +1171,7 @@ onBeforeUnmount(() => {
             v-if="selectedSpace"
             variant="secondary"
             size="sm"
-            html-class="rounded-full"
+            class="rounded-full"
             :disabled="hasActiveTask"
             @click="assignSelectedSpaceAsParent">
             <PlusOutlined />
@@ -1046,62 +1180,31 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          class="mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-3.5 shadow-inner">
-          <div
-            class="grid min-h-18 grid-cols-[auto_minmax(0,1fr)] items-stretch gap-2.5 pl-0">
-            <span
-              class="pointer-events-none invisible inline-flex min-h-full w-8 items-center justify-center rounded-xl bg-black/4 text-zinc-500" />
-            <button
-              type="button"
-              :class="[
-                'relative flex min-h-18 w-full items-center justify-between gap-3.5 rounded-[22px] border px-4.5 py-4 pr-4.5 pl-5 text-left transition',
-                !selectedSpaceId
-                  ? 'border-transparent bg-linear-to-br from-zinc-900 to-zinc-800 shadow-[0_20px_34px_rgba(24,24,27,0.18)]'
-                  : 'border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] hover:border-black/14 hover:shadow-[0_10px_20px_rgba(24,24,27,0.05)]'
-              ]"
-              @click="selectedSpaceId = ''">
-              <span
+          class="o-scroll-fade mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-3.5 shadow-inner">
+          <OTree
+            :items="treeItems"
+            :selected-key="selectedTreeKey"
+            :expanded-keys="expandedSpaceIds"
+            :get-key="(space) => space.space_id"
+            :get-label="(space) => space.name"
+            :get-description="getTreeItemDescription"
+            :get-count="getTreeItemCount"
+            :get-children="getTreeItemChildren"
+            :get-depth="getTreeItemDepth"
+            :get-item-class="getTreeItemRowClass"
+            class="gap-2.5"
+            @select="selectTreeItem"
+            @toggle="toggleTreeItem">
+            <template #icon="{ item }">
+              <FolderOpenOutlined
                 :class="[
-                  'absolute top-3 bottom-3 left-2.5 w-1 rounded-full opacity-70',
-                  !selectedSpaceId ? 'bg-white/35' : 'bg-black/8'
+                  'mt-1',
+                  isUngroupedTreeItem(item)
+                    ? 'text-zinc-400'
+                    : 'text-(--oui-color-text-muted)'
                 ]" />
-              <div class="flex min-w-0 items-center gap-3.5">
-                <FolderOpenOutlined
-                  :class="
-                    !selectedSpaceId
-                      ? 'text-lg text-white'
-                      : 'text-lg text-zinc-500'
-                  " />
-                <div class="grid min-w-0 gap-1">
-                  <div
-                    :class="
-                      !selectedSpaceId
-                        ? 'text-sm leading-[1.4] font-bold text-white'
-                        : 'text-sm leading-[1.4] font-bold text-zinc-900'
-                    ">
-                    未归类文档
-                  </div>
-                  <div
-                    :class="
-                      !selectedSpaceId
-                        ? 'text-xs wrap-break-word text-white'
-                        : 'text-xs wrap-break-word text-(--color-text-muted)'
-                    ">
-                    旧数据过渡区，不建议继续上传
-                  </div>
-                </div>
-              </div>
-              <span
-                :class="[
-                  'min-w-15 shrink-0 rounded-full border px-3 py-2 text-center text-xs font-bold',
-                  !selectedSpaceId
-                    ? 'border-transparent bg-white/12 text-white'
-                    : 'border-black/8 bg-zinc-100 text-zinc-600'
-                ]">
-                {{ spaceSummary.ungrouped_documents }}
-              </span>
-            </button>
-          </div>
+            </template>
+          </OTree>
 
           <div
             v-if="flatSpaces.length === 0"
@@ -1113,25 +1216,11 @@ onBeforeUnmount(() => {
               创建第一个空间
             </OButton>
           </div>
-
-          <OTree
-            v-if="flatSpaces.length > 0"
-            :items="visibleTreeSpaces"
-            :selected-key="selectedSpaceId"
-            :expanded-keys="expandedSpaceIds"
-            :get-key="(space) => space.space_id"
-            :get-label="(space) => space.name"
-            :get-description="(space) => space.path"
-            :get-count="(space) => getSpaceTreeCount(space)"
-            :get-children="(space) => space.children || []"
-            :get-depth="(space) => space.depth"
-            @select="selectSpace($event.space_id)"
-            @toggle="toggleSpaceExpanded($event.space_id)" />
         </div>
       </OCard>
 
       <div class="grid min-w-0 gap-4.5">
-        <OCard v-if="selectedSpace" padding="lg" html-class="kb-focus-panel">
+        <OCard v-if="selectedSpace" padding="lg" class="kb-focus-panel">
           <div
             class="mb-4.5 flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
             <div class="min-w-0 flex-1">
@@ -1255,7 +1344,7 @@ onBeforeUnmount(() => {
           </div>
         </OCard>
 
-        <OCard padding="lg" html-class="kb-docs-panel">
+        <OCard padding="lg" class="kb-docs-panel">
           <div
             class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
             <div class="min-w-0 flex-1">
@@ -1287,7 +1376,7 @@ onBeforeUnmount(() => {
             v-if="!selectedSpace"
             tone="warning"
             padding="md"
-            html-class="mb-4.5">
+            class="mb-4.5">
             <div>
               <div class="text-base font-bold text-zinc-900">
                 未归类文档过渡区
@@ -1312,7 +1401,7 @@ onBeforeUnmount(() => {
                 <OButton
                   v-if="spaceSummary.ungrouped_documents > 0"
                   variant="warning"
-                  html-class="min-w-38.5"
+                  class="min-w-38.5"
                   :disabled="hasActiveTask"
                   @click="openMigrationModal">
                   <WarningOutlined />
@@ -1320,7 +1409,7 @@ onBeforeUnmount(() => {
                 </OButton>
                 <OButton
                   variant="secondary"
-                  html-class="min-w-38.5"
+                  class="min-w-38.5"
                   :disabled="hasActiveTask"
                   @click="openCreateSpaceModal()">
                   <PlusOutlined />
@@ -1360,7 +1449,7 @@ onBeforeUnmount(() => {
                 v-for="doc in visibleDocuments"
                 :key="doc.doc_id"
                 padding="md"
-                html-class="kb-doc-card">
+                class="kb-doc-card">
                 <div
                   class="flex items-center justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
                   <div class="flex min-w-0 flex-1 items-start gap-3">

@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { WarningOutlined } from '@ant-design/icons-vue';
-import { OButton, OCard, OModal } from '@/orange-ui';
+import { OCard, OModal } from '@/orange-ui';
 
 defineOptions({
   name: 'KnowledgeDangerConfirmModal'
@@ -45,27 +44,17 @@ function requestConfirm() {
 <template>
   <OModal
     :visible="visible"
+    :title="title"
+    :subtitle="message"
     :closable="!submitting"
+    :cancel-text="cancelText"
+    :cancel-disabled="submitting"
+    :confirm-text="submitting ? '处理中...' : confirmText"
+    confirm-variant="danger"
+    :confirm-loading="submitting"
     width="min(540px, 100%)"
+    @confirm="requestConfirm"
     @close="requestClose">
-    <template #header>
-      <div class="flex items-start gap-3.5">
-        <div
-          class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[rgba(177,55,42,0.12)] text-lg text-(--oui-color-danger)">
-          <WarningOutlined />
-        </div>
-        <div>
-          <div class="text-xl font-bold text-(--oui-color-heading)">
-            {{ title }}
-          </div>
-          <div
-            class="mt-1.5 text-[13px] leading-6 text-(--oui-color-text-muted)">
-            {{ message }}
-          </div>
-        </div>
-      </div>
-    </template>
-
     <div class="space-y-4">
       <div
         v-if="impactStats.length > 0"
@@ -75,7 +64,7 @@ function requestConfirm() {
           :key="item.label"
           tone="danger"
           padding="sm"
-          html-class="min-h-22">
+          class="min-h-22">
           <div class="text-lg font-bold leading-5 text-(--oui-color-danger)">
             {{ item.value }}
           </div>
@@ -95,14 +84,5 @@ function requestConfirm() {
         </ul>
       </OCard>
     </div>
-
-    <template #footer>
-      <OButton variant="secondary" :disabled="submitting" @click="requestClose">
-        {{ cancelText }}
-      </OButton>
-      <OButton variant="danger" :loading="submitting" @click="requestConfirm">
-        {{ submitting ? '处理中...' : confirmText }}
-      </OButton>
-    </template>
   </OModal>
 </template>

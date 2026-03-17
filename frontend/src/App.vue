@@ -78,9 +78,11 @@ const appTheme = {
 
       <main
         :class="[
-          'flex w-full max-w-6xl flex-1 flex-col overflow-hidden px-6 pb-10 pt-6 max-md:px-4 max-md:pb-8 max-md:pt-5',
+          'flex w-full max-w-6xl flex-1 flex-col overflow-hidden px-6 pb-8 pt-5 max-md:px-4 max-md:pb-6 max-md:pt-4',
           usesOverlayHeader ? '-mt-19.5 max-md:-mt-18' : 'pt-2.5 max-md:pt-2',
-          isScrollableRoute ? 'overflow-y-auto overflow-x-hidden' : ''
+          isScrollableRoute
+            ? 'o-page-scroll overflow-y-auto overflow-x-hidden'
+            : ''
         ]">
         <RouterView v-slot="{ Component, route: currentRoute }">
           <KeepAlive :include="keepAliveIncludes">

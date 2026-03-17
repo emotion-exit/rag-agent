@@ -24,7 +24,14 @@ import {
   resetPublicFrontendConfig,
   savePublicFrontendConfig
 } from '@/services/publicConfig';
-import { OButton, OCard, OInput, useOToast } from '@/orange-ui';
+import {
+  OButton,
+  OCard,
+  OFormItem,
+  OFormSection,
+  OInput,
+  useOToast
+} from '@/orange-ui';
 import { cn } from '@/utils/cn';
 
 const isDesktop = isDesktopApp();
@@ -397,20 +404,20 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 pt-4 pb-4.5">
+  <div class="o-page-stack">
     <OCard
       padding="lg"
-      html-class="flex items-start justify-between gap-6 max-[960px]:grid max-[960px]:grid-cols-1">
+      class="flex items-start justify-between gap-6 max-[960px]:grid max-[960px]:grid-cols-1">
       <div>
         <div
-          class="mb-3 text-xs font-bold uppercase tracking-[0.08em] text-zinc-500">
+          class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
           {{ isDesktop ? 'Desktop Runtime' : 'Web Runtime' }}
         </div>
         <h1
-          class="m-0 text-[30px] leading-[1.1] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-2xl">
+          class="m-0 text-[24px] leading-[1.08] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-[22px]">
           {{ isDesktop ? '本地服务配置' : '公开高级设置' }}
         </h1>
-        <p class="mt-2.5 max-w-170 text-[13px] leading-[1.65] text-zinc-500">
+        <p class="mt-1.5 max-w-160 text-[12px] leading-[1.6] text-zinc-500">
           {{
             isDesktop
               ? '桌面端可配置完整运行参数；敏感 API 凭据仍保存在本地环境。'
@@ -419,25 +426,22 @@ onMounted(() => {
         </p>
       </div>
       <div
-        class="flex min-w-60 flex-col items-end gap-2.5 max-[960px]:min-w-0 max-[960px]:items-start">
+        class="flex min-w-56 flex-col items-end gap-2 max-[960px]:min-w-0 max-[960px]:items-start">
         <div
           :class="
             cn(
-              'inline-flex items-center gap-2 rounded-full px-3 py-2 text-[13px] font-semibold',
+              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold',
               getStatusChipClass(health)
             )
           ">
           <CloudServerOutlined />
           <span>{{ healthText }}</span>
         </div>
-        <div class="text-[13px] text-zinc-500">API 地址：{{ apiBase }}</div>
+        <!-- <div class="text-[12px] text-zinc-500">API 地址：{{ apiBase }}</div> -->
       </div>
     </OCard>
 
-    <OCard
-      v-if="!isDesktop"
-      tone="warning"
-      html-class="flex items-center gap-4">
+    <OCard v-if="!isDesktop" tone="warning" class="flex items-center gap-4">
       <WarningOutlined class="text-[26px] text-[#9e3328]" />
       <div>
         <h2>当前为 Web 公开设置模式</h2>
@@ -450,172 +454,145 @@ onMounted(() => {
 
     <section
       class="grid grid-cols-[minmax(0,1fr)] gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
-      <OCard v-if="isDesktop" padding="lg" html-class="flex flex-col gap-3.5">
+      <OCard v-if="isDesktop" padding="lg" class="flex flex-col gap-3.5">
         <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
           能力配置
         </div>
         <div
           class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
           <!-- Dialogue Section -->
-          <div
-            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-            <h3
-              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
-              Dialogue (对话)
-            </h3>
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                对话 API Key
-              </span>
-              <OInput
-                v-model="form.CHAT_API_KEY"
-                type="password"
-                placeholder="用于对话能力调用" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                对话模型请求使用的密钥。具体由你接入的 LiteLLM
-                后端或代理策略决定。
-              </span>
-            </label>
+          <OFormSection
+            title="Dialogue (对话)"
+            padding="sm"
+            class="flex flex-col gap-3"
+            header-spacing="compact">
+            <div class="flex flex-col gap-3">
+              <OFormItem
+                label="对话 API Key"
+                help="对话模型请求使用的密钥。具体由你接入的 LiteLLM 后端或代理策略决定。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.CHAT_API_KEY"
+                  type="password"
+                  placeholder="用于对话能力调用" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                对话 EndPoint
-              </span>
-              <OInput
-                v-model="form.CHAT_BASE_URL"
-                type="text"
-                placeholder="请输入对话接口地址" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                对话请求发送到的接口地址。由于底层走
-                LiteLLM，这里不限定具体服务商。
-              </span>
-            </label>
+              <OFormItem
+                label="对话 EndPoint"
+                help="对话请求发送到的接口地址。由于底层走 LiteLLM，这里不限定具体服务商。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.CHAT_BASE_URL"
+                  type="text"
+                  placeholder="请输入对话接口地址" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                对话 Model
-              </span>
-              <OInput
-                v-model="form.CHAT_MODEL"
-                type="text"
-                placeholder="请输入对话模型标识" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。
-              </span>
-            </label>
+              <OFormItem
+                label="对话 Model"
+                help="对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.CHAT_MODEL"
+                  type="text"
+                  placeholder="请输入对话模型标识" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">温度</span>
-              <OInput
-                v-model="form.CHAT_TEMPERATURE"
-                type="number"
-                min="0"
-                max="1"
-                step="0.1"
-                placeholder="请输入 0 到 1" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                控制回答稳定性与发散度。值越低越稳，越高越灵活。
-              </span>
-            </label>
-          </div>
+              <OFormItem
+                label="温度"
+                help="控制回答稳定性与发散度。值越低越稳，越高越灵活。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.CHAT_TEMPERATURE"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  placeholder="请输入 0 到 1" />
+              </OFormItem>
+            </div>
+          </OFormSection>
 
           <!-- Embedding Section -->
-          <div
-            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-            <h3
-              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
-              Embedding (嵌入)
-            </h3>
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                嵌入 API Key
-              </span>
-              <OInput
-                v-model="form.EMBEDDING_API_KEY"
-                type="password"
-                placeholder="用于嵌入能力调用" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                文档分块和问题向量化所使用的密钥。可以与对话、重排分别使用不同提供商。
-              </span>
-            </label>
+          <OFormSection
+            title="Embedding (嵌入)"
+            padding="sm"
+            class="flex flex-col gap-3"
+            header-spacing="compact">
+            <div class="flex flex-col gap-3">
+              <OFormItem
+                label="嵌入 API Key"
+                help="文档分块和问题向量化所使用的密钥。可以与对话、重排分别使用不同提供商。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_API_KEY"
+                  type="password"
+                  placeholder="用于嵌入能力调用" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                嵌入 EndPoint
-              </span>
-              <OInput
-                v-model="form.EMBEDDING_BASE_URL"
-                type="text"
-                placeholder="请输入嵌入接口地址" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                嵌入请求发送到的接口地址。可独立于重排和对话配置。
-              </span>
-            </label>
+              <OFormItem
+                label="嵌入 EndPoint"
+                help="嵌入请求发送到的接口地址。可独立于重排和对话配置。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_BASE_URL"
+                  type="text"
+                  placeholder="请输入嵌入接口地址" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                嵌入 Model
-              </span>
-              <OInput
-                v-model="form.EMBEDDING_MODEL"
-                type="text"
-                placeholder="请输入嵌入模型标识" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                文档切片与问题向量化所使用的嵌入模型。
-              </span>
-            </label>
-          </div>
+              <OFormItem
+                label="嵌入 Model"
+                help="文档切片与问题向量化所使用的嵌入模型。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_MODEL"
+                  type="text"
+                  placeholder="请输入嵌入模型标识" />
+              </OFormItem>
+            </div>
+          </OFormSection>
 
           <!-- Reranker Section -->
-          <div
-            class="flex flex-col gap-3 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-            <h3
-              class="mb-1 border-b border-black/6 pb-2.5 text-sm font-bold text-zinc-900">
-              Reranker (重排)
-            </h3>
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                重排 API Key
-              </span>
-              <OInput
-                v-model="form.RERANKER_API_KEY"
-                type="password"
-                placeholder="用于重排能力调用" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                候选片段二次排序所使用的密钥。需要与嵌入或对话分供应商时单独配置这里。
-              </span>
-            </label>
+          <OFormSection
+            title="Reranker (重排)"
+            padding="sm"
+            class="flex flex-col gap-3"
+            header-spacing="compact">
+            <div class="flex flex-col gap-3">
+              <OFormItem
+                label="重排 API Key"
+                help="候选片段二次排序所使用的密钥。需要与嵌入或对话分供应商时单独配置这里。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RERANKER_API_KEY"
+                  type="password"
+                  placeholder="用于重排能力调用" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                重排 EndPoint
-              </span>
-              <OInput
-                v-model="form.RERANKER_BASE_URL"
-                type="text"
-                placeholder="请输入重排接口地址" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                重排请求发送到的接口地址。可与嵌入完全不同。
-              </span>
-            </label>
+              <OFormItem
+                label="重排 EndPoint"
+                help="重排请求发送到的接口地址。可与嵌入完全不同。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RERANKER_BASE_URL"
+                  type="text"
+                  placeholder="请输入重排接口地址" />
+              </OFormItem>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="text-[13px] font-semibold text-zinc-700">
-                重排 Model
-              </span>
-              <OInput
-                v-model="form.RERANKER_MODEL"
-                type="text"
-                placeholder="请输入重排模型标识" />
-              <span class="text-xs leading-[1.55] text-zinc-500">
-                用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。
-              </span>
-            </label>
-          </div>
+              <OFormItem
+                label="重排 Model"
+                help="用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RERANKER_MODEL"
+                  type="text"
+                  placeholder="请输入重排模型标识" />
+              </OFormItem>
+            </div>
+          </OFormSection>
         </div>
       </OCard>
 
-      <OCard padding="lg" html-class="flex flex-col gap-3.5">
+      <OCard padding="lg" class="flex flex-col gap-3.5">
         <div
           class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
           @click="toggleAdvanced">
@@ -636,282 +613,201 @@ onMounted(() => {
           </p>
 
           <div class="flex flex-col gap-4 pt-1.5">
-            <section
-              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <div class="flex flex-col gap-1">
-                <h3
-                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
-                  style="border-bottom: none">
-                  {{ requestMetadataGroup.title }}
-                </h3>
-                <div
-                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
-                  {{ requestMetadataGroup.description }}
-                </div>
-              </div>
+            <OFormSection
+              :title="requestMetadataGroup.title"
+              :description="requestMetadataGroup.description"
+              padding="sm"
+              class="flex flex-col gap-4">
               <div
                 class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    请求来源地址
-                  </span>
+                <OFormItem
+                  label="请求来源地址"
+                  help="当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.OPENROUTER_SITE_URL"
                     type="text"
                     placeholder="https://localhost.invalid" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    应用名称
-                  </span>
+                <OFormItem
+                  label="应用名称"
+                  help="当上游网关需要记录请求来自哪个客户端时使用。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.OPENROUTER_APP_TITLE"
                     type="text"
                     placeholder="RAG.Agent Desktop" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    当上游网关需要记录请求来自哪个客户端时使用。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label
-                  class="col-span-2 flex flex-col gap-1.5 max-[768px]:col-span-1">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    请求分类标签
-                  </span>
+                <OFormItem
+                  label="请求分类标签"
+                  help="请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。"
+                  class="col-span-2 gap-1.5 max-[768px]:col-span-1">
                   <OInput
                     v-model="form.OPENROUTER_CATEGORIES"
                     type="text"
                     placeholder="general-chat" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。
-                  </span>
-                </label>
+                </OFormItem>
               </div>
-            </section>
+            </OFormSection>
 
-            <section
-              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <div class="flex flex-col gap-1">
-                <h3
-                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
-                  style="border-bottom: none">
-                  {{ embeddingStrategyGroup.title }}
-                </h3>
-                <div
-                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
-                  {{ embeddingStrategyGroup.description }}
-                </div>
-              </div>
+            <OFormSection
+              :title="embeddingStrategyGroup.title"
+              :description="embeddingStrategyGroup.description"
+              padding="sm"
+              class="flex flex-col gap-4">
               <div
                 class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding Provider
-                  </span>
+                <OFormItem
+                  label="Embedding Provider"
+                  help="LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI 兼容接口通常填 openai。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_PROVIDER"
                     type="text"
                     placeholder="openai" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI
-                    兼容接口通常填 openai。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding 最大输入 Token
-                  </span>
+                <OFormItem
+                  label="Embedding 最大输入 Token"
+                  help="单段文本允许进入嵌入接口的最大 token 数，超过后会自动继续切分。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="512" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    单段文本允许进入嵌入接口的最大 token
-                    数，超过后会自动继续切分。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding 目标分块 Token
-                  </span>
+                <OFormItem
+                  label="Embedding 目标分块 Token"
+                  help="二次切分时的目标大小。建议小于最大输入 token，上调会减少 chunk 数。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="384" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    二次切分时的目标大小。建议小于最大输入 token，上调会减少
-                    chunk 数。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding 重叠 Token
-                  </span>
+                <OFormItem
+                  label="Embedding 重叠 Token"
+                  help="相邻分块之间保留的上下文 token 数，用于降低切分边界带来的信息断裂。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
                     type="number"
                     min="0"
                     step="1"
                     placeholder="48" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    相邻分块之间保留的上下文 token
-                    数，用于降低切分边界带来的信息断裂。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding Tokenizer Model
-                  </span>
+                <OFormItem
+                  label="Embedding Tokenizer Model"
+                  help="用于 token 计数的模型标识；留空时默认跟随当前 embedding model。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_TOKENIZER_MODEL"
                     type="text"
                     placeholder="留空时跟随 EMBEDDING_MODEL" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    用于 token 计数的模型标识；留空时默认跟随当前 embedding
-                    model。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Embedding Tokenizer Encoding
-                  </span>
+                <OFormItem
+                  label="Embedding Tokenizer Encoding"
+                  help="tokenizer model 无法直接识别时使用的编码兜底值。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.EMBEDDING_TOKENIZER_ENCODING"
                     type="text"
                     placeholder="cl100k_base" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    tokenizer model 无法直接识别时使用的编码兜底值。
-                  </span>
-                </label>
+                </OFormItem>
               </div>
-            </section>
+            </OFormSection>
 
-            <section
-              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <div class="flex flex-col gap-1">
-                <h3
-                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
-                  style="border-bottom: none">
-                  {{ retrievalStrategyGroup.title }}
-                </h3>
-                <div
-                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
-                  {{ retrievalStrategyGroup.description }}
-                </div>
-              </div>
+            <OFormSection
+              :title="retrievalStrategyGroup.title"
+              :description="retrievalStrategyGroup.description"
+              padding="sm"
+              class="flex flex-col gap-4">
               <div
                 class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    Reranker Timeout
-                  </span>
+                <OFormItem
+                  label="Reranker Timeout"
+                  help="重排请求超时时间，单位秒，用于控制直连 rerank 接口的等待上限。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.RERANKER_REQUEST_TIMEOUT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="20" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    重排请求超时时间，单位秒，用于控制直连 rerank
-                    接口的等待上限。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    召回候选数量
-                  </span>
+                <OFormItem
+                  label="召回候选数量"
+                  help="每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="18" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    最终上下文数量
-                  </span>
+                <OFormItem
+                  label="最终上下文数量"
+                  help="重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="5" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    引用来源数量
-                  </span>
+                <OFormItem
+                  label="引用来源数量"
+                  help="回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.RETRIEVAL_SOURCE_LIMIT"
                     type="number"
                     min="1"
                     step="1"
                     placeholder="5" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    问题扩写数量
-                  </span>
+                <OFormItem
+                  label="问题扩写数量"
+                  help="口语问题会先扩写出多少个更正式的相近问法再做召回。填 0 表示关闭扩写。"
+                  class="gap-1.5">
                   <OInput
                     v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
                     type="number"
                     min="0"
                     step="1"
                     placeholder="3" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    口语问题会先扩写出多少个更正式的相近问法再做召回。填 0
-                    表示关闭扩写。
-                  </span>
-                </label>
+                </OFormItem>
               </div>
-            </section>
+            </OFormSection>
 
-            <section
-              class="flex flex-col gap-4 rounded-[18px] border border-black/7 bg-linear-to-b from-[#fcfcfd] to-[#f7f7f8] p-4.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <div class="flex flex-col gap-1">
-                <h3
-                  class="mb-1 border-b-0 pb-1 text-sm font-bold text-zinc-900"
-                  style="border-bottom: none">
-                  {{ storageRuntimeGroup.title }}
-                </h3>
-                <div
-                  class="mb-2 max-w-190 text-xs leading-[1.55] text-zinc-500">
-                  {{ storageRuntimeGroup.description }}
-                </div>
-              </div>
+            <OFormSection
+              :title="storageRuntimeGroup.title"
+              :description="storageRuntimeGroup.description"
+              padding="sm"
+              class="flex flex-col gap-4">
               <div
                 class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <label v-if="isDesktop" class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    向量库目录
-                  </span>
+                <OFormItem
+                  v-if="isDesktop"
+                  label="向量库目录"
+                  help="Chroma 持久化目录，保存向量索引与本地检索数据。只有在迁移或隔离数据时才需要修改。"
+                  class="gap-1.5">
                   <div
                     class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
                     <OInput
@@ -920,22 +816,19 @@ onMounted(() => {
                       placeholder="例如 ./data/chroma" />
                     <OButton
                       variant="secondary"
-                      html-class="shrink-0"
+                      class="shrink-0"
                       @click="pickDirectory('CHROMA_PERSIST_DIR')">
                       <FolderOpenOutlined />
                       选择目录
                     </OButton>
                   </div>
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    Chroma
-                    持久化目录，保存向量索引与本地检索数据。只有在迁移或隔离数据时才需要修改。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label v-if="isDesktop" class="flex flex-col gap-1.5">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    上传文件目录
-                  </span>
+                <OFormItem
+                  v-if="isDesktop"
+                  label="上传文件目录"
+                  help="原始上传文档的存放目录。修改后适合把资料与应用程序分开管理。"
+                  class="gap-1.5">
                   <div
                     class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
                     <OInput
@@ -944,39 +837,32 @@ onMounted(() => {
                       placeholder="例如 ./data/uploads" />
                     <OButton
                       variant="secondary"
-                      html-class="shrink-0"
+                      class="shrink-0"
                       @click="pickDirectory('UPLOAD_DIR')">
                       <FolderOpenOutlined />
                       选择目录
                     </OButton>
                   </div>
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    原始上传文档的存放目录。修改后适合把资料与应用程序分开管理。
-                  </span>
-                </label>
+                </OFormItem>
 
-                <label
+                <OFormItem
                   v-if="isDesktop"
-                  class="col-span-2 flex flex-col gap-1.5 max-[768px]:col-span-1">
-                  <span class="text-[13px] font-semibold text-zinc-700">
-                    CORS Origins
-                  </span>
+                  label="CORS Origins"
+                  help="允许访问本地后端的前端来源列表。桌面版通常无需调整，联调其他前端时再修改。"
+                  class="col-span-2 gap-1.5 max-[768px]:col-span-1">
                   <OInput
                     v-model="form.CORS_ORIGINS"
                     type="text"
                     placeholder="http://localhost:5173,http://localhost:3000,null" />
-                  <span class="text-xs leading-[1.55] text-zinc-500">
-                    允许访问本地后端的前端来源列表。桌面版通常无需调整，联调其他前端时再修改。
-                  </span>
-                </label>
+                </OFormItem>
               </div>
-            </section>
+            </OFormSection>
           </div>
         </div>
       </OCard>
     </section>
 
-    <OCard padding="lg" html-class="flex flex-col gap-4">
+    <OCard padding="lg" class="flex flex-col gap-4">
       <section class="flex flex-col gap-3">
         <div
           class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
@@ -1007,7 +893,7 @@ onMounted(() => {
             :key="entry.key"
             padding="sm"
             :tone="getProviderCardTone(entry.item?.status || '')"
-            html-class="flex flex-col gap-2.5">
+            class="flex flex-col gap-2.5">
             <div class="flex items-start justify-between gap-2.5">
               <div class="provider-title-wrap">
                 <div class="text-[15px] font-bold text-zinc-900">

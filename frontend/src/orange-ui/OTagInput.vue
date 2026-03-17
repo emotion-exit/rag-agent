@@ -68,18 +68,18 @@ function handleKeydown(event: KeyboardEvent) {
 <template>
   <div
     :class="[
-      'flex min-h-11 flex-wrap items-center gap-2 rounded-(--oui-radius-md) border border-(--oui-color-border-soft) bg-(--oui-color-surface) px-3 py-2 transition duration-200 focus-within:border-(--oui-color-border-strong) focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06)]',
+      'group flex min-h-12 flex-wrap items-center gap-2 rounded-[16px] border border-black/8 bg-linear-to-b from-white to-[rgba(248,248,249,0.96)] px-3.5 py-2.5 transition-all duration-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_6px_18px_rgba(24,24,27,0.04)] hover:border-black/12 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),inset_0_-1px_0_rgba(24,24,27,0.03),0_10px_24px_rgba(24,24,27,0.06)] focus-within:-translate-y-[1px] focus-within:border-black/18 focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06),inset_0_1px_0_rgba(255,255,255,0.92),0_12px_28px_rgba(24,24,27,0.08)]',
       props.disabled &&
-        'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-70'
+        'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-60 shadow-none hover:border-black/8 hover:shadow-none'
     ]">
     <span
       v-for="tag in tagItems"
       :key="tag"
-      class="inline-flex items-center gap-1 rounded-full bg-(--oui-color-primary-soft) px-3 py-1 text-xs font-medium text-(--oui-color-heading)">
+      class="inline-flex items-center gap-1.5 rounded-full border border-black/6 bg-(--oui-color-primary-soft) px-3 py-1 text-xs font-medium text-(--oui-color-heading) shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition-all duration-200 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.7),0_2px_8px_rgba(24,24,27,0.06)]">
       <span>{{ tag }}</span>
       <button
         type="button"
-        class="inline-flex h-4 w-4 items-center justify-center rounded-full text-(--oui-color-text-muted) transition hover:bg-black/5 hover:text-(--oui-color-heading)"
+        class="inline-flex h-4 w-4 items-center justify-center rounded-full text-(--oui-color-text-muted) transition-all duration-200 hover:bg-black/10 hover:text-(--oui-color-heading) hover:scale-110 active:scale-90"
         :disabled="props.disabled"
         @click="removeTag(tag)">
         <MinusCircleOutlined />
@@ -89,7 +89,7 @@ function handleKeydown(event: KeyboardEvent) {
       v-model="localInput"
       :disabled="props.disabled"
       :placeholder="props.placeholder"
-      class="min-w-40 flex-1 border-0 bg-transparent p-0 text-sm leading-6 text-(--oui-color-text) outline-none placeholder:text-(--oui-color-text-subtle)"
+      class="min-w-40 flex-1 border-0 bg-transparent p-0 text-sm font-medium leading-6 text-(--oui-color-text) outline-none placeholder:font-normal placeholder:text-(--oui-color-text-subtle)"
       @keydown="handleKeydown"
       @blur="commitPendingTags" />
   </div>

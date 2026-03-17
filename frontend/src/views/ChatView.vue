@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
 import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
-import { OButton, OCard } from '@/orange-ui';
+import { OButton, OCard, OTextarea } from '@/orange-ui';
 import type {
   ClarificationOption,
   Message,
@@ -27,7 +27,7 @@ const inputText = ref('');
 const isLoading = ref(false);
 const sessionId = ref(uuidv4());
 const messagesContainer = ref<HTMLElement | null>(null);
-const inputRef = ref<HTMLTextAreaElement | null>(null);
+const inputRef = ref<{ textareaEl: HTMLTextAreaElement | null } | null>(null);
 const shouldAutoScroll = ref(true);
 const showScrollBack = ref(false);
 const selectedSource = ref<SourceSummary | null>(null);
@@ -152,13 +152,13 @@ function scrollToBottom(force = false) {
 }
 
 function resetTextareaHeight() {
-  const textarea = inputRef.value;
+  const textarea = inputRef.value?.textareaEl;
   if (!textarea) return;
   textarea.style.height = 'auto';
 }
 
 function resizeTextarea() {
-  const textarea = inputRef.value;
+  const textarea = inputRef.value?.textareaEl;
   if (!textarea) return;
   textarea.style.height = 'auto';
   textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
@@ -393,7 +393,7 @@ function handleKeyDown(e: KeyboardEvent) {
         class="flex flex-1 animate-o-fade-in flex-col items-center justify-center text-center">
         <div class="mb-3 flex flex-col items-center gap-4">
           <div
-            class="rounded-full bg-(--oui-color-primary-soft) p-5 text-[46px] text-(--oui-color-heading)">
+            class="rounded-full flex justify-center items-center bg-(--oui-color-primary-soft) p-5 text-[46px] text-(--oui-color-heading)">
             <RobotOutlined />
           </div>
           <h2
@@ -407,7 +407,7 @@ function handleKeyDown(e: KeyboardEvent) {
         <div class="grid w-full max-w-140 gap-3">
           <OCard
             padding="md"
-            html-class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+            class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-300 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
             <span
               class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
               01
@@ -425,7 +425,7 @@ function handleKeyDown(e: KeyboardEvent) {
           </OCard>
           <OCard
             padding="md"
-            html-class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
+            class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
             <span
               class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-(--oui-color-primary) text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
               02
@@ -462,7 +462,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
     <OButton
       v-if="showScrollBack"
-      html-class="absolute right-6 bottom-30 z-10 rounded-full shadow-floating max-sm:right-3 max-sm:bottom-27"
+      class="absolute right-6 bottom-30 z-10 rounded-full shadow-floating max-sm:right-3 max-sm:bottom-27"
       @click="scrollToBottom(true)">
       <VerticalAlignBottomOutlined />
       查看最新消息
@@ -474,23 +474,25 @@ function handleKeyDown(e: KeyboardEvent) {
         <OButton
           variant="ghost"
           size="sm"
-          html-class="h-10 w-10 rounded-full p-0 transition-all duration-200 hover:bg-(--oui-color-danger-soft) hover:text-(--oui-color-danger)"
+          class="h-10 w-10 rounded-full p-0 transition-all duration-200 hover:bg-(--oui-color-danger-soft) hover:text-(--oui-color-danger)"
           title="清空对话"
           @click="clearMessages">
           <ClearOutlined />
         </OButton>
-        <textarea
+        <OTextarea
           ref="inputRef"
           v-model="inputText"
-          class="min-h-10 max-h-45 w-full resize-none border-0 bg-transparent px-1 py-2 text-sm leading-relaxed text-(--oui-color-heading) outline-none placeholder:text-(--oui-color-text-subtle) disabled:cursor-not-allowed disabled:opacity-50"
+          appearance="plain"
+          class="min-h-10 max-h-45 px-1 py-2 text-sm leading-relaxed text-(--oui-color-heading) disabled:cursor-not-allowed disabled:opacity-50"
           placeholder="给 RAG Agent 发送消息..."
           :disabled="isLoading"
-          rows="1"
+          resize="none"
+          :rows="1"
           @input="resizeTextarea"
           @keydown="handleKeyDown" />
         <OButton
           size="sm"
-          html-class="h-10 w-10 rounded-full p-0 transition-all duration-200"
+          class="h-10 w-10 rounded-full p-0 transition-all duration-200"
           :disabled="isLoading || !inputText.trim()"
           @click="sendMessage">
           <SendOutlined />

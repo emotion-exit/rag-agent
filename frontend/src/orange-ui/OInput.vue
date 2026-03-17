@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+defineOptions({
+  inheritAttrs: false
+});
+
+import { computed, useAttrs } from 'vue';
 import { cn } from '@/utils/cn';
+
+const attrs = useAttrs();
 
 const props = withDefaults(
   defineProps<{
@@ -11,8 +17,6 @@ const props = withDefaults(
     min?: number | string;
     max?: number | string;
     step?: number | string;
-    htmlClass?: string;
-    inputClass?: string;
   }>(),
   {
     modelValue: '',
@@ -21,9 +25,7 @@ const props = withDefaults(
     disabled: false,
     min: undefined,
     max: undefined,
-    step: undefined,
-    htmlClass: '',
-    inputClass: ''
+    step: undefined
   }
 );
 
@@ -36,12 +38,17 @@ const emit = defineEmits<{
 
 const wrapperClass = computed(() =>
   cn(
-    'flex min-h-11 items-center gap-2 rounded-(--oui-radius-md) border border-(--oui-color-border-soft) bg-(--oui-color-surface) px-4 transition duration-200 focus-within:border-(--oui-color-border-strong) focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06)]',
+    'group relative flex min-h-12 items-center gap-2 rounded-[16px] border border-black/8 bg-linear-to-b from-white to-[rgba(248,248,249,0.96)] px-4 text-[14px] font-medium leading-6 text-(--oui-color-text) transition-all duration-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_6px_18px_rgba(24,24,27,0.04)] hover:border-black/12 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),inset_0_-1px_0_rgba(24,24,27,0.03),0_10px_24px_rgba(24,24,27,0.06)] focus-within:-translate-y-[1px] focus-within:border-black/18 focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06),inset_0_1px_0_rgba(255,255,255,0.92),0_12px_28px_rgba(24,24,27,0.08)] focus-within:bg-white',
     props.disabled &&
-      'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-70',
-    props.htmlClass
+      'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-60 shadow-none hover:border-black/8 hover:shadow-none',
+    attrs.class
   )
 );
+
+const rootAttrs = computed(() => {
+  const { class: _class, ...rest } = attrs;
+  return rest;
+});
 
 function handleInput(event: Event) {
   const target = event.target as HTMLInputElement;
@@ -54,7 +61,7 @@ function handleInput(event: Event) {
 </script>
 
 <template>
-  <div :class="wrapperClass">
+  <div v-bind="rootAttrs" :class="wrapperClass">
     <slot name="prefix" />
     <input
       :value="props.modelValue"
@@ -64,10 +71,7 @@ function handleInput(event: Event) {
       :min="props.min"
       :max="props.max"
       :step="props.step"
-      :class="[
-        'w-full border-0 bg-transparent p-0 text-[14px] leading-6 text-(--oui-color-text) outline-none placeholder:text-(--oui-color-text-subtle)',
-        props.inputClass
-      ]"
+      class="w-full border-0 bg-transparent p-0 text-inherit leading-inherit font-inherit outline-none placeholder:font-normal placeholder:text-(--oui-color-text-subtle)"
       @input="handleInput"
       @blur="emit('blur', $event)"
       @keydown="emit('keydown', $event)" />

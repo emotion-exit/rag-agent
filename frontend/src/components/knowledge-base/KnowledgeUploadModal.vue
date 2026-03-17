@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { InboxOutlined, UploadOutlined } from '@ant-design/icons-vue';
+import { InboxOutlined } from '@ant-design/icons-vue';
 import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import type {
   KnowledgeSpace,
@@ -9,11 +9,11 @@ import type {
 } from '@/types/knowledgeBase';
 import {
   OAlert,
-  OButton,
   OCard,
   OFormItem,
   OInput,
   OModal,
+  OPanelRow,
   OTagInput
 } from '@/orange-ui';
 
@@ -180,7 +180,13 @@ function submitUpload() {
         : '请选择知识空间后再打开上传弹窗。'
     "
     :closable="!submitting"
+    cancel-text="取消"
+    :cancel-disabled="submitting"
+    confirm-text="开始上传"
+    :confirm-loading="submitting"
+    :confirm-disabled="!canSubmit"
     width="min(720px, 100%)"
+    @confirm="submitUpload"
     @close="requestClose">
     <div class="space-y-4.5">
       <OCard v-if="selectedSpace" padding="sm" tone="muted">
@@ -209,11 +215,12 @@ function submitUpload() {
 
       <label
         :class="[
-          'relative flex cursor-pointer flex-col items-center justify-center rounded-(--oui-radius-lg) border border-dashed px-6 py-8 text-center transition',
+          'relative flex cursor-pointer flex-col items-center justify-center rounded-(--oui-radius-lg) border-2 border-dashed px-6 py-8 text-center transition-all duration-300',
           dragOver
-            ? 'border-(--oui-color-primary) bg-(--oui-color-primary-soft)'
-            : 'border-(--oui-color-border) bg-(--oui-color-surface)',
-          (!selectedSpace || submitting) && 'cursor-not-allowed opacity-60'
+            ? 'border-(--oui-color-primary) bg-(--oui-color-primary-soft) shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_4px_12px_rgba(24,24,27,0.08)]'
+            : 'border-(--oui-color-border) bg-white hover:border-(--oui-color-border-strong) hover:bg-(--oui-color-surface-soft)',
+          (!selectedSpace || submitting) &&
+            'cursor-not-allowed opacity-60 hover:border-(--oui-color-border) hover:bg-white'
         ]"
         @dragover="handleDragOver"
         @dragleave="handleDragLeave"
@@ -245,10 +252,9 @@ function submitUpload() {
           </span>
         </div>
         <div class="mt-3 space-y-2">
-          <div
+          <OPanelRow
             v-for="(file, index) in selectedFiles"
-            :key="`${file.name}-${file.lastModified}-${file.size}`"
-            class="flex items-center justify-between gap-3 rounded-(--oui-radius-md) border border-(--oui-color-border-soft) px-4 py-3">
+            :key="`${file.name}-${file.lastModified}-${file.size}`">
             <div class="min-w-0">
               <div
                 class="truncate text-sm font-medium text-(--oui-color-heading)">
@@ -265,23 +271,10 @@ function submitUpload() {
               @click="openRemoveFileConfirm(index)">
               移除
             </OButton>
-          </div>
+          </OPanelRow>
         </div>
       </OCard>
     </div>
-
-    <template #footer>
-      <OButton variant="secondary" :disabled="submitting" @click="requestClose">
-        取消
-      </OButton>
-      <OButton
-        :loading="submitting"
-        :disabled="!canSubmit"
-        @click="submitUpload">
-        <UploadOutlined v-if="!submitting" />
-        开始上传
-      </OButton>
-    </template>
   </OModal>
 
   <KnowledgeDangerConfirmModal

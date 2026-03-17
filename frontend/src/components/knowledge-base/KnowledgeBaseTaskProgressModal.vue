@@ -6,7 +6,7 @@ import {
   WarningOutlined
 } from '@ant-design/icons-vue';
 import type { KnowledgeBaseJobStatus } from '@/types/knowledgeBase';
-import { OButton, OCard, OModal } from '@/orange-ui';
+import { OCard, OModal } from '@/orange-ui';
 
 defineOptions({
   name: 'KnowledgeBaseTaskProgressModal'
@@ -66,12 +66,14 @@ function requestClose() {
     :title="title"
     :subtitle="task.message"
     :closable="!isRunning"
+    cancel-text="关闭"
+    :cancel-disabled="isRunning"
     width="min(680px, 100%)"
     @close="requestClose">
     <div class="space-y-4.5">
       <div
         :class="[
-          'inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-bold',
+          'inline-flex min-h-9 items-center gap-2 rounded-full px-3.5 text-[13px] font-bold shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] transition-all duration-200',
           task.status === 'queued' || task.status === 'running'
             ? 'bg-(--oui-color-warning-soft) text-(--oui-color-warning)'
             : task.status === 'completed'
@@ -93,9 +95,9 @@ function requestClose() {
           </span>
         </div>
         <div
-          class="mt-2.5 h-2.5 overflow-hidden rounded-full bg-(--oui-color-surface-soft)">
+          class="mt-2.5 h-2.5 overflow-hidden rounded-full bg-(--oui-color-surface-soft) shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]">
           <div
-            class="h-full rounded-full bg-(--oui-color-primary) transition-[width] duration-300"
+            class="h-full rounded-full bg-linear-to-r from-(--oui-color-primary) to-(--oui-color-primary-strong) shadow-[0_1px_0_rgba(255,255,255,0.4)_inset] transition-[width] duration-300"
             :style="{ width: `${progressPercent}%` }" />
         </div>
       </div>
@@ -131,11 +133,5 @@ function requestClose() {
         }}
       </div>
     </div>
-
-    <template #footer>
-      <OButton variant="secondary" :disabled="isRunning" @click="requestClose">
-        关闭
-      </OButton>
-    </template>
   </OModal>
 </template>

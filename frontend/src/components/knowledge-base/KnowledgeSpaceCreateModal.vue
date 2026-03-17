@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { PlusOutlined } from '@ant-design/icons-vue';
 import type {
   KnowledgeSpace,
   KnowledgeSpaceCreateForm
 } from '@/types/knowledgeBase';
 import {
-  OButton,
+  OAlert,
   OFormItem,
+  OFormSection,
   OInput,
   OModal,
   OSelect,
-  OTagInput
+  OTagInput,
+  OTextarea
 } from '@/orange-ui';
 
 defineOptions({
@@ -81,75 +82,83 @@ function submitForm() {
     :title="modalTitle"
     :subtitle="modalSubtitle"
     :closable="!submitting"
+    cancel-text="取消"
+    :cancel-disabled="submitting"
+    :confirm-text="modalTitle"
+    :confirm-loading="submitting"
     width="min(760px, 100%)"
+    @confirm="submitForm"
     @close="requestClose">
-    <div class="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
-      <OFormItem label="父级空间" optional-label="选填">
-        <OSelect
-          v-model="localForm.parent_id"
-          :options="parentOptions"
-          :disabled="submitting" />
-      </OFormItem>
+    <div class="space-y-4.5">
+      <OFormSection
+        title="基础信息"
+        description="先确定空间层级与命名，方便后续目录结构与权限范围管理。"
+        :badge="localForm.parent_id ? '子空间模式' : '顶级空间模式'">
+        <div class="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
+          <OFormItem label="父级空间" optional-label="选填">
+            <OSelect
+              v-model="localForm.parent_id"
+              :options="parentOptions"
+              :disabled="submitting" />
+          </OFormItem>
 
-      <OFormItem label="空间名称" :required="true">
-        <OInput
-          v-model="localForm.name"
-          :disabled="submitting"
-          placeholder="例如：人事制度、合同管理、售后 SOP" />
-      </OFormItem>
+          <OFormItem label="空间名称" :required="true">
+            <OInput
+              v-model="localForm.name"
+              :disabled="submitting"
+              placeholder="例如：人事制度、合同管理、售后 SOP" />
+          </OFormItem>
 
-      <OFormItem label="分类" optional-label="选填">
-        <OSelect
-          v-model="localForm.category"
-          :options="categoryOptions"
-          :disabled="submitting" />
-      </OFormItem>
+          <OFormItem label="分类" optional-label="选填">
+            <OSelect
+              v-model="localForm.category"
+              :options="categoryOptions"
+              :disabled="submitting" />
+          </OFormItem>
 
-      <OFormItem label="主题" optional-label="选填">
-        <OInput
-          v-model="localForm.topic"
-          :disabled="submitting"
-          placeholder="例如：合同审批流程、离职办理、项目复盘" />
-      </OFormItem>
-
-      <OFormItem
-        label="标签"
-        optional-label="选填"
-        html-class="col-span-2 max-md:col-span-1">
-        <OTagInput v-model="localForm.tags" :disabled="submitting" />
-      </OFormItem>
-
-      <OFormItem label="版本 / 时效" optional-label="选填">
-        <OInput
-          v-model="localForm.version_label"
-          :disabled="submitting"
-          placeholder="例如：V2.1、2026Q1" />
-      </OFormItem>
-
-      <OFormItem
-        label="说明"
-        optional-label="选填"
-        html-class="col-span-2 max-md:col-span-1">
-        <div
-          class="rounded-(--oui-radius-md) border border-(--oui-color-border-soft) bg-(--oui-color-surface) px-4 py-3 transition duration-200 focus-within:border-(--oui-color-border-strong) focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06)]">
-          <textarea
-            v-model="localForm.description"
-            rows="4"
-            :disabled="submitting"
-            class="min-h-28 w-full resize-y border-0 bg-transparent p-0 text-[14px] leading-6 text-(--oui-color-text) outline-none placeholder:text-(--oui-color-text-subtle)"
-            placeholder="补充这个知识空间的适用范围、边界或维护说明" />
+          <OFormItem label="主题" optional-label="选填">
+            <OInput
+              v-model="localForm.topic"
+              :disabled="submitting"
+              placeholder="例如：合同审批流程、离职办理、项目复盘" />
+          </OFormItem>
         </div>
-      </OFormItem>
-    </div>
+      </OFormSection>
 
-    <template #footer>
-      <OButton variant="secondary" :disabled="submitting" @click="requestClose">
-        取消
-      </OButton>
-      <OButton :loading="submitting" @click="submitForm">
-        <PlusOutlined v-if="!submitting" />
-        {{ modalTitle }}
-      </OButton>
-    </template>
+      <OFormSection
+        title="检索元数据"
+        description="标签、版本和说明会参与后续文档继承与检索语义补全。"
+        tone="muted">
+        <div class="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
+          <OFormItem
+            label="标签"
+            optional-label="选填"
+            class="col-span-2 max-md:col-span-1">
+            <OTagInput v-model="localForm.tags" :disabled="submitting" />
+          </OFormItem>
+
+          <OFormItem label="版本 / 时效" optional-label="选填">
+            <OInput
+              v-model="localForm.version_label"
+              :disabled="submitting"
+              placeholder="例如：V2.1、2026Q1" />
+          </OFormItem>
+
+          <div class="hidden max-md:block" />
+
+          <OFormItem
+            label="说明"
+            optional-label="选填"
+            class="col-span-2 max-md:col-span-1">
+            <OTextarea
+              v-model="localForm.description"
+              class="min-h-32"
+              :rows="4"
+              :disabled="submitting"
+              placeholder="补充这个知识空间的适用范围、边界或维护说明" />
+          </OFormItem>
+        </div>
+      </OFormSection>
+    </div>
   </OModal>
 </template>

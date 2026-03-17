@@ -1,11 +1,19 @@
 <script setup lang="ts">
+defineOptions({
+  inheritAttrs: false
+});
+
 import {
   CaretDownOutlined,
   CaretRightOutlined,
   FolderOpenOutlined
 } from '@ant-design/icons-vue';
+import { computed, useAttrs } from 'vue';
+import { cn } from '@/utils/cn';
 
 type OTreeItem = Record<string, any>;
+
+const attrs = useAttrs();
 
 const props = withDefaults(
   defineProps<{
@@ -18,6 +26,7 @@ const props = withDefaults(
     getCount?: (item: OTreeItem) => string | number;
     getChildren?: (item: OTreeItem) => OTreeItem[];
     getDepth?: (item: OTreeItem) => number;
+    getItemClass?: (item: OTreeItem) => string | undefined;
     emptyText?: string;
   }>(),
   {
@@ -27,6 +36,7 @@ const props = withDefaults(
     getCount: undefined,
     getChildren: undefined,
     getDepth: undefined,
+    getItemClass: undefined,
     emptyText: '暂无数据'
   }
 );
@@ -43,10 +53,17 @@ function hasChildren(item: OTreeItem) {
 function isExpanded(item: OTreeItem) {
   return props.expandedKeys.includes(props.getKey(item));
 }
+
+const treeClass = computed(() => cn('flex flex-col gap-2', attrs.class));
+
+const rootAttrs = computed(() => {
+  const { class: _class, ...rest } = attrs;
+  return rest;
+});
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
+  <div v-bind="rootAttrs" :class="treeClass">
     <div
       v-if="props.items.length === 0"
       class="rounded-(--oui-radius-md) border border-dashed border-(--oui-color-border) px-4 py-6 text-center text-sm text-(--oui-color-text-muted)">
@@ -59,7 +76,7 @@ function isExpanded(item: OTreeItem) {
       :style="{ paddingLeft: `${(props.getDepth?.(item) || 0) * 12}px` }">
       <button
         type="button"
-        class="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--oui-color-text-muted) transition hover:bg-black/5 hover:text-(--oui-color-heading)"
+        class="mt-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--oui-color-text-muted) transition-all duration-200 hover:bg-black/5 hover:text-(--oui-color-heading) hover:scale-110 active:scale-95"
         :class="!hasChildren(item) && 'opacity-0 pointer-events-none'"
         @click="emit('toggle', item)">
         <CaretDownOutlined v-if="hasChildren(item) && isExpanded(item)" />
@@ -68,10 +85,11 @@ function isExpanded(item: OTreeItem) {
       <button
         type="button"
         :class="[
-          'flex flex-1 items-start justify-between gap-3 rounded-(--oui-radius-md) border px-3 py-3 text-left transition',
+          'flex flex-1 items-start justify-between gap-3 rounded-(--oui-radius-md) border px-3 py-3 text-left transition-all duration-200',
           props.selectedKey === props.getKey(item)
-            ? 'border-(--oui-color-primary) bg-(--oui-color-primary-soft)'
-            : 'border-transparent bg-transparent hover:border-(--oui-color-border-soft) hover:bg-white/60'
+            ? 'border-(--oui-color-primary) bg-(--oui-color-primary-soft) shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_4px_12px_rgba(24,24,27,0.04)]'
+            : 'border-transparent bg-transparent hover:border-(--oui-color-border-soft) hover:bg-white/80 hover:shadow-[0_2px_8px_rgba(24,24,27,0.03)]',
+          props.getItemClass?.(item)
         ]"
         @click="emit('select', item)">
         <div class="flex min-w-0 items-start gap-3">
