@@ -428,7 +428,9 @@ function handleKeyDown(e: KeyboardEvent) {
         variant="secondary"
         size="sm"
         class="h-6 px-2 text-xs"
-        @click="startNewSession">新建会话</OButton>
+        @click="startNewSession">
+        新建会话
+      </OButton>
     </div>
 
     <div
