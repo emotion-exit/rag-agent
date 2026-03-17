@@ -497,20 +497,6 @@ async def _stream_agent_response(
     retrieval_filters: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
     """运行 Agent，并把结果转成前端可消费的 SSE 事件流。"""
-    agent = create_rag_agent(retrieval_filters, session_id=session_id)
-    runner = Runner(
-        agent=agent,
-        app_name=APP_NAME,
-        session_service=session_service,
-    )
-
-    await _ensure_session_exists(session_id)
-
-    user_content = genai_types.Content(
-        role="user",
-        parts=[genai_types.Part(text=message)],
-    )
-
     # producer 在后台消费 ADK 事件；主协程则不断从 event_queue 取出并 yield 给浏览器。
     event_queue: asyncio.Queue[str | None] = asyncio.Queue()
     producer: asyncio.Task[None] | None = None
@@ -705,6 +691,25 @@ async def _stream_agent_response(
             yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
             return
 
+        agent = create_rag_agent(
+            retrieval_filters,
+            session_id=session_id,
+            original_query=message,
+            retrieval_documents=list(retrieval_trace.get("documents", [])),
+        )
+        runner = Runner(
+            agent=agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+
+        await _ensure_session_exists(session_id)
+
+        user_content = genai_types.Content(
+            role="user",
+            parts=[genai_types.Part(text=message)],
+        )
+
         # 检索阶段信息发完后，再启动真正的模型回答流，避免 answer 事件积压后一起冲出来。
         producer = asyncio.create_task(produce_events())
 
@@ -763,7 +768,12 @@ async def chat(request: ChatRequest):
     if int(retrieval_trace.get("final_hit_count", 0) or 0) <= 0:
         return ChatResponse(reply=NO_KNOWLEDGE_BASE_ANSWER, sources=[])
 
-    agent = create_rag_agent(request.retrieval_filters, session_id=request.session_id)
+    agent = create_rag_agent(
+        request.retrieval_filters,
+        session_id=request.session_id,
+        original_query=request.message,
+        retrieval_documents=list(retrieval_trace.get("documents", [])),
+    )
     runner = Runner(
         agent=agent,
         app_name=APP_NAME,

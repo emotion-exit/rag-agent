@@ -52,6 +52,7 @@ RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
 ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
 NO_KNOWLEDGE_BASE_ANSWER = "当前知识库中没有找到相关资料，无法回答您的问题。"
+NO_KNOWLEDGE_BASE_CONTEXT = "【知识库中未找到与该问题相关的内容。】"
 KNOWLEDGE_SPACE_RESOLVED = "resolved"
 KNOWLEDGE_SPACE_AMBIGUOUS = "ambiguous"
 KNOWLEDGE_SPACE_UNKNOWN = "unknown"
@@ -1581,11 +1582,19 @@ def retrieve_from_knowledge_base(
     )
 
     if not relevant:
-        return "【知识库中未找到与该问题相关的内容。】"
+        return NO_KNOWLEDGE_BASE_CONTEXT
+
+    return build_context_from_documents(relevant)
+
+
+def build_context_from_documents(documents: list[dict]) -> str:
+    """把最终检索片段拼成给生成模型使用的上下文文本。"""
+    if not documents:
+        return NO_KNOWLEDGE_BASE_CONTEXT
 
     # 这里按“来源头 + 正文”的格式拼接上下文，既保留来源可解释性，也尽量减少提示词噪声。
     context_parts = []
-    for i, doc in enumerate(relevant, 1):
+    for i, doc in enumerate(documents, 1):
         metadata = doc["metadata"]
         filename = metadata.get("filename", "未知文档")
         header = _format_context_header(metadata)
@@ -1600,6 +1609,8 @@ def retrieve_from_knowledge_base(
 def create_rag_agent(
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
+    original_query: str | None = None,
+    retrieval_documents: list[dict] | None = None,
 ) -> Agent:
     """创建 ADK RAG Agent。
 
@@ -1607,18 +1618,48 @@ def create_rag_agent(
     调用 retrieve_from_knowledge_base 拿上下文，再按照 SYSTEM_INSTRUCTION 输出最终答案。
     """
     normalized_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
+    normalized_original_query = str(original_query or "").strip()
+    retrieval_context = build_context_from_documents(list(retrieval_documents or [])) if retrieval_documents else ""
 
     def retrieval_tool(query: str) -> str:
-        return retrieve_from_knowledge_base(
-            query,
+        requested_query = str(query or "").strip() or normalized_original_query
+        retrieval_result = retrieve_from_knowledge_base(
+            requested_query,
             explicit_metadata_filters=normalized_filters,
             session_id=session_id,
         )
+
+        if (
+            retrieval_result == NO_KNOWLEDGE_BASE_CONTEXT
+            and normalized_original_query
+            and _normalize_text(requested_query) != _normalize_text(normalized_original_query)
+        ):
+            return retrieve_from_knowledge_base(
+                normalized_original_query,
+                explicit_metadata_filters=normalized_filters,
+                session_id=session_id,
+            )
+
+        return retrieval_result
+
+    agent_instruction = SYSTEM_INSTRUCTION
+    tools = [retrieval_tool]
+
+    if retrieval_context:
+        agent_instruction = (
+            f"{SYSTEM_INSTRUCTION}\n\n"
+            "本轮问题的知识库检索、过滤与排序已经完成。"
+            "下面提供的是本轮最终可用的知识片段。"
+            "你必须只基于这些片段作答，不要再自行发起新的检索，不要假设片段外的信息。"
+            f"如果这些片段仍不足以回答，只能回答：{NO_KNOWLEDGE_BASE_ANSWER}\n\n"
+            f"[本轮知识库上下文]\n{retrieval_context}"
+        )
+        tools = []
 
     return Agent(
         name="rag_agent",
         model=_build_llm(),
         description="Knowledge base Q&A agent that only answers based on uploaded documents.",
-        instruction=SYSTEM_INSTRUCTION,
-        tools=[retrieval_tool],
+        instruction=agent_instruction,
+        tools=tools,
     )

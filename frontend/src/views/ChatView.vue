@@ -407,29 +407,22 @@ function handleKeyDown(e: KeyboardEvent) {
 <template>
   <div class="relative flex min-h-0 flex-1 flex-col pt-0">
     <div
-      class="absolute right-4 top-4 z-20 flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-black/6 bg-white/50 px-3 py-2 opacity-20 shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/90 hover:opacity-100 hover:shadow-md max-sm:right-2 max-sm:top-2">
-      <div class="flex items-center gap-2 text-xs text-zinc-600">
-        <span class="font-medium max-sm:hidden">
-          会话 ID：{{ sessionId.slice(0, 8) }}
-        </span>
+      class="absolute right-4 top-4 z-20 flex flex-wrap items-center justify-end gap-1.5 rounded-2xl border border-black/5 bg-white/60 p-1.5 opacity-40 shadow-sm backdrop-blur-md transition-all duration-300 hover:bg-white/95 hover:opacity-100 hover:shadow-md max-sm:right-2 max-sm:top-2">
+      <div
+        v-if="sessionKnowledgeSpaceLabel"
+        class="flex items-center pl-2 pr-1 text-xs text-zinc-600">
         <span
-          v-if="sessionKnowledgeSpaceLabel"
-          class="rounded-full bg-zinc-100/80 px-2 py-0.5"
-          title="所属知识空间">
+          class="max-w-32 truncate font-medium max-sm:max-w-24"
+          title="当前知识空间">
           {{ sessionKnowledgeSpaceLabel }}
-        </span>
-        <span
-          v-else
-          class="rounded-full border border-dashed border-black/10 bg-white/50 px-2 py-0.5 text-zinc-400 max-sm:hidden">
-          未固定空间
         </span>
       </div>
       <OButton
-        variant="secondary"
+        variant="ghost"
         size="sm"
-        class="h-6 px-2 text-xs"
+        class="h-7 rounded-xl px-3 text-xs font-medium"
         @click="startNewSession">
-        新建会话
+        新会话
       </OButton>
     </div>
 
@@ -451,7 +444,7 @@ function handleKeyDown(e: KeyboardEvent) {
               padding="md"
               class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-300 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
               <span
-                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-900 text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
                 01
               </span>
               <div>
@@ -467,7 +460,7 @@ function handleKeyDown(e: KeyboardEvent) {
               padding="md"
               class="grid grid-cols-[48px_1fr] items-start gap-4 text-left transition-all duration-200 hover:shadow-floating max-sm:grid-cols-[40px_1fr] max-sm:gap-3">
               <span
-                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-brand text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
+                class="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-900 text-sm font-bold text-white shadow-sm max-sm:h-10 max-sm:w-10">
                 02
               </span>
               <div>

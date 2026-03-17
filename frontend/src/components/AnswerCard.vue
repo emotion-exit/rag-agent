@@ -76,12 +76,6 @@ const assistantThought = computed(
   () => props.message.thoughtContent?.trim() || ''
 );
 const progressSteps = computed(() => props.message.progressSteps || []);
-const progressSummary = computed(
-  () =>
-    props.message.progressText?.trim() ||
-    progressSteps.value[progressSteps.value.length - 1] ||
-    ''
-);
 const hasAnswerSection = computed(
   () => props.message.role === 'assistant' && assistantAnswer.value.length > 0
 );
@@ -89,9 +83,7 @@ const hasThoughtSection = computed(
   () => props.message.role === 'assistant' && assistantThought.value.length > 0
 );
 const hasProgressSection = computed(
-  () =>
-    props.message.role === 'assistant' &&
-    (progressSummary.value.length > 0 || progressSteps.value.length > 0)
+  () => props.message.role === 'assistant' && progressSteps.value.length > 0
 );
 const isNoResult = computed(
   () =>
@@ -134,7 +126,6 @@ const renderedThought = computed(() => {
   return markdown.render(assistantThought.value);
 });
 
-const progressExpanded = ref(true);
 const thoughtExpanded = ref(false);
 
 const formattedTime = computed(() => {
@@ -162,11 +153,6 @@ function buildSourceSummary(source: SourceSummary) {
   return String(source.summary || '').trim();
 }
 
-function toggleProgress() {
-  if (progressSteps.value.length <= 1) return;
-  progressExpanded.value = !progressExpanded.value;
-}
-
 function toggleThought() {
   thoughtExpanded.value = !thoughtExpanded.value;
 }
@@ -191,72 +177,62 @@ function toggleThought() {
       ">
       <div
         v-if="!isUser"
-        class="mb-4 flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
+        class="mb-3 ml-2 flex items-center justify-between gap-3 max-sm:ml-0 max-sm:flex-col max-sm:items-start">
         <div
-          class="inline-flex items-center gap-2.5 rounded-full border border-black/6 bg-white/80 px-3.5 py-2 text-xs font-semibold tracking-[0.01em] text-zinc-800 shadow-sm">
-          <RobotOutlined v-if="!isLoading" class="text-zinc-900" />
-          <LoadingOutlined v-else class="animate-spin text-zinc-900" />
+          class="inline-flex items-center gap-2.5 text-[13px] font-semibold tracking-[0.01em] text-zinc-800">
+          <div
+            class="flex h-7 w-7 items-center justify-center rounded-full border border-black/5 bg-white shadow-sm">
+            <RobotOutlined v-if="!isLoading" class="text-zinc-700" />
+            <LoadingOutlined v-else class="animate-spin text-zinc-700" />
+          </div>
           <span>RAG.Agent</span>
         </div>
-        <span v-if="formattedTime" class="text-xs text-zinc-400">
+        <span v-if="formattedTime" class="text-[11px] text-zinc-400">
           {{ formattedTime }}
         </span>
       </div>
 
       <section
         v-if="!isUser && hasProgressSection"
-        class="mt-3 rounded-2xl border border-black/6 bg-white/90 px-5 py-4 shadow-sm">
-        <div
-          class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
-          <button
-            type="button"
-            class="w-full bg-transparent p-0 text-left"
-            :disabled="progressSteps.length <= 1"
-            @click="toggleProgress">
-            <div
-              class="text-xs font-bold uppercase tracking-wide text-zinc-600">
-              进度
-            </div>
-            <div
-              class="inline-flex min-w-0 items-center gap-2 max-sm:flex max-sm:w-full max-sm:justify-between">
-              <span
-                class="max-w-80 truncate text-xs text-zinc-500 max-sm:max-w-none max-sm:whitespace-normal">
-                {{ progressSummary }}
-              </span>
-              <DownOutlined
-                v-if="progressSteps.length > 1"
-                :class="[
-                  'text-xs text-zinc-500 transition-transform duration-200',
-                  progressExpanded ? 'rotate-180' : ''
-                ]" />
-            </div>
-          </button>
+        class="mt-2 ml-2 rounded-2xl border border-black/5 bg-white/60 px-5 py-4 shadow-sm max-sm:ml-0">
+        <div class="mb-3 flex items-center gap-2">
+          <div class="text-xs font-bold uppercase tracking-wide text-zinc-500">
+            执行进度
+          </div>
+          <LoadingOutlined
+            v-if="isLoading && !hasAnswerSection"
+            class="text-xs text-zinc-400" />
         </div>
-        <div
-          v-if="progressExpanded && progressSteps.length > 0"
-          class="mt-2.5 flex flex-col gap-2">
+        <div class="flex flex-col gap-0">
           <div
             v-for="(step, index) in progressSteps"
             :key="`${message.id}-progress-${index}`"
             :class="[
-              'grid grid-cols-[10px_minmax(0,1fr)] items-start gap-3 text-[13px] text-zinc-500',
-              index === progressSteps.length - 1 ? 'text-zinc-900' : ''
+              'grid grid-cols-[20px_minmax(0,1fr)] items-start gap-2 text-[13px] transition-colors',
+              index === progressSteps.length - 1
+                ? 'font-medium text-zinc-800'
+                : 'text-zinc-500'
             ]">
-            <span
-              :class="[
-                'mt-[0.6rem] h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-300',
-                index === progressSteps.length - 1
-                  ? 'bg-zinc-900 shadow-[0_0_0_4px_rgba(24,24,27,0.08)]'
-                  : ''
-              ]" />
-            <span class="block leading-7">{{ step }}</span>
+            <div class="flex h-full flex-col items-center pt-[0.4rem]">
+              <span
+                :class="[
+                  'h-2 w-2 shrink-0 rounded-full transition-all',
+                  index === progressSteps.length - 1
+                    ? 'bg-zinc-700 shadow-[0_0_0_3px_rgba(24,24,27,0.1)]'
+                    : 'bg-zinc-300'
+                ]" />
+              <div
+                v-if="index !== progressSteps.length - 1"
+                class="my-1.5 min-h-[14px] w-[1.5px] flex-1 rounded-full bg-zinc-200"></div>
+            </div>
+            <span class="block pb-2.5 leading-relaxed">{{ step }}</span>
           </div>
         </div>
       </section>
 
       <section
         v-if="!isUser && hasThoughtSection"
-        class="mt-4 ml-2 max-sm:ml-0">
+        class="mt-3 ml-2 max-sm:ml-0">
         <button
           type="button"
           class="flex w-full items-center gap-3 rounded-2xl bg-zinc-100 px-4 py-3 text-zinc-700 transition-all duration-200 hover:bg-zinc-200 hover:shadow-sm"
@@ -278,7 +254,7 @@ function toggleThought() {
       </section>
 
       <template v-if="isLoading && !message.content">
-        <div class="ml-2 flex flex-col gap-3 max-sm:ml-0">
+        <div class="mt-3 ml-2 flex flex-col gap-3 max-sm:ml-0">
           <div
             class="h-3.5 w-[92%] animate-pulse rounded-full bg-linear-to-r from-zinc-100 via-zinc-200 to-zinc-100" />
           <div
@@ -290,7 +266,7 @@ function toggleThought() {
 
       <template v-else-if="isNoResult">
         <div
-          class="mt-4 ml-2 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm max-sm:ml-0">
+          class="mt-3 ml-2 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm max-sm:ml-0">
           <WarningOutlined class="mt-1 text-base text-amber-600" />
           <div class="flex-1">
             <div
@@ -308,7 +284,7 @@ function toggleThought() {
           v-if="!isUser && hasAnswerSection"
           :class="
             cn(
-              'mt-4 ml-2 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
+              'mt-3 ml-2 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
               isError && 'border-red-200 bg-red-50'
             )
           ">
@@ -324,7 +300,7 @@ function toggleThought() {
           <div class="o-markdown answer-body" v-html="renderedAnswer" />
           <div
             v-if="hasSources"
-            class="mt-4 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4">
+            class="mt-3 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4">
             <div
               class="pt-1.5 text-xs font-bold uppercase tracking-wide text-zinc-500">
               引用来源
@@ -358,7 +334,7 @@ function toggleThought() {
               </button>
             </div>
           </div>
-          <div v-if="hasClarification" class="mt-4 flex flex-wrap gap-3">
+          <div v-if="hasClarification" class="mt-3 flex flex-wrap gap-3">
             <button
               v-for="option in clarificationOptions"
               :key="`${message.id}-${option.field}-${option.value}`"
@@ -383,7 +359,7 @@ function toggleThought() {
 
         <div
           v-if="!isUser && !hasAnswerSection && hasSources"
-          class="ml-2 mt-4 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4 max-sm:ml-0">
+          class="ml-2 mt-3 flex flex-wrap items-start gap-2.5 border-t border-black/6 pt-4 max-sm:ml-0">
           <div
             class="pt-1.5 text-xs font-bold uppercase tracking-wide text-zinc-500">
             引用来源
