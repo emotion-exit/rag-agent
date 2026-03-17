@@ -16,6 +16,7 @@ import openai
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
 from app.config import settings
+from app.services.knowledge_spaces import list_knowledge_spaces
 from app.services import vector_store
 from app.services.reranker import rerank_documents
 
@@ -56,6 +57,7 @@ KNOWLEDGE_SPACE_AMBIGUOUS = "ambiguous"
 KNOWLEDGE_SPACE_UNKNOWN = "unknown"
 SESSION_CACHE_MAX_SESSIONS = 64
 SESSION_CACHE_MAX_ENTRIES_PER_BUCKET = 128
+AUXILIARY_COMPLETION_TIMEOUT_SECONDS = 8.0
 
 _SESSION_RETRIEVAL_CACHE: dict[str, dict[str, dict[str, Any]]] = {}
 
@@ -143,7 +145,7 @@ def _build_auxiliary_client() -> openai.OpenAI:
         api_key=settings.chat_api_key,
         base_url=settings.chat_base_url,
         default_headers=settings.get_chat_headers(),
-        timeout=20.0,
+        timeout=AUXILIARY_COMPLETION_TIMEOUT_SECONDS,
         max_retries=1,
     )
 
@@ -247,6 +249,48 @@ def _extract_core_query_terms(query: str) -> list[str]:
     return deduped
 
 
+def _extract_query_term_groups(query: str) -> list[list[str]]:
+    """把问题拆成若干概念组，用于更稳健的证据覆盖判断。"""
+    normalized = _normalize_text(query)
+    if not normalized:
+        return []
+
+    groups: list[list[str]] = []
+    seen_group_keys: set[tuple[str, ...]] = set()
+
+    for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized):
+        if token in QUERY_STOPWORDS or len(token) <= 1:
+            continue
+
+        candidates = [token]
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) >= 3:
+            for size in range(2, min(len(token), 4) + 1):
+                for start in range(0, len(token) - size + 1):
+                    piece = token[start : start + size]
+                    if piece not in QUERY_STOPWORDS:
+                        candidates.append(piece)
+
+        deduped: list[str] = []
+        seen_terms: set[str] = set()
+        for item in sorted(candidates, key=len, reverse=True):
+            if item in seen_terms:
+                continue
+            seen_terms.add(item)
+            deduped.append(item)
+
+        if not deduped:
+            continue
+
+        group_key = tuple(deduped)
+        if group_key in seen_group_keys:
+            continue
+
+        seen_group_keys.add(group_key)
+        groups.append(deduped)
+
+    return groups
+
+
 def _extract_explicit_identifier_terms(query: str) -> list[str]:
     """提取问题中的显式标识词。
 
@@ -303,6 +347,17 @@ def _build_cache_key(query: str, suffix: str = "") -> str:
     """构建会话内缓存键。"""
     normalized_query = _normalize_text(query)
     return f"{normalized_query}::{suffix}" if suffix else normalized_query
+
+
+def _build_retrieval_runtime_config_snapshot() -> dict[str, Any]:
+    """返回会影响检索结果的运行时配置快照，用于缓存失效。"""
+    return {
+        "retrieval_candidate_limit": _get_initial_retrieval_limit(),
+        "retrieval_final_context_limit": _get_final_context_limit(),
+        "retrieval_source_limit": _get_final_source_limit(),
+        "retrieval_query_expansion_count": _get_query_expansion_limit(),
+        "reranker_request_timeout": settings.get_reranker_timeout(),
+    }
 
 
 def _get_session_cache_bucket(session_id: str | None, bucket_name: str) -> dict[str, Any] | None:
@@ -391,6 +446,110 @@ def _collect_knowledge_spaces() -> list[str]:
     return sorted(space for space in spaces if space)
 
 
+def _collect_knowledge_space_records() -> list[dict[str, str]]:
+    """返回知识空间记录，便于做父子级范围推断。"""
+    records: list[dict[str, str]] = []
+    seen_paths: set[str] = set()
+
+    try:
+        for item in list_knowledge_spaces():
+            path = str(item.get("path", "") or "").strip()
+            if not path or path in seen_paths:
+                continue
+
+            seen_paths.add(path)
+            records.append(
+                {
+                    "space_id": str(item.get("space_id", "") or "").strip(),
+                    "parent_id": str(item.get("parent_id", "") or "").strip(),
+                    "path": path,
+                    "name": str(item.get("name", "") or "").strip(),
+                }
+            )
+    except Exception:
+        records = []
+
+    if records:
+        return sorted(records, key=lambda item: item["path"])
+
+    return [
+        {"space_id": "", "parent_id": "", "path": path, "name": path.split(" / ")[-1]}
+        for path in _collect_knowledge_spaces()
+    ]
+
+
+def _split_knowledge_space_segments(space: str) -> list[str]:
+    """拆分知识空间路径。"""
+    return [segment.strip() for segment in str(space or "").split("/") if segment.strip()]
+
+
+def _knowledge_space_overlap_score(query: str, knowledge_space: str) -> int:
+    """评估问题与知识空间路径的词面重合程度。"""
+    normalized_space = _normalize_text(knowledge_space)
+    if not normalized_space:
+        return 0
+
+    query_text = _normalize_text(query)
+    score = 0
+    for group in _extract_query_term_groups(query):
+        if any(term in normalized_space or normalized_space in term for term in group):
+            score += 1
+
+    for segment in _split_knowledge_space_segments(knowledge_space):
+        normalized_segment = _normalize_text(segment)
+        if normalized_segment and normalized_segment in query_text:
+            score += 2
+
+    return score
+
+
+def _should_use_knowledge_space_llm(query: str, candidates: list[str]) -> bool:
+    """只有在问题与候选知识空间存在明显关联时，才调用辅助 LLM。"""
+    if len(candidates) <= 1:
+        return False
+
+    return any(_knowledge_space_overlap_score(query, candidate) > 0 for candidate in candidates)
+
+
+def _expand_knowledge_space_filter_values(knowledge_space: str) -> list[str]:
+    """把父级知识空间扩展为自身及全部子空间路径。"""
+    normalized = str(knowledge_space or "").strip()
+    if not normalized:
+        return []
+
+    matched = [normalized]
+    for item in _collect_knowledge_space_records():
+        path = str(item.get("path", "") or "").strip()
+        if not path or path == normalized:
+            continue
+        if path.startswith(f"{normalized} / "):
+            matched.append(path)
+
+    seen: set[str] = set()
+    expanded: list[str] = []
+    for item in matched:
+        if item in seen:
+            continue
+        seen.add(item)
+        expanded.append(item)
+
+    return expanded
+
+
+def _expand_metadata_filters_for_hierarchy(metadata_filters: dict[str, Any]) -> dict[str, Any]:
+    """把知识空间过滤扩展到子空间。"""
+    expanded = dict(metadata_filters)
+    knowledge_space = str(metadata_filters.get("knowledge_space", "") or "").strip()
+    if not knowledge_space:
+        return expanded
+
+    expanded_values = _expand_knowledge_space_filter_values(knowledge_space)
+    if expanded_values:
+        expanded["knowledge_space"] = expanded_values if len(expanded_values) > 1 else expanded_values[0]
+
+    return expanded
+
+
 def _infer_metadata_filters(query: str) -> dict[str, str]:
     """从问题文本里推断元数据过滤条件。
 
@@ -415,16 +574,10 @@ def _infer_metadata_filters(query: str) -> dict[str, str]:
 
 def _rank_knowledge_space_candidates(query: str, candidates: list[str]) -> list[str]:
     """按问题文本对候选知识空间做轻量排序。"""
-    query_terms = _extract_core_query_terms(query)
-
     def score(space: str) -> tuple[int, int, str]:
-        normalized_space = _normalize_text(space)
-        hit_count = sum(
-            1
-            for term in query_terms
-            if term in normalized_space or normalized_space in term
-        )
-        return (-hit_count, -len(space), space)
+        overlap_score = _knowledge_space_overlap_score(query, space)
+        depth_score = len(_split_knowledge_space_segments(space))
+        return (-overlap_score, -depth_score, -len(space), space)
 
     return sorted(candidates, key=score)
 
@@ -548,7 +701,9 @@ def _resolve_knowledge_space(
         _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
         return resolved
 
-    llm_result = _resolve_knowledge_space_with_llm(query, knowledge_spaces)
+    llm_result = None
+    if _should_use_knowledge_space_llm(query, knowledge_spaces):
+        llm_result = _resolve_knowledge_space_with_llm(query, knowledge_spaces)
     if llm_result and llm_result.get("status") == KNOWLEDGE_SPACE_RESOLVED:
         resolved = {
             **llm_result,
@@ -582,7 +737,18 @@ def _generate_query_variants(query: str, knowledge_space: str = "", session_id: 
     if not normalized_query:
         return [], False
 
-    cache_key = _build_cache_key(normalized_query, knowledge_space.strip())
+    config_snapshot = _build_retrieval_runtime_config_snapshot()
+    cache_key = _build_cache_key(
+        normalized_query,
+        json.dumps(
+            {
+                "knowledge_space": knowledge_space.strip(),
+                "retrieval_query_expansion_count": config_snapshot["retrieval_query_expansion_count"],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        ),
+    )
     cached_variants = _read_session_cache(session_id, "query_variants", cache_key)
     if isinstance(cached_variants, list) and cached_variants:
         return list(cached_variants), True
@@ -710,6 +876,7 @@ def _has_sufficient_evidence(query: str, documents: list[dict]) -> bool:
 
     best_distance = min(float(doc.get("distance", 1.0)) for doc in documents)
     core_terms = _extract_core_query_terms(query)
+    concept_groups = _extract_query_term_groups(query)
     identifier_terms = _extract_explicit_identifier_terms(query)
 
     if identifier_terms:
@@ -722,12 +889,13 @@ def _has_sufficient_evidence(query: str, documents: list[dict]) -> bool:
     if not core_terms:
         return best_distance <= EVIDENCE_STRONG_DISTANCE_THRESHOLD
 
-    matched_terms = {
-        term
-        for term in core_terms
-        if any(_document_match_count([term], doc) > 0 for doc in documents)
-    }
-    coverage = len(matched_terms) / max(len(core_terms), 1)
+    matched_groups = 0
+    for group in concept_groups or [[term] for term in core_terms]:
+        if any(_document_match_count(group, doc) > 0 for doc in documents):
+            matched_groups += 1
+
+    coverage_denominator = len(concept_groups) or max(len(core_terms), 1)
+    coverage = matched_groups / max(coverage_denominator, 1)
 
     if best_distance <= EVIDENCE_STRONG_DISTANCE_THRESHOLD:
         return True
@@ -771,6 +939,7 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
     steps: list[str] = []
     query_variant_count = int(trace.get("query_variant_count", 1) or 1)
     knowledge_space_resolution = trace.get("knowledge_space_resolution", {}) or {}
+    expanded_knowledge_space_count = int(trace.get("expanded_knowledge_space_count", 0) or 0)
 
     if knowledge_space_resolution.get("status") == KNOWLEDGE_SPACE_RESOLVED:
         knowledge_space = str(knowledge_space_resolution.get("knowledge_space", "") or "").strip()
@@ -780,7 +949,10 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
             steps.append("已复用当前会话中的知识空间判定结果。")
 
     if trace.get("used_explicit_filters"):
-        steps.append("已按你指定的知识范围限定检索。")
+        if expanded_knowledge_space_count > 1:
+            steps.append(f"已按你指定的知识空间层级限定检索，覆盖 {expanded_knowledge_space_count} 个空间。")
+        else:
+            steps.append("已按你指定的知识范围限定检索。")
     elif trace.get("used_metadata_filters"):
         steps.append("已识别问题中的文档范围，正在限定检索范围。")
     else:
@@ -1070,6 +1242,7 @@ def retrieve_relevant_documents_trace(
     normalized_explicit_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
     initial_n_results = initial_n_results or _get_initial_retrieval_limit()
     final_n_results = final_n_results or _get_final_context_limit()
+    runtime_config_snapshot = _build_retrieval_runtime_config_snapshot()
     trace_cache_key = _build_cache_key(
         query,
         json.dumps(
@@ -1077,6 +1250,7 @@ def retrieve_relevant_documents_trace(
                 "initial_n_results": initial_n_results,
                 "final_n_results": final_n_results,
                 "explicit_filters": normalized_explicit_filters,
+                "runtime_config": runtime_config_snapshot,
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -1127,6 +1301,14 @@ def retrieve_relevant_documents_trace(
     ):
         metadata_filters["knowledge_space"] = str(knowledge_space_resolution.get("knowledge_space", "") or "")
 
+    effective_metadata_filters = _expand_metadata_filters_for_hierarchy(metadata_filters)
+    effective_knowledge_space_filter = effective_metadata_filters.get("knowledge_space")
+    expanded_knowledge_space_count = 0
+    if isinstance(effective_knowledge_space_filter, list):
+        expanded_knowledge_space_count = len(effective_knowledge_space_filter)
+    elif str(effective_knowledge_space_filter or "").strip():
+        expanded_knowledge_space_count = 1
+
     query_variants, query_variants_cache_hit = _generate_query_variants(
         query,
         str(metadata_filters.get("knowledge_space", "") or ""),
@@ -1135,7 +1317,7 @@ def retrieve_relevant_documents_trace(
     results = _query_documents_with_variants(
         query_variants,
         n_results=initial_n_results,
-        metadata_filters=metadata_filters,
+        metadata_filters=effective_metadata_filters,
     )
     fallback_without_filters = False
 
@@ -1152,9 +1334,11 @@ def retrieve_relevant_documents_trace(
             "filtered_hit_count": 0,
             "final_hit_count": 0,
             "metadata_filters": metadata_filters,
+            "effective_metadata_filters": effective_metadata_filters,
             "used_metadata_filters": bool(metadata_filters),
             "used_explicit_filters": bool(explicit_filters),
             "fallback_without_filters": fallback_without_filters,
+            "expanded_knowledge_space_count": expanded_knowledge_space_count,
             "knowledge_space_resolution": knowledge_space_resolution,
             "query_variants": query_variants,
             "query_variant_count": len(query_variants),
@@ -1174,9 +1358,11 @@ def retrieve_relevant_documents_trace(
             "filtered_hit_count": 0,
             "final_hit_count": 0,
             "metadata_filters": metadata_filters,
+            "effective_metadata_filters": effective_metadata_filters,
             "used_metadata_filters": bool(metadata_filters),
             "used_explicit_filters": bool(explicit_filters),
             "fallback_without_filters": fallback_without_filters,
+            "expanded_knowledge_space_count": expanded_knowledge_space_count,
             "knowledge_space_resolution": knowledge_space_resolution,
             "query_variants": query_variants,
             "query_variant_count": len(query_variants),
@@ -1195,9 +1381,11 @@ def retrieve_relevant_documents_trace(
             "filtered_hit_count": len(filtered),
             "final_hit_count": 0,
             "metadata_filters": metadata_filters,
+            "effective_metadata_filters": effective_metadata_filters,
             "used_metadata_filters": bool(metadata_filters),
             "used_explicit_filters": bool(explicit_filters),
             "fallback_without_filters": fallback_without_filters,
+            "expanded_knowledge_space_count": expanded_knowledge_space_count,
             "knowledge_space_resolution": knowledge_space_resolution,
             "query_variants": query_variants,
             "query_variant_count": len(query_variants),
@@ -1214,9 +1402,11 @@ def retrieve_relevant_documents_trace(
         "filtered_hit_count": len(filtered),
         "final_hit_count": len(reranked),
         "metadata_filters": metadata_filters,
+        "effective_metadata_filters": effective_metadata_filters,
         "used_metadata_filters": bool(metadata_filters),
         "used_explicit_filters": bool(explicit_filters),
         "fallback_without_filters": fallback_without_filters,
+        "expanded_knowledge_space_count": expanded_knowledge_space_count,
         "knowledge_space_resolution": knowledge_space_resolution,
         "query_variants": query_variants,
         "query_variant_count": len(query_variants),

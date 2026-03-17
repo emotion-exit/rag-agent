@@ -32,6 +32,7 @@ const shouldAutoScroll = ref(true);
 const showScrollBack = ref(false);
 const selectedSource = ref<SourceSummary | null>(null);
 const sourceModalVisible = ref(false);
+const sessionKnowledgeSpaceLabel = ref('');
 
 const API_BASE = getApiBase();
 const CONNECTING_HINT = '正在连接知识库助手...';
@@ -176,6 +177,16 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
     return;
   }
 
+  if (data.type === 'scope') {
+    const nextScope = data.content.trim();
+    assistantMsg.knowledgeSpaceLabel = nextScope;
+    if (nextScope) {
+      sessionKnowledgeSpaceLabel.value = nextScope;
+      retrievalFilters.knowledge_space = nextScope;
+    }
+    return;
+  }
+
   if (data.type === 'clarify') {
     assistantMsg.answerContent = data.content;
     assistantMsg.content = data.content;
@@ -272,6 +283,7 @@ async function submitMessage(text: string) {
     content: '',
     thoughtContent: '',
     answerContent: '',
+    knowledgeSpaceLabel: '',
     queryText: text,
     sources: [],
     clarificationOptions: [],
@@ -351,6 +363,9 @@ async function applyClarificationOption(
   if (isLoading.value) return;
 
   retrievalFilters[option.field] = option.value;
+  if (option.field === 'knowledge_space') {
+    sessionKnowledgeSpaceLabel.value = option.value;
+  }
   const queryText = message.queryText?.trim();
   if (!queryText) return;
 
@@ -360,8 +375,15 @@ async function applyClarificationOption(
 function clearMessages() {
   messages.value = [];
   sessionId.value = uuidv4();
+  sessionKnowledgeSpaceLabel.value = '';
+  retrievalFilters.knowledge_space = '';
+  retrievalFilters.category = '';
   shouldAutoScroll.value = true;
   showScrollBack.value = false;
+}
+
+function startNewSession() {
+  clearMessages();
 }
 
 function openSourceModal(source: SourceSummary) {
@@ -384,6 +406,33 @@ function handleKeyDown(e: KeyboardEvent) {
 
 <template>
   <div class="relative flex min-h-0 flex-1 flex-col pt-0">
+    <div
+      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-black/6 bg-white/88 px-4 py-3 shadow-[0_8px_28px_rgba(24,24,27,0.06)] backdrop-blur-xl max-sm:mb-3 max-sm:rounded-2xl">
+      <div class="flex min-w-0 flex-1 flex-col gap-1">
+        <div
+          class="text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
+          当前会话
+        </div>
+        <div class="flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+          <span
+            class="rounded-full bg-zinc-100 px-3 py-1 font-medium text-zinc-700">
+            会话 ID：{{ sessionId.slice(0, 8) }}
+          </span>
+          <span
+            v-if="sessionKnowledgeSpaceLabel"
+            class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1 font-medium text-zinc-900">
+            所属知识空间：{{ sessionKnowledgeSpaceLabel }}
+          </span>
+          <span
+            v-else
+            class="rounded-full border border-dashed border-black/10 bg-white px-3 py-1 text-zinc-500">
+            所属知识空间：未固定
+          </span>
+        </div>
+      </div>
+      <OButton variant="secondary" @click="startNewSession">新建会话</OButton>
+    </div>
+
     <div
       class="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-5 pt-6 [scrollbar-color:rgba(113,113,122,0.45)_transparent] [scrollbar-width:thin] max-sm:px-0 max-sm:pb-4.5 max-sm:pt-5"
       ref="messagesContainer"

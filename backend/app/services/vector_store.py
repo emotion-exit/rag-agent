@@ -1,5 +1,7 @@
 import os
 import uuid
+from typing import Any
+
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from app.config import settings
@@ -26,13 +28,24 @@ def _get_chroma_max_batch_size(collection: chromadb.Collection) -> int:
     return 5000
 
 
-def _build_where_clause(metadata_filters: dict[str, str] | None) -> dict | None:
+def _build_where_clause(metadata_filters: dict[str, Any] | None) -> dict | None:
     if not metadata_filters:
         return None
 
     clauses = []
     for key, value in metadata_filters.items():
-        normalized = value.strip()
+        if isinstance(value, (list, tuple, set)):
+            normalized_values = [str(item).strip() for item in value if str(item).strip()]
+            if not normalized_values:
+                continue
+
+            if len(normalized_values) == 1:
+                clauses.append({key: {"$eq": normalized_values[0]}})
+            else:
+                clauses.append({"$or": [{key: {"$eq": item}} for item in normalized_values]})
+            continue
+
+        normalized = str(value).strip()
         if normalized:
             clauses.append({key: {"$eq": normalized}})
 

@@ -45,6 +45,7 @@ export interface Message {
   sources?: SourceSummary[];
   queryText?: string;
   clarificationOptions?: ClarificationOption[];
+  knowledgeSpaceLabel?: string;
 }
 
 const props = defineProps<{
@@ -109,6 +110,13 @@ const hasClarification = computed(
 const sourceItems = computed(() => props.message.sources || []);
 const hasSources = computed(
   () => props.message.role === 'assistant' && sourceItems.value.length > 0
+);
+const knowledgeSpaceLabel = computed(
+  () => props.message.knowledgeSpaceLabel?.trim() || ''
+);
+const hasKnowledgeSpaceLabel = computed(
+  () =>
+    props.message.role === 'assistant' && knowledgeSpaceLabel.value.length > 0
 );
 
 const renderedContent = computed(() => {
@@ -197,10 +205,7 @@ function toggleThought() {
 
       <section
         v-if="!isUser && hasProgressSection"
-        :class="[
-          'rounded-2xl border border-black/6 bg-white/90 px-5 py-4 shadow-sm',
-          hasAnswerSection ? 'mb-5 mt-4' : 'mt-1'
-        ]">
+        class="mt-3 rounded-2xl border border-black/6 bg-white/90 px-5 py-4 shadow-sm">
         <div
           class="flex items-center justify-between gap-3 max-sm:flex-col max-sm:items-start">
           <button
@@ -234,22 +239,24 @@ function toggleThought() {
             v-for="(step, index) in progressSteps"
             :key="`${message.id}-progress-${index}`"
             :class="[
-              'flex items-start gap-2.5 text-[13px] leading-6 text-zinc-500',
+              'grid grid-cols-[10px_minmax(0,1fr)] items-start gap-3 text-[13px] text-zinc-500',
               index === progressSteps.length - 1 ? 'text-zinc-900' : ''
             ]">
             <span
               :class="[
-                'mt-1.5 h-2 w-2 shrink-0 rounded-full bg-zinc-300',
+                'mt-[0.6rem] h-2.5 w-2.5 shrink-0 rounded-full bg-zinc-300',
                 index === progressSteps.length - 1
                   ? 'bg-zinc-900 shadow-[0_0_0_4px_rgba(24,24,27,0.08)]'
                   : ''
               ]" />
-            <span>{{ step }}</span>
+            <span class="block leading-7">{{ step }}</span>
           </div>
         </div>
       </section>
 
-      <section v-if="!isUser && hasThoughtSection" class="ml-2 max-sm:ml-0">
+      <section
+        v-if="!isUser && hasThoughtSection"
+        class="mt-4 ml-2 max-sm:ml-0">
         <button
           type="button"
           class="flex w-full items-center gap-3 rounded-2xl bg-zinc-100 px-4 py-3 text-zinc-700 transition-all duration-200 hover:bg-zinc-200 hover:shadow-sm"
@@ -283,11 +290,16 @@ function toggleThought() {
 
       <template v-else-if="isNoResult">
         <div
-          class="ml-2 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm max-sm:ml-0">
+          class="mt-4 ml-2 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 shadow-sm max-sm:ml-0">
           <WarningOutlined class="mt-1 text-base text-amber-600" />
-          <div
-            class="o-markdown flex-1 text-amber-800"
-            v-html="renderedAnswer" />
+          <div class="flex-1">
+            <div
+              v-if="hasKnowledgeSpaceLabel"
+              class="mb-3 inline-flex items-center rounded-full border border-amber-300/70 bg-white/70 px-3 py-1 text-[11px] font-semibold tracking-[0.02em] text-amber-800">
+              所属知识空间：{{ knowledgeSpaceLabel }}
+            </div>
+            <div class="o-markdown text-amber-800" v-html="renderedAnswer" />
+          </div>
         </div>
       </template>
 
@@ -296,13 +308,18 @@ function toggleThought() {
           v-if="!isUser && hasAnswerSection"
           :class="
             cn(
-              'ml-2 mt-5 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
+              'mt-4 ml-2 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
               isError && 'border-red-200 bg-red-50'
             )
           ">
           <div
             class="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-400">
             答案
+          </div>
+          <div
+            v-if="hasKnowledgeSpaceLabel"
+            class="mb-4 inline-flex items-center rounded-full border border-black/8 bg-zinc-50 px-3 py-1 text-[11px] font-semibold tracking-[0.02em] text-zinc-700">
+            所属知识空间：{{ knowledgeSpaceLabel }}
           </div>
           <div class="o-markdown answer-body" v-html="renderedAnswer" />
           <div
@@ -346,7 +363,7 @@ function toggleThought() {
               v-for="option in clarificationOptions"
               :key="`${message.id}-${option.field}-${option.value}`"
               type="button"
-              class="rounded-full border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition-all duration-200 hover:border-(--color-success-border) hover:bg-[rgba(238,247,241,0.92)] hover:text-(--color-success-strong) hover:shadow"
+              class="rounded-full border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition-all duration-200 hover:border-success-border hover:bg-[rgba(238,247,241,0.92)] hover:text-(--color-success-strong) hover:shadow"
               @click="applyClarification(option)">
               {{ option.label }}
             </button>

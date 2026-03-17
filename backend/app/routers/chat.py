@@ -36,6 +36,7 @@ APP_NAME = "rag_agent_app"
 session_service = InMemorySessionService()
 # 进入真正答案输出阶段时给前端的统一状态提示。
 ANSWER_STREAM_PROGRESS = "已进入答案生成，正在逐段输出内容。"
+RETRIEVAL_PREPARING_PROGRESS = "正在识别知识空间并准备检索条件。"
 # 这些模式用于把模型偶尔泄漏出来的内部函数名、模块名和接口路径替换掉。
 INTERNAL_IDENTIFIER_PATTERNS = (
     r"\bretrieve_from_knowledge_base\b",
@@ -646,6 +647,11 @@ async def _stream_agent_response(
             f"{json.dumps({'type': 'start', 'content': '已接收问题，正在准备检索。'}, ensure_ascii=False)}"
             "\n\n"
         )
+        yield (
+            "data: "
+            f"{json.dumps({'type': 'progress', 'content': RETRIEVAL_PREPARING_PROGRESS}, ensure_ascii=False)}"
+            "\n\n"
+        )
 
         # 先完成检索并判断是否需要用户进一步澄清，再决定是否继续生成答案。
         source_summaries, retrieval_trace = build_source_payload_with_trace(
@@ -653,6 +659,20 @@ async def _stream_agent_response(
             explicit_metadata_filters=retrieval_filters,
             session_id=session_id,
         )
+
+        knowledge_space_resolution = retrieval_trace.get("knowledge_space_resolution", {}) or {}
+        metadata_filters = retrieval_trace.get("metadata_filters", {}) or {}
+        scope_label = str(
+            knowledge_space_resolution.get("knowledge_space")
+            or metadata_filters.get("knowledge_space")
+            or ""
+        ).strip()
+        if scope_label:
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'scope', 'content': scope_label}, ensure_ascii=False)}"
+                "\n\n"
+            )
 
         clarification = build_hitl_clarification(retrieval_trace)
         if clarification:

@@ -71,6 +71,12 @@ interface AdvancedSettingGroup {
   description: string;
 }
 
+interface EffectRuleItem {
+  title: string;
+  detail: string;
+  tone: 'success' | 'warning' | 'neutral';
+}
+
 const advancedSettingGroups: AdvancedSettingGroup[] = [
   {
     key: 'request-metadata',
@@ -98,6 +104,93 @@ const requestMetadataGroup = advancedSettingGroups[0]!;
 const embeddingStrategyGroup = advancedSettingGroups[1]!;
 const retrievalStrategyGroup = advancedSettingGroups[2]!;
 const storageRuntimeGroup = advancedSettingGroups[3]!;
+
+const effectRuleItems = computed<EffectRuleItem[]>(() => {
+  if (isDesktop) {
+    return [
+      {
+        title: '保存后随服务重启生效',
+        detail:
+          '桌面端配置会写入本地 config，并在保存后自动重启内置后端；新的对话、检索与上传请求会使用最新参数。',
+        tone: 'warning'
+      },
+      {
+        title: '仅当前浏览器下一次请求立即生效',
+        detail:
+          '该规则主要适用于 Web 公开设置模式；桌面端不会跳过重启直接热更新后端运行参数。',
+        tone: 'neutral'
+      },
+      {
+        title: '仅桌面端可配置',
+        detail:
+          'API Key、Base URL、Model、本地目录和 CORS 等运行参数只在桌面端展示。',
+        tone: 'neutral'
+      }
+    ];
+  }
+
+  return [
+    {
+      title: '下一次请求立即生效',
+      detail:
+        '公开高级设置保存在当前浏览器，并随聊天、知识库、来源详情等下一次请求自动附带到后端。',
+      tone: 'success'
+    },
+    {
+      title: '不会修改后端基础凭据',
+      detail:
+        'Web 模式只允许调整公开参数，不会覆盖服务端或桌面端保存的 API Key、Base URL 与 Model。',
+      tone: 'neutral'
+    },
+    {
+      title: '仅桌面端可配置',
+      detail: '目录、CORS 和敏感 provider 凭据等运行参数不会在 Web 端显示。',
+      tone: 'warning'
+    }
+  ];
+});
+
+const advancedSettingsEffectText = computed(() =>
+  isDesktop
+    ? '桌面端高级设置会在点击“保存配置并重启服务”后统一生效。'
+    : '这些高级设置会在当前浏览器的下一次请求中立即生效。'
+);
+
+const requestMetadataEffectText = computed(() =>
+  isDesktop
+    ? '请求元信息属于桌面端运行配置的一部分，保存后会随服务重启生效。'
+    : '请求元信息会在当前浏览器的下一次对话或检测请求中立即生效。'
+);
+
+const embeddingStrategyEffectText = computed(() =>
+  isDesktop
+    ? 'Embedding 策略会影响后续上传切分、向量化与 token 统计，保存后重启生效。'
+    : 'Embedding 策略会影响后续上传与向量化请求，下一次请求立即生效。'
+);
+
+const retrievalStrategyEffectText = computed(() =>
+  isDesktop
+    ? '检索策略会影响后续召回、重排、上下文保留与扩写，保存后重启生效。'
+    : '检索策略会影响后续聊天检索请求，下一次请求立即生效。'
+);
+
+const storageRuntimeEffectText = computed(() =>
+  isDesktop
+    ? '存储与运行时参数属于桌面端本地服务配置，保存后重启生效。'
+    : '这一组参数只在桌面端可配置。'
+);
+
+function getEffectRuleToneClass(tone: EffectRuleItem['tone']) {
+  if (tone === 'success') {
+    return 'border-[rgba(37,99,65,0.18)] bg-[rgba(37,99,65,0.08)] text-[#1f6b42]';
+  }
+
+  if (tone === 'warning') {
+    return 'border-[rgba(180,125,29,0.22)] bg-[rgba(180,125,29,0.1)] text-[#9f670f]';
+  }
+
+  return 'border-black/8 bg-black/3 text-zinc-700';
+}
 
 const healthText = computed(() => {
   if (health.value === 'online') return '后端服务运行中';
@@ -446,6 +539,47 @@ onMounted(() => {
       </div>
     </OCard>
 
+    <OCard padding="lg" class="flex flex-col gap-4">
+      <div
+        class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
+        <div>
+          <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
+            生效规则
+          </div>
+          <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
+            {{
+              isDesktop
+                ? '桌面端配置统一通过“保存配置并重启服务”生效；Web 模式则以请求级覆盖为主。'
+                : 'Web 模式的公开设置会作为请求级覆盖附带给后端，不修改服务端基础配置。'
+            }}
+          </div>
+        </div>
+        <div
+          class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
+          {{
+            isDesktop ? '当前模式：Desktop Runtime' : '当前模式：Web Runtime'
+          }}
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3 max-[960px]:grid-cols-1">
+        <div
+          v-for="item in effectRuleItems"
+          :key="item.title"
+          :class="[
+            'rounded-2xl border px-4 py-3.5',
+            getEffectRuleToneClass(item.tone)
+          ]">
+          <div class="text-sm font-bold tracking-[-0.01em]">
+            {{ item.title }}
+          </div>
+          <div class="mt-1.5 text-xs leading-6 opacity-90">
+            {{ item.detail }}
+          </div>
+        </div>
+      </div>
+    </OCard>
+
     <section
       class="grid grid-cols-[minmax(0,1fr)] gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
       <OCard v-if="isDesktop" padding="lg" class="flex flex-col gap-3.5">
@@ -605,11 +739,15 @@ onMounted(() => {
                 : '这些参数会保存在当前浏览器，并自动附带到聊天、知识库和来源详情请求中。'
             }}
           </p>
+          <div
+            class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-xs leading-6 text-zinc-700">
+            {{ advancedSettingsEffectText }}
+          </div>
 
           <div class="flex flex-col gap-4 pt-1.5">
             <OFormSection
               :title="requestMetadataGroup.title"
-              :description="requestMetadataGroup.description"
+              :description="`${requestMetadataGroup.description} ${requestMetadataEffectText}`"
               padding="sm"
               class="flex flex-col gap-4">
               <div
@@ -648,7 +786,7 @@ onMounted(() => {
 
             <OFormSection
               :title="embeddingStrategyGroup.title"
-              :description="embeddingStrategyGroup.description"
+              :description="`${embeddingStrategyGroup.description} ${embeddingStrategyEffectText}`"
               padding="sm"
               class="flex flex-col gap-4">
               <div
@@ -723,7 +861,7 @@ onMounted(() => {
 
             <OFormSection
               :title="retrievalStrategyGroup.title"
-              :description="retrievalStrategyGroup.description"
+              :description="`${retrievalStrategyGroup.description} ${retrievalStrategyEffectText}`"
               padding="sm"
               class="flex flex-col gap-4">
               <div
@@ -749,7 +887,7 @@ onMounted(() => {
                     type="number"
                     min="1"
                     step="1"
-                    placeholder="18" />
+                    placeholder="10" />
                 </OFormItem>
 
                 <OFormItem
@@ -761,7 +899,7 @@ onMounted(() => {
                     type="number"
                     min="1"
                     step="1"
-                    placeholder="5" />
+                    placeholder="3" />
                 </OFormItem>
 
                 <OFormItem
@@ -773,7 +911,7 @@ onMounted(() => {
                     type="number"
                     min="1"
                     step="1"
-                    placeholder="5" />
+                    placeholder="3" />
                 </OFormItem>
 
                 <OFormItem
@@ -785,14 +923,14 @@ onMounted(() => {
                     type="number"
                     min="0"
                     step="1"
-                    placeholder="3" />
+                    placeholder="2" />
                 </OFormItem>
               </div>
             </OFormSection>
 
             <OFormSection
               :title="storageRuntimeGroup.title"
-              :description="storageRuntimeGroup.description"
+              :description="`${storageRuntimeGroup.description} ${storageRuntimeEffectText}`"
               padding="sm"
               class="flex flex-col gap-4">
               <div
