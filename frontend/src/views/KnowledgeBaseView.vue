@@ -52,6 +52,7 @@ interface KnowledgeSpaceCreateResponsePayload {
 interface DangerImpactStat {
   label: string;
   value: string;
+  kind?: 'metric' | 'context';
 }
 
 type DangerActionType = 'delete-space' | 'delete-document';
@@ -459,19 +460,23 @@ function buildSpaceDeleteImpactStats(
   return [
     {
       label: '覆盖空间',
-      value: `${relatedSpaceIds.size} 个`
+      value: `${relatedSpaceIds.size} 个`,
+      kind: 'metric'
     },
     {
       label: '关联文档',
-      value: `${relatedDocuments.length} 篇`
+      value: `${relatedDocuments.length} 篇`,
+      kind: 'metric'
     },
     {
       label: '文档分块',
-      value: `${chunkCount} 个`
+      value: `${chunkCount} 个`,
+      kind: 'metric'
     },
     {
       label: '附图资源',
-      value: `${imageCount} 张`
+      value: `${imageCount} 张`,
+      kind: 'metric'
     }
   ];
 }
@@ -480,15 +485,18 @@ function buildDocumentDeleteImpactStats(doc: DocumentInfo): DangerImpactStat[] {
   return [
     {
       label: '所属空间',
-      value: formatMetadata(doc.knowledge_space)
+      value: formatMetadata(doc.knowledge_space),
+      kind: 'context'
     },
     {
       label: '文档分块',
-      value: `${Number(doc.chunk_count || 0)} 个`
+      value: `${Number(doc.chunk_count || 0)} 个`,
+      kind: 'metric'
     },
     {
       label: '附图资源',
-      value: `${Number(doc.image_count || 0)} 张`
+      value: `${Number(doc.image_count || 0)} 张`,
+      kind: 'metric'
     }
   ];
 }
