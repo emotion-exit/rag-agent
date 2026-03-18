@@ -34,7 +34,6 @@ const selectedSource = ref<SourceSummary | null>(null);
 const sourceModalVisible = ref(false);
 const sessionKnowledgeSpaceLabel = ref('');
 
-const API_BASE = getApiBase();
 const CONNECTING_HINT = '正在连接知识库助手...';
 const START_HINT = '已接收问题，正在准备检索。';
 const GENERATING_HINT = '正在生成回答...';
@@ -63,6 +62,10 @@ function buildRetrievalFiltersPayload() {
   };
 
   return Object.values(payload).some(Boolean) ? payload : undefined;
+}
+
+function buildApiUrl(path: string) {
+  return `${getApiBase()}${path}`;
 }
 
 function pushProgressStep(message: Message, step: string) {
@@ -296,7 +299,7 @@ async function submitMessage(text: string) {
   scrollToBottom(true);
 
   try {
-    const response = await fetch(`${API_BASE}/api/chat/stream`, {
+    const response = await fetch(buildApiUrl('/api/chat/stream'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

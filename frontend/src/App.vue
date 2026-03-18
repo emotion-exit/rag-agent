@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
   MessageOutlined,
   BookOutlined,
   RobotOutlined,
+  LoadingOutlined,
   SettingOutlined
 } from '@ant-design/icons-vue';
-import { OConfigProvider } from '@/orange-ui';
+import { OButton, OConfigProvider } from '@/orange-ui';
+import { isDesktopApp } from '@/services/runtime';
 
 const route = useRoute();
 const router = useRouter();
@@ -23,6 +25,97 @@ const keepAliveIncludes = computed(() =>
       (item): item is string => typeof item === 'string' && item.length > 0
     )
 );
+const desktopMode = isDesktopApp();
+const desktopBackendState = ref<'idle' | 'starting' | 'ready' | 'error'>(
+  desktopMode ? 'starting' : 'ready'
+);
+const desktopBackendError = ref('');
+let desktopBackendPollTimer: number | null = null;
+
+const showDesktopStartupOverlay = computed(
+  () => desktopMode && desktopBackendState.value !== 'ready'
+);
+const desktopStartupTitle = computed(() => {
+  if (desktopBackendState.value === 'error') {
+    return '本地服务启动失败';
+  }
+
+  return '正在启动本地服务';
+});
+const desktopStartupDescription = computed(() => {
+  if (desktopBackendState.value === 'error') {
+    return (
+      desktopBackendError.value ||
+      '内置 Python 服务没有正常启动，请检查模型配置或端口占用。'
+    );
+  }
+
+  return '应用界面已打开，正在等待内置 Python 服务完成启动。';
+});
+
+async function refreshDesktopBackendStatus() {
+  if (!window.desktopApp) {
+    desktopBackendState.value = 'ready';
+    desktopBackendError.value = '';
+    return;
+  }
+
+  try {
+    const status = await window.desktopApp.getBackendStatus();
+    desktopBackendState.value = status.ready ? 'ready' : status.state || 'idle';
+    desktopBackendError.value = status.errorMessage || '';
+
+    if (status.ready && desktopBackendPollTimer !== null) {
+      window.clearInterval(desktopBackendPollTimer);
+      desktopBackendPollTimer = null;
+    }
+  } catch {
+    desktopBackendState.value = 'error';
+    desktopBackendError.value = '无法获取内置服务状态，请稍后重试。';
+  }
+}
+
+async function restartDesktopBackend() {
+  if (!window.desktopApp) {
+    return;
+  }
+
+  desktopBackendState.value = 'starting';
+  desktopBackendError.value = '';
+
+  try {
+    await window.desktopApp.restartBackend();
+  } catch {
+    // The actual failure reason is polled from the main process state.
+  }
+
+  await refreshDesktopBackendStatus();
+}
+
+function openSettings() {
+  router.push({ name: 'settings' });
+}
+
+onMounted(async () => {
+  if (!desktopMode) {
+    return;
+  }
+
+  await refreshDesktopBackendStatus();
+
+  if (desktopBackendState.value !== 'ready') {
+    desktopBackendPollTimer = window.setInterval(() => {
+      void refreshDesktopBackendStatus();
+    }, 800);
+  }
+});
+
+onBeforeUnmount(() => {
+  if (desktopBackendPollTimer !== null) {
+    window.clearInterval(desktopBackendPollTimer);
+    desktopBackendPollTimer = null;
+  }
+});
 
 const appTheme = {
   colorPrimary: '#18181b',
@@ -97,6 +190,68 @@ const appTheme = {
             :key="String(currentRoute.name ?? currentRoute.path)" />
         </RouterView>
       </main>
+
+      <transition name="fade">
+        <div
+          v-if="showDesktopStartupOverlay"
+          class="absolute inset-0 z-200 flex items-center justify-center bg-[rgba(244,244,245,0.82)] px-6 backdrop-blur-xl">
+          <div
+            class="w-full max-w-md rounded-[28px] border border-white/70 bg-white/92 p-7 shadow-[0_24px_80px_rgba(24,24,27,0.16)]">
+            <div class="flex items-start gap-4">
+              <div
+                class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-zinc-900 text-white shadow-sm">
+                <LoadingOutlined
+                  v-if="desktopBackendState !== 'error'"
+                  class="animate-spin text-lg" />
+                <RobotOutlined v-else class="text-lg" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div
+                  class="text-lg font-semibold tracking-tight text-(--color-heading)">
+                  {{ desktopStartupTitle }}
+                </div>
+                <p class="mt-2 text-sm leading-7 text-(--color-text-muted)">
+                  {{ desktopStartupDescription }}
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-5 flex flex-wrap gap-2.5">
+              <OButton
+                v-if="desktopBackendState === 'error'"
+                size="sm"
+                @click="restartDesktopBackend">
+                重试启动
+              </OButton>
+              <OButton
+                v-if="desktopBackendState === 'error'"
+                variant="secondary"
+                size="sm"
+                @click="openSettings">
+                打开设置
+              </OButton>
+              <div
+                v-else
+                class="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-600">
+                <span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span>
+                等待 Python 服务就绪
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
     </div>
   </OConfigProvider>
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

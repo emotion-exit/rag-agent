@@ -33,6 +33,8 @@ interface DesktopAppConfig {
 interface DesktopBackendStatus {
   ready: boolean;
   apiBase: string;
+  state?: 'idle' | 'starting' | 'ready' | 'error';
+  errorMessage?: string;
 }
 
 interface DesktopAppBridge {
@@ -43,6 +45,9 @@ interface DesktopAppBridge {
   saveConfig: (config: DesktopAppConfig) => Promise<DesktopAppConfig>;
   getBackendStatus: () => Promise<DesktopBackendStatus>;
   restartBackend: () => Promise<DesktopBackendStatus>;
+  onBackendStatusChange: (
+    listener: (status: DesktopBackendStatus) => void
+  ) => () => void;
   pickDirectory: (currentPath?: string) => Promise<string | null>;
   openDataDirectory: () => Promise<void>;
 }

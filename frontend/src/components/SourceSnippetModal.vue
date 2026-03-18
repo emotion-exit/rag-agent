@@ -42,14 +42,16 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-const API_BASE = getApiBase();
-
 const excerpt = ref('');
 const loading = ref(false);
 const error = ref('');
 const images = ref<SourceImage[]>([]);
 const previewVisible = ref(false);
 const activeImageIndex = ref(0);
+
+function buildApiUrl(path: string) {
+  return `${getApiBase()}${path}`;
+}
 
 const flattenedImages = computed(() =>
   [...images.value].sort((left, right) => {
@@ -129,7 +131,9 @@ watch(
 
     try {
       const response = await fetch(
-        `${API_BASE}/api/chat/sources/${encodeURIComponent(docId)}/${chunkIndex}`,
+        buildApiUrl(
+          `/api/chat/sources/${encodeURIComponent(docId)}/${chunkIndex}`
+        ),
         {
           headers: buildPublicConfigHeaders()
         }

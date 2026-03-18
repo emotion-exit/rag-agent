@@ -76,7 +76,6 @@ interface DangerConfirmState {
   impactItems: string[];
 }
 
-const API_BASE = getApiBase();
 const KNOWLEDGE_BASE_TASK_STORAGE_KEY = 'knowledge-base-active-task';
 const CATEGORY_OPTIONS = [
   '制度规范',
@@ -136,6 +135,10 @@ const uploadForm = ref<UploadForm>({
   tags: '',
   version_label: ''
 });
+
+function buildApiUrl(path: string) {
+  return `${getApiBase()}${path}`;
+}
 
 function flattenSpaces(nodes: KnowledgeSpace[]): KnowledgeSpace[] {
   return nodes.flatMap((node) => [node, ...flattenSpaces(node.children || [])]);
@@ -568,13 +571,13 @@ async function refreshKnowledgeBase(preferredSpaceId = '') {
   loading.value = true;
   try {
     const [spacesRes, docsRes, statsRes] = await Promise.all([
-      fetch(`${API_BASE}/api/knowledge-base/spaces`, {
+      fetch(buildApiUrl('/api/knowledge-base/spaces'), {
         headers: buildPublicConfigHeaders()
       }),
-      fetch(`${API_BASE}/api/knowledge-base/documents`, {
+      fetch(buildApiUrl('/api/knowledge-base/documents'), {
         headers: buildPublicConfigHeaders()
       }),
-      fetch(`${API_BASE}/api/knowledge-base/stats`, {
+      fetch(buildApiUrl('/api/knowledge-base/stats'), {
         headers: buildPublicConfigHeaders()
       })
     ]);
@@ -703,7 +706,9 @@ async function deleteSelectedSpace() {
   try {
     const fallbackParentId = String(targetSpace?.parent_id || '').trim();
     let response = await fetch(
-      `${API_BASE}/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}`,
+      buildApiUrl(
+        `/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}`
+      ),
       {
         method: 'DELETE',
         headers: buildPublicConfigHeaders()
@@ -711,7 +716,9 @@ async function deleteSelectedSpace() {
     );
     if (response.status === 404 || response.status === 405) {
       response = await fetch(
-        `${API_BASE}/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}/delete`,
+        buildApiUrl(
+          `/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}/delete`
+        ),
         {
           method: 'POST',
           headers: buildPublicConfigHeaders()
@@ -746,7 +753,7 @@ async function createSpace(payload: KnowledgeSpaceCreateForm) {
 
   creatingSpace.value = true;
   try {
-    const response = await fetch(`${API_BASE}/api/knowledge-base/spaces`, {
+    const response = await fetch(buildApiUrl('/api/knowledge-base/spaces'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -838,9 +845,12 @@ function closeTaskProgressModal() {
 }
 
 async function fetchKnowledgeBaseJob(jobId: string) {
-  const response = await fetch(`${API_BASE}/api/knowledge-base/jobs/${jobId}`, {
-    headers: buildPublicConfigHeaders()
-  });
+  const response = await fetch(
+    buildApiUrl(`/api/knowledge-base/jobs/${jobId}`),
+    {
+      headers: buildPublicConfigHeaders()
+    }
+  );
   const data = (await parseApiResponse(response)) as KnowledgeBaseJobStatus;
   if (!response.ok) {
     throw new Error(extractApiErrorMessage(data, response.status));
@@ -922,11 +932,14 @@ async function handleUploadSubmit(payload: UploadSubmitPayload) {
     formData.append('tags', payload.tags.trim());
     formData.append('version_label', payload.version_label.trim());
 
-    const response = await fetch(`${API_BASE}/api/knowledge-base/upload-jobs`, {
-      method: 'POST',
-      headers: buildPublicConfigHeaders(),
-      body: formData
-    });
+    const response = await fetch(
+      buildApiUrl('/api/knowledge-base/upload-jobs'),
+      {
+        method: 'POST',
+        headers: buildPublicConfigHeaders(),
+        body: formData
+      }
+    );
     const data = (await parseApiResponse(
       response
     )) as KnowledgeBaseJobCreatedResponsePayload;
@@ -966,7 +979,7 @@ async function handleUngroupedMigration(targetSpaceId: string) {
   migratingUngrouped.value = true;
   try {
     const response = await fetch(
-      `${API_BASE}/api/knowledge-base/documents/migrate-ungrouped/jobs`,
+      buildApiUrl('/api/knowledge-base/documents/migrate-ungrouped/jobs'),
       {
         method: 'POST',
         headers: {
@@ -1016,7 +1029,7 @@ async function deleteDocument(doc: DocumentInfo) {
   deletingDocumentId.value = doc.doc_id;
   try {
     const response = await fetch(
-      `${API_BASE}/api/knowledge-base/documents/${doc.doc_id}`,
+      buildApiUrl(`/api/knowledge-base/documents/${doc.doc_id}`),
       {
         method: 'DELETE',
         headers: buildPublicConfigHeaders()

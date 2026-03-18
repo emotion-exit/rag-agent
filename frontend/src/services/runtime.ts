@@ -43,6 +43,28 @@ const DESKTOP_REQUIRED_CONFIG_FIELDS = [
 const FALLBACK_API_BASE =
   import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
+let desktopApiBase = window.desktopApp?.apiBase || FALLBACK_API_BASE;
+let desktopBackendStatusSubscribed = false;
+
+function ensureDesktopBackendStatusSubscription() {
+  if (
+    desktopBackendStatusSubscribed ||
+    !window.desktopApp?.onBackendStatusChange
+  ) {
+    return;
+  }
+
+  window.desktopApp.onBackendStatusChange((status) => {
+    const nextApiBase = String(status?.apiBase || '').trim();
+    if (nextApiBase) {
+      desktopApiBase = nextApiBase;
+    }
+  });
+  desktopBackendStatusSubscribed = true;
+}
+
+ensureDesktopBackendStatusSubscription();
+
 export const DEFAULT_DESKTOP_CONFIG: DesktopAppConfig = {
   EMBEDDING_API_KEY: '',
   EMBEDDING_BASE_URL: '',
@@ -78,7 +100,8 @@ export function isDesktopApp() {
 }
 
 export function getApiBase() {
-  return window.desktopApp?.apiBase || FALLBACK_API_BASE;
+  ensureDesktopBackendStatusSubscription();
+  return isDesktopApp() ? desktopApiBase : FALLBACK_API_BASE;
 }
 
 export function cloneDefaultDesktopConfig(): DesktopAppConfig {

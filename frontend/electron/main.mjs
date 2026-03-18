@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,9 +16,9 @@ import {
 } from 'electron';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const API_HOST = '127.0.0.1';
-const API_PORT = 8765;
-const API_BASE = `http://${API_HOST}:${API_PORT}`;
+const DEFAULT_API_HOST = '127.0.0.1';
+const DEFAULT_API_PORT = 8765;
+const MAX_PORT_SCAN_ATTEMPTS = 20;
 const isWindows = process.platform === 'win32';
 const allowedConfigKeys = [
   'EMBEDDING_API_KEY',
@@ -52,6 +53,74 @@ const allowedConfigKeys = [
 let mainWindow = null;
 let backendProcess = null;
 let backendReady = false;
+let backendState = 'idle';
+let backendErrorMessage = '';
+let backendStopExpected = false;
+let currentApiHost = DEFAULT_API_HOST;
+let currentApiPort = DEFAULT_API_PORT;
+
+function getApiBase() {
+  return `http://${currentApiHost}:${currentApiPort}`;
+}
+
+function emitBackendStatusChanged() {
+  mainWindow?.webContents.send(
+    'desktop:backend-status',
+    getBackendStatusSnapshot()
+  );
+}
+
+function getBackendStatusSnapshot() {
+  return {
+    ready: backendReady,
+    apiBase: getApiBase(),
+    state: backendState,
+    errorMessage: backendErrorMessage
+  };
+}
+
+function updateBackendStatus(nextState, nextErrorMessage = '') {
+  backendState = nextState;
+  backendErrorMessage = nextErrorMessage;
+  emitBackendStatusChanged();
+}
+
+async function findAvailablePort(host, preferredPort) {
+  const tryPort = (port) =>
+    new Promise((resolve, reject) => {
+      const server = net.createServer();
+
+      server.once('error', (error) => {
+        server.close();
+        reject(error);
+      });
+
+      server.once('listening', () => {
+        const address = server.address();
+        const resolvedPort =
+          address && typeof address === 'object' ? address.port : port;
+        server.close(() => resolve(resolvedPort));
+      });
+
+      server.listen(port, host);
+    });
+
+  for (let attempt = 0; attempt < MAX_PORT_SCAN_ATTEMPTS; attempt += 1) {
+    const candidatePort = preferredPort + attempt;
+
+    try {
+      return await tryPort(candidatePort);
+    } catch (error) {
+      if (error && typeof error === 'object' && error.code === 'EADDRINUSE') {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  return await tryPort(0);
+}
 
 function createApplicationMenu() {
   const template = [
@@ -305,8 +374,8 @@ function getBackendEnv(configPath) {
   return {
     ...process.env,
     APP_CONFIG_PATH: configPath,
-    BACKEND_HOST: API_HOST,
-    BACKEND_PORT: String(API_PORT)
+    BACKEND_HOST: currentApiHost,
+    BACKEND_PORT: String(currentApiPort)
   };
 }
 
@@ -343,7 +412,7 @@ async function waitForBackend(timeoutMs = 30000) {
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${API_BASE}/health`);
+      const response = await fetch(`${getApiBase()}/health`);
       if (response.ok) {
         return true;
       }
@@ -361,10 +430,12 @@ async function stopBackend() {
   if (!backendProcess?.pid) {
     backendProcess = null;
     backendReady = false;
+    updateBackendStatus('idle');
     return;
   }
 
   const pid = backendProcess.pid;
+  backendStopExpected = true;
   backendReady = false;
 
   if (isWindows) {
@@ -381,29 +452,49 @@ async function stopBackend() {
   }
 
   backendProcess = null;
+  updateBackendStatus('idle');
 }
 
 async function startBackend() {
   if (backendReady) {
-    return { ready: true, apiBase: API_BASE };
+    return getBackendStatusSnapshot();
   }
 
   await stopBackend();
+  currentApiPort = await findAvailablePort(currentApiHost, currentApiPort);
+  updateBackendStatus('starting');
 
   const configPath = await ensureDesktopConfig();
   backendProcess = spawnBackendProcess(configPath);
+  backendStopExpected = false;
 
   backendProcess.once('exit', () => {
+    if (backendStopExpected) {
+      backendStopExpected = false;
+      return;
+    }
+
+    const message = backendReady
+      ? '内置 Python 服务已退出，请在设置页重试。'
+      : '内置 Python 服务启动失败，请检查配置或端口占用。';
     backendReady = false;
     backendProcess = null;
+    updateBackendStatus('error', message);
   });
 
   try {
     await waitForBackend();
     backendReady = true;
-    return { ready: true, apiBase: API_BASE };
+    updateBackendStatus('ready');
+    return getBackendStatusSnapshot();
   } catch (error) {
     await stopBackend();
+    updateBackendStatus(
+      'error',
+      error instanceof Error
+        ? error.message
+        : '内置 Python 服务启动失败，请检查配置或端口占用。'
+    );
     throw error;
   }
 }
@@ -451,9 +542,11 @@ ipcMain.handle('desktop:save-config', async (_event, nextConfig) => {
   return saved;
 });
 ipcMain.handle('desktop:get-backend-status', async () => ({
-  ready: backendReady,
-  apiBase: API_BASE
+  ...getBackendStatusSnapshot()
 }));
+ipcMain.on('desktop:get-backend-status-sync', (event) => {
+  event.returnValue = getBackendStatusSnapshot();
+});
 ipcMain.handle('desktop:restart-backend', async () => restartBackend());
 ipcMain.handle('desktop:pick-directory', async (_event, currentPath) => {
   const result = await dialog.showOpenDialog({
@@ -484,8 +577,10 @@ app.whenReady().then(async () => {
       app.dock.setIcon(nativeImage.createFromPath(dockIconPath));
     }
 
-    await startBackend();
     await createMainWindow();
+    startBackend().catch(() => {
+      // Renderer polls backend status and will surface the failure state.
+    });
   } catch (error) {
     dialog.showErrorBox(
       'RAG.Agent 启动失败',
@@ -498,6 +593,12 @@ app.whenReady().then(async () => {
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createMainWindow();
+    }
+
+    if (!backendReady && backendState !== 'starting') {
+      startBackend().catch(() => {
+        // Renderer polls backend status and will surface the failure state.
+      });
     }
   });
 });
