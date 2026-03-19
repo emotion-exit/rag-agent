@@ -10,7 +10,6 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
-  Menu,
   nativeImage,
   shell
 } from 'electron';
@@ -120,16 +119,6 @@ async function findAvailablePort(host, preferredPort) {
   }
 
   return await tryPort(0);
-}
-
-function createApplicationMenu() {
-  const template = [
-    {
-      label: 'RAG.Agent'
-    }
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 function getMacDockIconPath() {
@@ -475,8 +464,8 @@ async function startBackend() {
     }
 
     const message = backendReady
-      ? '内置 Python 服务已退出，请在设置页重试。'
-      : '内置 Python 服务启动失败，请检查配置或端口占用。';
+      ? '服务已退出，请在设置页重试。'
+      : '服务启动失败，请检查配置或端口占用。';
     backendReady = false;
     backendProcess = null;
     updateBackendStatus('error', message);
@@ -493,7 +482,7 @@ async function startBackend() {
       'error',
       error instanceof Error
         ? error.message
-        : '内置 Python 服务启动失败，请检查配置或端口占用。'
+        : '服务启动失败，请检查配置或端口占用。'
     );
     throw error;
   }
@@ -570,8 +559,6 @@ ipcMain.handle('desktop:open-data-directory', async () => {
 
 app.whenReady().then(async () => {
   try {
-    createApplicationMenu();
-
     const dockIconPath = getMacDockIconPath();
     if (process.platform === 'darwin' && dockIconPath) {
       app.dock.setIcon(nativeImage.createFromPath(dockIconPath));

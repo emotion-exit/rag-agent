@@ -40,17 +40,17 @@ const desktopStartupTitle = computed(() => {
     return '本地服务启动失败';
   }
 
-  return '正在启动本地服务';
+  return '服务启动中';
 });
 const desktopStartupDescription = computed(() => {
   if (desktopBackendState.value === 'error') {
     return (
       desktopBackendError.value ||
-      '内置 Python 服务没有正常启动，请检查模型配置或端口占用。'
+      '内置服务没有正常启动，请检查模型配置或端口占用。'
     );
   }
 
-  return '应用界面已打开，正在等待内置 Python 服务完成启动。';
+  return '应用界面已打开，正在等待服务完成启动。';
 });
 
 async function refreshDesktopBackendStatus() {
@@ -234,7 +234,7 @@ const appTheme = {
                 v-else
                 class="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-600">
                 <span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span>
-                等待 Python 服务就绪
+                服务启动中
               </div>
             </div>
           </div>
