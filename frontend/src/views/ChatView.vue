@@ -8,11 +8,11 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   SendOutlined,
   ClearOutlined,
-  RobotOutlined,
   VerticalAlignBottomOutlined
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
 import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
+import appLogo from '@/assets/logo.png';
 import { OButton, OCard, OTextarea, OEmptyState } from '@/orange-ui';
 import type {
   ClarificationOption,
@@ -438,9 +438,16 @@ function handleKeyDown(e: KeyboardEvent) {
         class="flex flex-1 items-center justify-center">
         <OEmptyState
           title="有什么我可以帮您的？"
-          description="基于您的私有知识库直接作答；范围不明确时会先向您确认。">
+          description="基于您的私有知识库直接作答；范围不明确时会先向您确认。"
+          icon-class="bg-transparent p-0 shadow-none">
           <template #icon>
-            <RobotOutlined />
+            <div
+              class="flex h-20 w-20 items-center justify-center rounded-3xl border border-white/70 bg-white/90 shadow-[0_16px_40px_rgba(24,24,27,0.12)] backdrop-blur-sm max-sm:h-16 max-sm:w-16 max-sm:rounded-2xl">
+              <img
+                :src="appLogo"
+                alt="RAG Agent logo"
+                class="h-11 w-11 object-contain max-sm:h-9 max-sm:w-9" />
+            </div>
           </template>
           <div class="grid w-full gap-3">
             <OCard

@@ -50,7 +50,7 @@ const desktopStartupDescription = computed(() => {
     );
   }
 
-  return '应用界面已打开，正在等待服务完成启动。';
+  return '正在等待服务完成启动。';
 });
 
 async function refreshDesktopBackendStatus() {
@@ -234,7 +234,7 @@ const appTheme = {
                 v-else
                 class="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-600">
                 <span class="h-1.5 w-1.5 rounded-full bg-zinc-500"></span>
-                服务启动中
+                请稍候
               </div>
             </div>
           </div>

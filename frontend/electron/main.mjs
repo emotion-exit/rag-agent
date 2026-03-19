@@ -504,6 +504,7 @@ async function createMainWindow() {
     backgroundColor: '#ffffff',
     show: false,
     title: 'RAG.Agent',
+    autoHideMenuBar: true,
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.mjs'),
@@ -512,6 +513,9 @@ async function createMainWindow() {
       sandbox: false
     }
   });
+
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.removeMenu();
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
