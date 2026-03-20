@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_API_HOST = '127.0.0.1';
 const DEFAULT_API_PORT = 8765;
 const MAX_PORT_SCAN_ATTEMPTS = 20;
+const DESKTOP_USER_DATA_DIRNAME = 'RAG.Agent';
+const LEGACY_CONFIG_DIR_NAMES = [
+  'frontend',
+  'Electron',
+  'rag-agent',
+  'rag-agent-frontend'
+];
 const isWindows = process.platform === 'win32';
 const allowedConfigKeys = [
   'EMBEDDING_API_KEY',
@@ -139,7 +146,19 @@ function getDesktopIconPath() {
 }
 
 function getConfigPath() {
-  return join(app.getPath('userData'), 'config.json');
+  return join(getDesktopUserDataPath(), 'config.json');
+}
+
+function getDesktopUserDataPath() {
+  return join(app.getPath('appData'), DESKTOP_USER_DATA_DIRNAME);
+}
+
+function getLegacyConfigPaths(configPath) {
+  const appDataPath = app.getPath('appData');
+
+  return LEGACY_CONFIG_DIR_NAMES.map((dirName) =>
+    join(appDataPath, dirName, 'config.json')
+  ).filter((candidatePath) => candidatePath !== configPath);
 }
 
 function createDefaultConfig() {
@@ -157,10 +176,10 @@ function createDefaultConfig() {
     RERANKER_BASE_URL: '',
     RERANKER_MODEL: '',
     RERANKER_REQUEST_TIMEOUT: 20,
-    RETRIEVAL_CANDIDATE_LIMIT: 18,
-    RETRIEVAL_FINAL_CONTEXT_LIMIT: 5,
-    RETRIEVAL_SOURCE_LIMIT: 5,
-    RETRIEVAL_QUERY_EXPANSION_COUNT: 3,
+    RETRIEVAL_CANDIDATE_LIMIT: 12,
+    RETRIEVAL_FINAL_CONTEXT_LIMIT: 3,
+    RETRIEVAL_SOURCE_LIMIT: 3,
+    RETRIEVAL_QUERY_EXPANSION_COUNT: 2,
     CHAT_API_KEY: '',
     CHAT_BASE_URL: '',
     CHAT_MODEL: '',
@@ -215,6 +234,13 @@ async function ensureDesktopConfig() {
   await mkdir(dirname(configPath), { recursive: true });
 
   if (!existsSync(configPath)) {
+    const migrated = await migrateLegacyDesktopConfig(configPath);
+    if (migrated) {
+      return configPath;
+    }
+  }
+
+  if (!existsSync(configPath)) {
     await writeFile(
       configPath,
       `${JSON.stringify(createDefaultConfig(), null, 2)}\n`,
@@ -223,6 +249,51 @@ async function ensureDesktopConfig() {
   }
 
   return configPath;
+}
+
+async function migrateLegacyDesktopConfig(configPath) {
+  const candidates = await Promise.all(
+    getLegacyConfigPaths(configPath).map(async (candidatePath) => {
+      if (!existsSync(candidatePath)) {
+        return null;
+      }
+
+      try {
+        const fileStat = await stat(candidatePath);
+        return {
+          path: candidatePath,
+          mtimeMs: fileStat.mtimeMs
+        };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  const newestCandidate = candidates
+    .filter(Boolean)
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)[0];
+
+  if (!newestCandidate) {
+    return false;
+  }
+
+  try {
+    const content = await readFile(newestCandidate.path, 'utf-8');
+    const parsed = JSON.parse(content);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return false;
+    }
+
+    await writeFile(
+      configPath,
+      `${JSON.stringify(parsed, null, 2)}\n`,
+      'utf-8'
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readDesktopConfig() {
@@ -558,7 +629,7 @@ ipcMain.handle('desktop:pick-directory', async (_event, currentPath) => {
 });
 ipcMain.handle('desktop:open-data-directory', async () => {
   await ensureDesktopConfig();
-  await shell.openPath(app.getPath('userData'));
+  await shell.openPath(getDesktopUserDataPath());
 });
 
 app.whenReady().then(async () => {

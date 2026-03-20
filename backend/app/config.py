@@ -80,7 +80,7 @@ class Settings(BaseModel):
     reranker_base_url: str = Field(default="", alias="RERANKER_BASE_URL")
     reranker_model: str = Field(default="", alias="RERANKER_MODEL")
     reranker_request_timeout: float = Field(default=20.0, alias="RERANKER_REQUEST_TIMEOUT")
-    retrieval_candidate_limit: int = Field(default=10, alias="RETRIEVAL_CANDIDATE_LIMIT")
+    retrieval_candidate_limit: int = Field(default=12, alias="RETRIEVAL_CANDIDATE_LIMIT")
     retrieval_final_context_limit: int = Field(default=3, alias="RETRIEVAL_FINAL_CONTEXT_LIMIT")
     retrieval_source_limit: int = Field(default=3, alias="RETRIEVAL_SOURCE_LIMIT")
     retrieval_query_expansion_count: int = Field(default=2, alias="RETRIEVAL_QUERY_EXPANSION_COUNT")
