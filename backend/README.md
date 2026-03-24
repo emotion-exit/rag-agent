@@ -2,6 +2,14 @@
 
 FastAPI backend for the RAG Agent system.
 
+## Development Port
+
+- Default backend port: 8000
+- API docs: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
+
+When started by Electron in desktop development or packaged desktop mode, the backend also starts from port 8000 by default. If port 8000 is occupied, Electron will choose the next available port and pass it through `BACKEND_PORT`.
+
 ## 图片处理
 
 - 当前上传 `.docx` 或 `.pdf` 时，会提取内嵌图片并保存到本地资源目录。
@@ -17,6 +25,12 @@ FastAPI backend for the RAG Agent system.
 
 ## Knowledge Base Tasks
 
-- 知识库上传和未归类迁移会以后台任务形式执行。
+- 知识库上传会以后台任务形式执行。
 - `KNOWLEDGE_BASE_JOB_RETENTION_HOURS` 用于控制已完成/失败任务在内存中保留多久，默认 `2` 小时。
 - `KNOWLEDGE_BASE_JOB_HISTORY_LIMIT` 用于控制最多保留多少条任务快照，默认 `200`。
+
+## Knowledge Base Model
+
+- 当前知识库为扁平结构，不再维护父子层级。
+- 每个知识库只维护三类可编辑信息：名称、标签、说明。
+- 文档上传时只需要选择目标知识库，后端会把知识库名称和标签写入检索元数据。

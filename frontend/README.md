@@ -1,42 +1,45 @@
-# frontend
+# Frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3 + Vite frontend for RAG.Agent, with an Electron shell for desktop development and packaging.
 
-## Recommended IDE Setup
+## Ports
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Web frontend dev server: http://localhost:5173
+- Web backend API target: http://localhost:8000
+- Desktop dev frontend: http://localhost:5173
+- Desktop embedded backend: starts from http://127.0.0.1:8000
 
-## Recommended Browser Setup
+In web development, Vite proxies `/api` to port 8000.
+In desktop development, Electron launches the backend and passes `BACKEND_PORT=8000` by default. If 8000 is occupied, it probes upward for the next available port.
 
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
+## Knowledge Base UI
 
-## Type Support for `.vue` Imports in TS
+- 当前前端知识库页采用扁平列表，不再展示树形层级。
+- 每个知识库只维护名称、标签、说明。
+- 上传文档时只需要选择一个知识库并补充附加标签。
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## Development
 
 ```sh
-npm install
+pnpm install
+pnpm dev
 ```
 
-### Compile and Hot-Reload for Development
+## Desktop Development
 
 ```sh
-npm run dev
+pnpm install
+pnpm desktop:dev
 ```
 
-### Type-Check, Compile and Minify for Production
+## Build
 
 ```sh
-npm run build
+pnpm build
+```
+
+## Desktop Package
+
+```sh
+pnpm desktop:build
 ```

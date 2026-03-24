@@ -10,7 +10,7 @@ import {
 import { cn } from '@/utils/cn';
 
 export interface ClarificationOption {
-  field: 'knowledge_space' | 'category';
+  field: 'knowledge_space';
   value: string;
   label: string;
 }
@@ -21,10 +21,7 @@ export interface SourceSummary {
   filename: string;
   chunk_index: number;
   knowledge_space: string;
-  category: string;
-  topic: string;
   tags: string;
-  version_label: string;
   source_type: string;
   source_label: string;
   source_page: number;
@@ -41,6 +38,7 @@ export interface Message {
   status?: 'loading' | 'done' | 'error';
   progressText?: string;
   progressSteps?: string[];
+  progressQueryVariants?: string[];
   timestamp?: Date;
   sources?: SourceSummary[];
   queryText?: string;
@@ -76,6 +74,9 @@ const assistantThought = computed(
   () => props.message.thoughtContent?.trim() || ''
 );
 const progressSteps = computed(() => props.message.progressSteps || []);
+const progressQueryVariants = computed(
+  () => props.message.progressQueryVariants || []
+);
 const hasAnswerSection = computed(
   () => props.message.role === 'assistant' && assistantAnswer.value.length > 0
 );
@@ -83,7 +84,9 @@ const hasThoughtSection = computed(
   () => props.message.role === 'assistant' && assistantThought.value.length > 0
 );
 const hasProgressSection = computed(
-  () => props.message.role === 'assistant' && progressSteps.value.length > 0
+  () =>
+    props.message.role === 'assistant' &&
+    (progressSteps.value.length > 0 || progressQueryVariants.value.length > 1)
 );
 const isNoResult = computed(
   () =>
@@ -127,6 +130,20 @@ const renderedThought = computed(() => {
 });
 
 const thoughtExpanded = ref(false);
+const progressExpanded = ref(true);
+
+const originalQueryVariant = computed(
+  () => progressQueryVariants.value[0]?.trim() || ''
+);
+const expandedQueryVariants = computed(() =>
+  progressQueryVariants.value
+    .slice(1)
+    .map((item) => item.trim())
+    .filter(Boolean)
+);
+const progressExpansionStepIndex = computed(() =>
+  progressSteps.value.findIndex((step) => /扩展|扩写/.test(step))
+);
 
 const formattedTime = computed(() => {
   const ts = props.message.timestamp;
@@ -143,7 +160,7 @@ function selectSource(source: SourceSummary) {
 }
 
 function buildSourceMeta(source: SourceSummary) {
-  const parts = [source.source_label, source.version_label, source.category]
+  const parts = [source.source_label, source.knowledge_space, source.tags]
     .map((item) => String(item || '').trim())
     .filter(Boolean);
   return parts.join(' · ');
@@ -156,6 +173,10 @@ function buildSourceSummary(source: SourceSummary) {
 function toggleThought() {
   thoughtExpanded.value = !thoughtExpanded.value;
 }
+
+function toggleProgress() {
+  progressExpanded.value = !progressExpanded.value;
+}
 </script>
 
 <template>
@@ -167,7 +188,9 @@ function toggleThought() {
     <div
       :class="
         cn(
-          'max-w-full',
+          'flex',
+          'flex-col',
+          'gap-3',
           isUser
             ? 'w-fit max-w-[min(78%,640px)] rounded-[24px_24px_8px_24px] bg-zinc-900 px-4 py-3.5 text-white shadow-[0_12px_32px_rgba(24,24,27,0.12)] max-sm:max-w-[88%]'
             : 'w-full max-w-[min(100%,760px)]',
@@ -194,38 +217,80 @@ function toggleThought() {
 
       <section
         v-if="!isUser && hasProgressSection"
-        class="mt-2 ml-2 rounded-2xl border border-black/5 bg-white/60 px-5 py-4 shadow-sm max-sm:ml-0">
-        <div class="mb-3 flex items-center gap-2">
-          <div class="text-xs font-bold uppercase tracking-wide text-zinc-500">
-            执行进度
-          </div>
-          <LoadingOutlined
-            v-if="isLoading && !hasAnswerSection"
-            class="text-xs text-zinc-400" />
-        </div>
-        <div class="flex flex-col gap-0">
-          <div
-            v-for="(step, index) in progressSteps"
-            :key="`${message.id}-progress-${index}`"
-            :class="[
-              'grid grid-cols-[20px_minmax(0,1fr)] items-start gap-2 text-[13px] transition-colors',
-              index === progressSteps.length - 1
-                ? 'font-medium text-zinc-800'
-                : 'text-zinc-500'
-            ]">
-            <div class="flex h-full flex-col items-center pt-[0.4rem]">
-              <span
-                :class="[
-                  'h-2 w-2 shrink-0 rounded-full transition-all',
-                  index === progressSteps.length - 1
-                    ? 'bg-zinc-700 shadow-[0_0_0_3px_rgba(24,24,27,0.1)]'
-                    : 'bg-zinc-300'
-                ]" />
-              <div
-                v-if="index !== progressSteps.length - 1"
-                class="my-1.5 min-h-[14px] w-[1.5px] flex-1 rounded-full bg-zinc-200"></div>
+        class="mt-2 ml-2 max-sm:ml-0">
+        <div
+          class="rounded-2xl border border-black/5 bg-white/60 px-5 py-4 shadow-sm transition-all duration-200 hover:bg-white/85 hover:shadow-md">
+          <button
+            type="button"
+            class="flex w-full items-center gap-3 text-left"
+            @click="toggleProgress">
+            <div
+              class="text-xs font-bold uppercase tracking-wide text-zinc-500">
+              执行进度
             </div>
-            <span class="block pb-2.5 leading-relaxed">{{ step }}</span>
+            <LoadingOutlined
+              v-if="isLoading && !hasAnswerSection"
+              class="text-xs text-zinc-400" />
+            <span class="ml-auto text-xs font-semibold text-zinc-500">
+              {{ progressExpanded ? '收起' : '展开' }}
+            </span>
+            <DownOutlined
+              :class="[
+                'text-xs transition-transform duration-200',
+                progressExpanded ? 'rotate-180' : ''
+              ]" />
+          </button>
+          <div v-if="progressExpanded" class="mt-4 flex flex-col gap-0">
+            <div
+              v-for="(step, index) in progressSteps"
+              :key="`${message.id}-progress-${index}`"
+              :class="[
+                'grid grid-cols-[20px_minmax(0,1fr)] items-start gap-2 text-[13px] transition-colors',
+                index === progressSteps.length - 1
+                  ? 'font-medium text-zinc-800'
+                  : 'text-zinc-500'
+              ]">
+              <div class="flex h-full flex-col items-center pt-[0.4rem]">
+                <span
+                  :class="[
+                    'h-2 w-2 shrink-0 rounded-full transition-all',
+                    index === progressSteps.length - 1
+                      ? 'bg-zinc-700 shadow-[0_0_0_3px_rgba(24,24,27,0.1)]'
+                      : 'bg-zinc-300'
+                  ]" />
+                <div
+                  v-if="index !== progressSteps.length - 1"
+                  class="my-1.5 min-h-3.5 w-[1.5px] flex-1 rounded-full bg-zinc-200"></div>
+              </div>
+              <div class="pb-2.5">
+                <span class="block leading-relaxed">{{ step }}</span>
+                <div
+                  v-if="
+                    index === progressExpansionStepIndex &&
+                    expandedQueryVariants.length > 0
+                  "
+                  class="mt-3 rounded-2xl border border-black/6 bg-zinc-50 px-4 py-3.5">
+                  <div class="text-[12px] font-semibold text-zinc-700">
+                    问题扩写
+                  </div>
+                  <div
+                    v-if="originalQueryVariant"
+                    class="mt-2 text-[12px] leading-6 text-zinc-500">
+                    原始问法：{{ originalQueryVariant }}
+                  </div>
+                  <ul class="mt-2 space-y-2 text-[13px] text-zinc-700">
+                    <li
+                      v-for="(variant, variantIndex) in expandedQueryVariants"
+                      :key="`${message.id}-variant-${variantIndex}`"
+                      class="flex gap-2">
+                      <span
+                        class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400"></span>
+                      <span class="leading-6">{{ variant }}</span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

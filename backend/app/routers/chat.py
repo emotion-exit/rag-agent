@@ -670,6 +670,18 @@ async def _stream_agent_response(
             yield f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n"
             return
 
+        query_variants = [
+            str(item or "").strip()
+            for item in retrieval_trace.get("query_variants", [])
+            if str(item or "").strip()
+        ]
+        if query_variants:
+            yield (
+                "data: "
+                f"{json.dumps({'type': 'retrieval_meta', 'content': '', 'query_variants': query_variants}, ensure_ascii=False)}"
+                "\n\n"
+            )
+
         for step in build_retrieval_progress_steps(retrieval_trace):
             yield (
                 "data: "

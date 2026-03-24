@@ -11,10 +11,7 @@ interface SourceSummary {
   filename: string;
   chunk_index: number;
   knowledge_space: string;
-  category: string;
-  topic: string;
   tags: string;
-  version_label: string;
   source_type: string;
   source_label: string;
   source_page: number;
@@ -99,11 +96,8 @@ const sourceMetaLines = computed(() => {
     },
     { label: '章节路径', value: props.source.heading_path || '' },
     { label: '章节标题', value: props.source.section_title || '' },
-    { label: '知识空间', value: props.source.knowledge_space },
-    { label: '分类', value: props.source.category },
-    { label: '主题', value: props.source.topic },
-    { label: '标签', value: props.source.tags },
-    { label: '版本/时效', value: props.source.version_label }
+    { label: '知识库', value: props.source.knowledge_space },
+    { label: '标签', value: props.source.tags }
   ].filter((item) => item.value?.trim());
 });
 
@@ -249,20 +243,85 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const QUERY_STOPWORDS = new Set([
+  '请问',
+  '一下',
+  '一下子',
+  '这个',
+  '那个',
+  '怎么',
+  '如何',
+  '多少',
+  '什么',
+  '哪些',
+  '是否',
+  '可以',
+  '需要',
+  '帮我',
+  '告诉我',
+  '有没有',
+  '吗',
+  '呢',
+  '呀',
+  '啊',
+  '吧',
+  '的',
+  '了',
+  '和',
+  '与',
+  '及',
+  '或',
+  '并',
+  '在',
+  '是'
+]);
+
+function normalizeQueryText(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function splitChineseToken(token: string) {
+  let parts = [token];
+
+  for (const stopword of QUERY_STOPWORDS) {
+    if (!/[\u4e00-\u9fff]/.test(stopword)) continue;
+
+    parts = parts.flatMap((part) =>
+      part.split(stopword).map((item) => item.trim())
+    );
+  }
+
+  return parts.filter((part) => part.length >= 2);
+}
+
 function extractKeywords(query: string) {
-  const matches = query.match(/[\u4e00-\u9fff]{2,}|[A-Za-z0-9_-]{2,}/g) || [];
+  const normalizedQuery = normalizeQueryText(query);
+  const matches =
+    normalizedQuery.match(/[\u4e00-\u9fff]{2,}|[a-z0-9_-]{2,}/g) || [];
   const terms: string[] = [];
 
   for (const match of matches) {
     const token = match.trim();
-    if (!token) continue;
+    if (!token || QUERY_STOPWORDS.has(token)) continue;
 
     terms.push(token);
 
     if (/^[\u4e00-\u9fff]+$/.test(token)) {
-      for (let size = 2; size <= Math.min(token.length, 4); size += 1) {
-        for (let start = 0; start <= token.length - size; start += 1) {
-          terms.push(token.slice(start, start + size));
+      const splitTerms = splitChineseToken(token);
+      terms.push(...splitTerms);
+
+      for (const splitTerm of splitTerms) {
+        if (splitTerm.length < 3) continue;
+
+        for (let size = Math.min(splitTerm.length, 4); size >= 2; size -= 1) {
+          for (let start = 0; start <= splitTerm.length - size; start += 1) {
+            const piece = splitTerm.slice(start, start + size);
+            if (!QUERY_STOPWORDS.has(piece)) {
+              terms.push(piece);
+            }
+          }
         }
       }
     }
@@ -273,15 +332,93 @@ function extractKeywords(query: string) {
   );
 }
 
-function highlightKeywords(text: string, keywords: string[]) {
-  let html = escapeHtml(text);
+function buildHighlightRanges(text: string, keywords: string[]) {
+  const ranges: Array<{ start: number; end: number }> = [];
 
   for (const keyword of keywords) {
-    const pattern = new RegExp(`(${escapeRegExp(escapeHtml(keyword))})`, 'gi');
-    html = html.replace(pattern, '<mark class="keyword-hit">$1</mark>');
+    const trimmedKeyword = keyword.trim();
+    if (trimmedKeyword.length < 2) continue;
+
+    const pattern = new RegExp(escapeRegExp(trimmedKeyword), 'gi');
+    let match: RegExpExecArray | null = null;
+
+    while ((match = pattern.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (start === end) break;
+
+      ranges.push({ start, end });
+
+      if (pattern.lastIndex === start) {
+        pattern.lastIndex += 1;
+      }
+    }
   }
 
-  return html.replace(/\n/g, '<br>').replace(/keyword-hit/g, 'o-keyword-hit');
+  ranges.sort((left, right) => {
+    if (left.start !== right.start) return left.start - right.start;
+    return right.end - left.end;
+  });
+
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push(range);
+      continue;
+    }
+
+    if (range.start < previous.end) {
+      continue;
+    }
+
+    merged.push(range);
+  }
+
+  return merged;
+}
+
+function highlightKeywords(text: string, keywords: string[]) {
+  if (!text) return '';
+
+  const matchedKeywords = keywords.filter((keyword, index) => {
+    const trimmedKeyword = keyword.trim();
+    if (trimmedKeyword.length < 2) return false;
+
+    const normalizedText = text.toLowerCase();
+    if (!normalizedText.includes(trimmedKeyword.toLowerCase())) {
+      return false;
+    }
+
+    return !keywords
+      .slice(0, index)
+      .some((existing) => existing.includes(trimmedKeyword));
+  });
+
+  const ranges = buildHighlightRanges(text, matchedKeywords);
+  if (ranges.length === 0) {
+    return escapeHtml(text).replace(/\n/g, '<br>');
+  }
+
+  let cursor = 0;
+  let html = '';
+
+  for (const range of ranges) {
+    if (cursor < range.start) {
+      html += escapeHtml(text.slice(cursor, range.start));
+    }
+
+    html += `<mark class="o-keyword-hit">${escapeHtml(
+      text.slice(range.start, range.end)
+    )}</mark>`;
+    cursor = range.end;
+  }
+
+  if (cursor < text.length) {
+    html += escapeHtml(text.slice(cursor));
+  }
+
+  return html.replace(/\n/g, '<br>');
 }
 </script>
 

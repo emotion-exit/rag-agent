@@ -16,7 +16,7 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_API_HOST = '127.0.0.1';
-const DEFAULT_API_PORT = 8765;
+const DEFAULT_API_PORT = 8000;
 const MAX_PORT_SCAN_ATTEMPTS = 20;
 const DESKTOP_USER_DATA_DIRNAME = 'RAG.Agent';
 const LEGACY_CONFIG_DIR_NAMES = [

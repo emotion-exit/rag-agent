@@ -39,7 +39,7 @@ def _split_tags(value: str | None) -> list[str]:
     if not raw_value:
         return []
 
-    parts = []
+    parts: list[str] = []
     seen: set[str] = set()
     for item in raw_value.replace("、", ",").replace("，", ",").split(","):
         normalized = item.strip()
@@ -54,51 +54,31 @@ def _join_tags(values: list[str]) -> str:
     return ",".join(values)
 
 
-def _build_space_path(space_id: str, lookup: dict[str, dict]) -> str:
-    current = lookup.get(space_id)
-    segments: list[str] = []
+def _normalize_space_record(item: dict) -> dict:
+    name = _normalize_text(item.get("name"))
+    created_at = _normalize_text(item.get("created_at"))
+    updated_at = _normalize_text(item.get("updated_at")) or created_at
 
-    while current:
-      segments.append(str(current.get("name", "")).strip())
-      parent_id = str(current.get("parent_id", "")).strip()
-      current = lookup.get(parent_id) if parent_id else None
-
-    return " / ".join(reversed([segment for segment in segments if segment]))
+    return {
+        "space_id": _normalize_text(item.get("space_id")),
+        "name": name,
+        "tags": _join_tags(_split_tags(item.get("tags"))),
+        "description": _normalize_text(item.get("description")),
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
 
 
 def list_knowledge_spaces() -> list[dict]:
-    raw_spaces = _load_raw_spaces()
-    lookup = {
-        str(item.get("space_id", "")).strip(): item
-        for item in raw_spaces
-        if str(item.get("space_id", "")).strip()
-    }
-
     spaces: list[dict] = []
-    for item in raw_spaces:
-        space_id = str(item.get("space_id", "")).strip()
-        if not space_id:
+
+    for item in _load_raw_spaces():
+        normalized = _normalize_space_record(item)
+        if not normalized["space_id"] or not normalized["name"]:
             continue
+        spaces.append(normalized)
 
-        parent_id = str(item.get("parent_id", "")).strip()
-        path = _build_space_path(space_id, lookup)
-        spaces.append(
-            {
-                "space_id": space_id,
-                "name": _normalize_text(item.get("name")),
-                "parent_id": parent_id,
-                "category": _normalize_text(item.get("category")),
-                "topic": _normalize_text(item.get("topic")),
-                "tags": _normalize_text(item.get("tags")),
-                "version_label": _normalize_text(item.get("version_label")),
-                "description": _normalize_text(item.get("description")),
-                "created_at": _normalize_text(item.get("created_at")),
-                "path": path,
-                "depth": path.count(" / "),
-            }
-        )
-
-    return sorted(spaces, key=lambda item: (item["path"], item["created_at"], item["space_id"]))
+    return sorted(spaces, key=lambda item: (item["name"], item["created_at"], item["space_id"]))
 
 
 def get_knowledge_space(space_id: str) -> dict | None:
@@ -113,105 +93,92 @@ def get_knowledge_space(space_id: str) -> dict | None:
     return None
 
 
-def create_knowledge_space(
-    *,
-    name: str,
-    parent_id: str = "",
-    category: str = "",
-    topic: str = "",
-    tags: str = "",
-    version_label: str = "",
-    description: str = "",
-) -> dict:
+def create_knowledge_space(*, name: str, tags: str = "", description: str = "") -> dict:
     normalized_name = _normalize_text(name)
-    normalized_parent_id = _normalize_text(parent_id)
-    normalized_category = _normalize_text(category)
-    normalized_topic = _normalize_text(topic)
     normalized_tags = _join_tags(_split_tags(tags))
-    normalized_version_label = _normalize_text(version_label)
     normalized_description = _normalize_text(description)
 
     if not normalized_name:
-        raise ValueError("知识空间名称不能为空")
+        raise ValueError("知识库名称不能为空")
 
     raw_spaces = _load_raw_spaces()
-    if normalized_parent_id and not any(
-        _normalize_text(item.get("space_id")) == normalized_parent_id
-        for item in raw_spaces
-    ):
-        raise ValueError("父级知识空间不存在")
+    if any(_normalize_text(item.get("name")) == normalized_name for item in raw_spaces):
+        raise ValueError("已存在同名知识库")
 
-    for item in raw_spaces:
-        sibling_parent_id = _normalize_text(item.get("parent_id"))
-        sibling_name = _normalize_text(item.get("name"))
-        if sibling_parent_id == normalized_parent_id and sibling_name == normalized_name:
-            raise ValueError("同一级下已存在同名知识空间")
-
+    now = datetime.now(timezone.utc).isoformat()
     space_id = str(uuid.uuid4())
     raw_spaces.append(
         {
             "space_id": space_id,
             "name": normalized_name,
-            "parent_id": normalized_parent_id,
-            "category": normalized_category,
-            "topic": normalized_topic,
             "tags": normalized_tags,
-            "version_label": normalized_version_label,
             "description": normalized_description,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": now,
+            "updated_at": now,
         }
     )
     _save_raw_spaces(raw_spaces)
 
     created_space = get_knowledge_space(space_id)
     if created_space is None:
-        raise ValueError("知识空间创建失败")
+        raise ValueError("知识库创建失败")
 
     return created_space
+
+
+def update_knowledge_space(*, space_id: str, name: str, tags: str = "", description: str = "") -> dict:
+    normalized_space_id = _normalize_text(space_id)
+    normalized_name = _normalize_text(name)
+    normalized_tags = _join_tags(_split_tags(tags))
+    normalized_description = _normalize_text(description)
+
+    if not normalized_space_id:
+        raise ValueError("知识库不存在")
+    if not normalized_name:
+        raise ValueError("知识库名称不能为空")
+
+    raw_spaces = _load_raw_spaces()
+    target_index = -1
+    for index, item in enumerate(raw_spaces):
+        item_space_id = _normalize_text(item.get("space_id"))
+        item_name = _normalize_text(item.get("name"))
+        if item_space_id == normalized_space_id:
+            target_index = index
+            continue
+        if item_name == normalized_name:
+            raise ValueError("已存在同名知识库")
+
+    if target_index < 0:
+        raise ValueError("知识库不存在")
+
+    raw_spaces[target_index] = {
+        **raw_spaces[target_index],
+        "name": normalized_name,
+        "tags": normalized_tags,
+        "description": normalized_description,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_raw_spaces(raw_spaces)
+
+    updated_space = get_knowledge_space(normalized_space_id)
+    if updated_space is None:
+        raise ValueError("知识库更新失败")
+
+    return updated_space
 
 
 def delete_knowledge_space(space_id: str) -> list[str]:
     normalized_space_id = _normalize_text(space_id)
     if not normalized_space_id:
-        raise ValueError("知识空间不存在")
+        raise ValueError("知识库不存在")
 
     raw_spaces = _load_raw_spaces()
-    existing_ids = {
-        _normalize_text(item.get("space_id"))
-        for item in raw_spaces
-        if _normalize_text(item.get("space_id"))
-    }
-    if normalized_space_id not in existing_ids:
-        raise ValueError("知识空间不存在")
-
-    children_by_parent: dict[str, list[str]] = {}
-    for item in raw_spaces:
-        item_space_id = _normalize_text(item.get("space_id"))
-        if not item_space_id:
-            continue
-
-        parent_id = _normalize_text(item.get("parent_id"))
-        if not parent_id:
-            continue
-
-        children_by_parent.setdefault(parent_id, []).append(item_space_id)
-
-    deleted_space_ids: list[str] = []
-    pending_ids = [normalized_space_id]
-
-    while pending_ids:
-        current_id = pending_ids.pop()
-        if current_id in deleted_space_ids:
-            continue
-
-        deleted_space_ids.append(current_id)
-        pending_ids.extend(children_by_parent.get(current_id, []))
-
     remaining_spaces = [
-        item
-        for item in raw_spaces
-        if _normalize_text(item.get("space_id")) not in deleted_space_ids
+        item for item in raw_spaces if _normalize_text(item.get("space_id")) != normalized_space_id
     ]
-    _save_raw_spaces(remaining_spaces)
 
-    return deleted_space_ids
+    if len(remaining_spaces) == len(raw_spaces):
+        raise ValueError("知识库不存在")
+
+    _save_raw_spaces(remaining_spaces)
+    return [normalized_space_id]

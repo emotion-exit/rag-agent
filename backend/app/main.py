@@ -7,7 +7,7 @@ import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import (
     _base_settings,
@@ -61,6 +61,19 @@ async def apply_public_frontend_config(request: Request, call_next):
     token = set_request_settings_overrides(parsed_config)
     try:
         response = await call_next(request)
+
+        if isinstance(response, StreamingResponse):
+            original_body_iterator = response.body_iterator
+
+            async def wrapped_body_iterator():
+                stream_token = set_request_settings_overrides(parsed_config)
+                try:
+                    async for chunk in original_body_iterator:
+                        yield chunk
+                finally:
+                    reset_request_settings_overrides(stream_token)
+
+            response.body_iterator = wrapped_body_iterator()
     finally:
         reset_request_settings_overrides(token)
 

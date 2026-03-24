@@ -11,7 +11,6 @@ import {
   OAlert,
   OCard,
   OFormItem,
-  OInput,
   OModal,
   OPanelRow,
   OTagInput
@@ -153,7 +152,7 @@ function handleDrop(event: DragEvent) {
 
 function submitUpload() {
   if (!props.selectedSpace) {
-    localWarning.value = '请先在页面中选择一个知识空间。';
+    localWarning.value = '请先在页面中选择一个知识库。';
     return;
   }
 
@@ -164,8 +163,7 @@ function submitUpload() {
 
   emit('submit', {
     files: [...selectedFiles.value],
-    tags: localForm.value.tags,
-    version_label: localForm.value.version_label
+    tags: localForm.value.tags
   });
 }
 </script>
@@ -176,8 +174,8 @@ function submitUpload() {
     title="上传文档"
     :subtitle="
       selectedSpace
-        ? `文档会归入：${selectedSpace.path}`
-        : '请选择知识空间后再打开上传弹窗。'
+        ? `文档会归入知识库：${selectedSpace.name}`
+        : '请选择知识库后再打开上传弹窗。'
     "
     :closable="!submitting"
     cancel-text="取消"
@@ -191,25 +189,18 @@ function submitUpload() {
     <div class="space-y-4.5">
       <OCard v-if="selectedSpace" padding="sm" tone="muted">
         <div class="text-sm font-semibold text-(--oui-color-heading)">
-          {{ selectedSpace.path }}
+          {{ selectedSpace.name }}
         </div>
         <div class="mt-1 text-xs leading-5 text-(--oui-color-text-muted)">
-          {{ selectedSpace.total_document_count }} 篇文档 ·
-          {{ selectedSpace.child_count }} 个子空间
+          {{ selectedSpace.document_count || 0 }} 篇文档
         </div>
       </OCard>
 
-      <div class="grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
+      <div class="grid grid-cols-1 gap-3.5">
         <OFormItem label="附加标签">
           <OTagInput
             v-model="localForm.tags"
             :disabled="submitting || !selectedSpace" />
-        </OFormItem>
-        <OFormItem label="文档版本">
-          <OInput
-            v-model="localForm.version_label"
-            :disabled="submitting || !selectedSpace"
-            placeholder="可选，留空则继承空间版本" />
         </OFormItem>
       </div>
 

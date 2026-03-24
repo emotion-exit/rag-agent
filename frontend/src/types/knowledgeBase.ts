@@ -4,31 +4,19 @@ export interface DocumentInfo {
   chunk_count: number;
   upload_time: string;
   knowledge_space: string;
-  category: string;
-  topic: string;
   tags: string;
-  version_label: string;
   image_count: number;
   space_id: string;
-  parent_space_id: string;
 }
 
 export interface KnowledgeSpace {
   space_id: string;
   name: string;
-  parent_id: string;
-  category: string;
-  topic: string;
   tags: string;
-  version_label: string;
   description: string;
   created_at: string;
-  path: string;
-  depth: number;
-  child_count: number;
-  direct_document_count: number;
-  total_document_count: number;
-  children?: KnowledgeSpace[];
+  updated_at: string;
+  document_count: number;
 }
 
 export interface Stats {
@@ -38,29 +26,25 @@ export interface Stats {
 
 export interface SpaceSummary {
   total_spaces: number;
+  total_documents: number;
   ungrouped_documents: number;
 }
 
 export interface KnowledgeSpaceCreateForm {
   name: string;
-  parent_id: string;
-  category: string;
-  topic: string;
   tags: string;
-  version_label: string;
   description: string;
 }
 
 export interface UploadForm {
   tags: string;
-  version_label: string;
 }
 
 export interface UploadSubmitPayload extends UploadForm {
   files: File[];
 }
 
-export type KnowledgeBaseJobType = 'upload' | 'migrate_ungrouped';
+export type KnowledgeBaseJobType = 'upload';
 
 export type KnowledgeBaseJobStatusValue =
   | 'queued'

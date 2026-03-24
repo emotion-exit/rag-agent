@@ -32,7 +32,7 @@ EVIDENCE_STRONG_DISTANCE_THRESHOLD = 0.38
 EVIDENCE_MAX_DISTANCE_THRESHOLD = 0.55
 EVIDENCE_MIN_COVERAGE = 0.5
 # 这些字段既用于元数据过滤，也用于给检索结果补充上下文头信息。
-QUERY_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
+QUERY_FILTER_FIELDS = ("knowledge_space",)
 # 中文问题里常见但没有判别力的停用词，避免它们干扰关键词匹配和本地 rerank。
 QUERY_STOPWORDS = {
     "请问",
@@ -50,7 +50,7 @@ QUERY_STOPWORDS = {
 }
 RERANK_MODE_MODEL = "model"
 RERANK_MODE_LOCAL = "local-fallback"
-ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space", "category", "topic", "version_label")
+ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space",)
 NO_KNOWLEDGE_BASE_ANSWER = "当前知识库中没有找到相关资料，无法回答您的问题。"
 NO_KNOWLEDGE_BASE_CONTEXT = "【知识库中未找到与该问题相关的内容。】"
 KNOWLEDGE_SPACE_RESOLVED = "resolved"
@@ -448,34 +448,32 @@ def _collect_knowledge_spaces() -> list[str]:
 
 
 def _collect_knowledge_space_records() -> list[dict[str, str]]:
-    """返回知识空间记录，便于做父子级范围推断。"""
+    """返回知识库记录，供检索范围提示使用。"""
     records: list[dict[str, str]] = []
-    seen_paths: set[str] = set()
+    seen_names: set[str] = set()
 
     try:
         for item in list_knowledge_spaces():
-            path = str(item.get("path", "") or "").strip()
-            if not path or path in seen_paths:
+            name = str(item.get("name", "") or "").strip()
+            if not name or name in seen_names:
                 continue
 
-            seen_paths.add(path)
+            seen_names.add(name)
             records.append(
                 {
                     "space_id": str(item.get("space_id", "") or "").strip(),
-                    "parent_id": str(item.get("parent_id", "") or "").strip(),
-                    "path": path,
-                    "name": str(item.get("name", "") or "").strip(),
+                    "name": name,
                 }
             )
     except Exception:
         records = []
 
     if records:
-        return sorted(records, key=lambda item: item["path"])
+        return sorted(records, key=lambda item: item["name"])
 
     return [
-        {"space_id": "", "parent_id": "", "path": path, "name": path.split(" / ")[-1]}
-        for path in _collect_knowledge_spaces()
+        {"space_id": "", "name": name}
+        for name in _collect_knowledge_spaces()
     ]
 
 
@@ -513,42 +511,16 @@ def _should_use_knowledge_space_llm(query: str, candidates: list[str]) -> bool:
 
 
 def _expand_knowledge_space_filter_values(knowledge_space: str) -> list[str]:
-    """把父级知识空间扩展为自身及全部子空间路径。"""
+    """扁平知识库下只保留当前知识库名本身。"""
     normalized = str(knowledge_space or "").strip()
     if not normalized:
         return []
-
-    matched = [normalized]
-    for item in _collect_knowledge_space_records():
-        path = str(item.get("path", "") or "").strip()
-        if not path or path == normalized:
-            continue
-        if path.startswith(f"{normalized} / "):
-            matched.append(path)
-
-    seen: set[str] = set()
-    expanded: list[str] = []
-    for item in matched:
-        if item in seen:
-            continue
-        seen.add(item)
-        expanded.append(item)
-
-    return expanded
+    return [normalized]
 
 
 def _expand_metadata_filters_for_hierarchy(metadata_filters: dict[str, Any]) -> dict[str, Any]:
-    """把知识空间过滤扩展到子空间。"""
-    expanded = dict(metadata_filters)
-    knowledge_space = str(metadata_filters.get("knowledge_space", "") or "").strip()
-    if not knowledge_space:
-        return expanded
-
-    expanded_values = _expand_knowledge_space_filter_values(knowledge_space)
-    if expanded_values:
-        expanded["knowledge_space"] = expanded_values if len(expanded_values) > 1 else expanded_values[0]
-
-    return expanded
+    """扁平知识库模型下无需做层级扩展。"""
+    return dict(metadata_filters)
 
 
 def _infer_metadata_filters(query: str) -> dict[str, str]:
@@ -798,10 +770,7 @@ def _format_context_header(metadata: dict) -> str:
     header_parts = []
     for label, key in (
         ("知识空间", "knowledge_space"),
-        ("分类", "category"),
-        ("主题", "topic"),
         ("标签", "tags"),
-        ("版本/时效", "version_label"),
     ):
         value = str(metadata.get(key, "")).strip()
         if value:
@@ -853,8 +822,6 @@ def _document_match_count(query_terms: list[str], doc: dict) -> int:
             str(doc.get("content", "") or ""),
             str(metadata.get("filename", "") or ""),
             str(metadata.get("knowledge_space", "") or ""),
-            str(metadata.get("category", "") or ""),
-            str(metadata.get("topic", "") or ""),
             str(metadata.get("tags", "") or ""),
             str(metadata.get("section_title", "") or ""),
             str(metadata.get("heading_path", "") or ""),
@@ -939,6 +906,7 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
     """根据检索 trace 生成用户可见的进度步骤。"""
     steps: list[str] = []
     query_variant_count = int(trace.get("query_variant_count", 1) or 1)
+    query_expansion_count = max(query_variant_count - 1, 0)
     knowledge_space_resolution = trace.get("knowledge_space_resolution", {}) or {}
     expanded_knowledge_space_count = int(trace.get("expanded_knowledge_space_count", 0) or 0)
 
@@ -959,8 +927,8 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
     else:
         steps.append("已完成问题理解，正在检索相关内容。")
 
-    if query_variant_count > 1:
-        steps.append(f"已将口语问题扩展为 {query_variant_count} 个相近检索问法。")
+    if query_expansion_count > 0:
+        steps.append(f"已生成 {query_expansion_count} 个扩写问法用于辅助检索。")
     if trace.get("query_variants_cache_hit"):
         steps.append("已复用当前会话中的问题扩写结果。")
     if trace.get("retrieval_cache_hit"):
@@ -1049,52 +1017,31 @@ def build_hitl_clarification(trace: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     metadata_filters = trace.get("metadata_filters", {}) or {}
-    if metadata_filters.get("knowledge_space") and metadata_filters.get("category"):
+    if metadata_filters.get("knowledge_space"):
         return None
 
     best_distance = min(float(doc.get("distance", 1.0)) for doc in documents)
     knowledge_space_options = _collect_hitl_options(documents, "knowledge_space")
-    category_options = _collect_hitl_options(documents, "category")
-
     missing_space_filter = not str(metadata_filters.get("knowledge_space", "")).strip()
-    missing_category_filter = not str(metadata_filters.get("category", "")).strip()
-
     ambiguous_space = missing_space_filter and len(knowledge_space_options) > 1
-    ambiguous_category = missing_category_filter and len(category_options) > 1
 
-    if not ambiguous_space and not ambiguous_category:
+    if not ambiguous_space:
         return None
 
-    if best_distance <= HITL_DISTANCE_THRESHOLD and not (ambiguous_space and ambiguous_category):
+    if best_distance <= HITL_DISTANCE_THRESHOLD:
         return None
 
-    if ambiguous_space and ambiguous_category:
-        question = "我检索到的内容分散在多个知识空间和分类里，暂时无法确认你要问的是哪一类。请先选择更具体的范围。"
-    elif ambiguous_space:
-        question = "当前命中的内容来自多个知识空间，我暂时无法确认应该使用哪一个知识空间。请先选择范围。"
-    else:
-        question = "当前命中的内容落在多个分类里，我暂时无法确认应该采用哪一类资料。请先选择分类。"
+    question = "当前命中的内容来自多个知识库，我暂时无法确认应该使用哪一个知识库。请先选择范围。"
 
     options: list[dict[str, str]] = []
-    if ambiguous_space:
-        options.extend(
-            {
-                "field": "knowledge_space",
-                "value": option,
-                "label": f"知识空间：{option}",
-            }
-            for option in knowledge_space_options
-        )
-
-    if ambiguous_category:
-        options.extend(
-            {
-                "field": "category",
-                "value": option,
-                "label": f"分类：{option}",
-            }
-            for option in category_options
-        )
+    options.extend(
+        {
+            "field": "knowledge_space",
+            "value": option,
+            "label": f"知识库：{option}",
+        }
+        for option in knowledge_space_options
+    )
 
     return {
         "question": question,
@@ -1176,7 +1123,7 @@ def _query_documents_with_variants(
             float(item.get("distance", 1.0)),
         )
     )
-    return merged_results
+    return merged_results[: max(int(n_results or 0), 1)]
 
 
 def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[list[dict], str]:
@@ -1461,15 +1408,15 @@ def build_source_payload(
     session_id: str | None = None,
 ) -> tuple[list[dict], str]:
     """把检索结果转成前端来源卡片需要的轻量结构。"""
-    n_results = n_results or _get_final_source_limit()
+    source_limit = n_results or _get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=_get_initial_retrieval_limit(),
-        final_n_results=n_results,
+        final_n_results=_get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
     )
-    relevant = list(trace["documents"])
+    relevant = list(trace["documents"])[:source_limit]
     rerank_mode = str(trace["rerank_mode"])
     summaries = []
 
@@ -1483,10 +1430,7 @@ def build_source_payload(
                 "filename": metadata.get("filename", "未知文档"),
                 "chunk_index": metadata.get("chunk_index", 0),
                 "knowledge_space": metadata.get("knowledge_space", ""),
-                "category": metadata.get("category", ""),
-                "topic": metadata.get("topic", ""),
                 "tags": metadata.get("tags", ""),
-                "version_label": metadata.get("version_label", ""),
                 "source_type": metadata.get("source_type", "text"),
                 "source_label": metadata.get("source_label", "正文文本"),
                 "source_page": metadata.get("source_page", 0),
@@ -1507,17 +1451,17 @@ def build_source_payload_with_trace(
     session_id: str | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
-    n_results = n_results or _get_final_source_limit()
+    source_limit = n_results or _get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=_get_initial_retrieval_limit(),
-        final_n_results=n_results,
+        final_n_results=_get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
     )
 
     summaries = []
-    for index, doc in enumerate(trace["documents"], 1):
+    for index, doc in enumerate(list(trace["documents"])[:source_limit], 1):
         metadata = doc.get("metadata", {})
         content = doc.get("content", "")
         summaries.append(
@@ -1527,10 +1471,7 @@ def build_source_payload_with_trace(
                 "filename": metadata.get("filename", "未知文档"),
                 "chunk_index": metadata.get("chunk_index", 0),
                 "knowledge_space": metadata.get("knowledge_space", ""),
-                "category": metadata.get("category", ""),
-                "topic": metadata.get("topic", ""),
                 "tags": metadata.get("tags", ""),
-                "version_label": metadata.get("version_label", ""),
                 "source_type": metadata.get("source_type", "text"),
                 "source_label": metadata.get("source_label", "正文文本"),
                 "source_page": metadata.get("source_page", 0),

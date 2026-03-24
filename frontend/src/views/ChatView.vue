@@ -43,22 +43,20 @@ interface StreamEventPayload {
   content: string;
   sources?: SourceSummary[];
   options?: ClarificationOption[];
+  query_variants?: string[];
 }
 
 interface RetrievalFilters {
   knowledge_space: string;
-  category: string;
 }
 
 const retrievalFilters = reactive<RetrievalFilters>({
-  knowledge_space: '',
-  category: ''
+  knowledge_space: ''
 });
 
 function buildRetrievalFiltersPayload() {
   const payload = {
-    knowledge_space: retrievalFilters.knowledge_space.trim(),
-    category: retrievalFilters.category.trim()
+    knowledge_space: retrievalFilters.knowledge_space.trim()
   };
 
   return Object.values(payload).some(Boolean) ? payload : undefined;
@@ -114,7 +112,12 @@ function parseStreamEventBlock(block: string): StreamEventPayload | null {
             ? parsed.content
             : JSON.stringify(parsed.content),
         sources: Array.isArray(parsed.sources) ? parsed.sources : undefined,
-        options: Array.isArray(parsed.options) ? parsed.options : undefined
+        options: Array.isArray(parsed.options) ? parsed.options : undefined,
+        query_variants: Array.isArray(parsed.query_variants)
+          ? parsed.query_variants
+              .map((item: unknown) => String(item || '').trim())
+              .filter(Boolean)
+          : undefined
       };
     }
   } catch {
@@ -177,6 +180,11 @@ function applyStreamEvent(assistantMsg: Message, data: StreamEventPayload) {
 
   if (data.type === 'sources') {
     assistantMsg.sources = data.sources || [];
+    return;
+  }
+
+  if (data.type === 'retrieval_meta') {
+    assistantMsg.progressQueryVariants = data.query_variants || [];
     return;
   }
 
@@ -292,6 +300,7 @@ async function submitMessage(text: string) {
     clarificationOptions: [],
     status: 'loading',
     progressSteps: [],
+    progressQueryVariants: [],
     progressText: CONNECTING_HINT,
     timestamp: new Date()
   });
@@ -380,7 +389,6 @@ function clearMessages() {
   sessionId.value = uuidv4();
   sessionKnowledgeSpaceLabel.value = '';
   retrievalFilters.knowledge_space = '';
-  retrievalFilters.category = '';
   shouldAutoScroll.value = true;
   showScrollBack.value = false;
 }
@@ -478,7 +486,7 @@ function handleKeyDown(e: KeyboardEvent) {
                   直接提问
                 </strong>
                 <p class="m-0 text-xs leading-relaxed text-muted">
-                  我会优先返回结论；命中范围不明确时先请您选择知识空间或分类。
+                  我会优先返回结论；命中范围不明确时先请您选择具体知识库。
                 </p>
               </div>
             </OCard>

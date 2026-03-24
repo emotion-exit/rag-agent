@@ -5,7 +5,7 @@ let backendStatus = ipcRenderer.sendSync('desktop:get-backend-status-sync');
 if (!backendStatus || typeof backendStatus !== 'object') {
   backendStatus = {
     ready: false,
-    apiBase: 'http://127.0.0.1:8765',
+    apiBase: 'http://127.0.0.1:8000',
     state: 'idle',
     errorMessage: ''
   };

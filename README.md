@@ -2,7 +2,7 @@
 
 一个面向本地知识库场景的 RAG 桌面应用与 Web 应用。
 
-当前仓库已经具备完整的知识库问答链路：文档解析、知识空间管理、向量入库、检索增强、来源追踪、设置页配置、桌面端封装与分发。
+当前仓库已经具备完整的知识库问答链路：文档解析、扁平知识库管理、向量入库、检索增强、来源追踪、设置页配置、桌面端封装与分发。
 
 ## 项目定位
 
@@ -24,16 +24,16 @@ RAG.Agent 解决的不是泛化聊天问题，而是受约束的知识库问答�
 
 - 基于知识库的流式问答
 - SSE 实时返回检索进度、答案片段和来源
-- 自动识别知识空间，必要时触发澄清式交互
+- 自动识别知识库范围，必要时触发澄清式交互
 - 对模型输出做清洗，移除思维链、内部标签和实现细节
 - 无命中或证据不足时直接拒答
 
 ### 2. 知识库管理
 
-- 支持知识空间树形组织
+- 支持扁平知识库管理
 - 支持 PDF、DOCX、MD、MARKDOWN、TXT、RST、CSV 文档上传
 - 支持同步上传和后台任务式上传
-- 支持未归类文档迁移，并在迁移时重建索引
+- 知识库只维护名称、标签、说明三类元数据
 - 支持查看文档统计、分块数量和图片数量
 
 ### 3. 来源追踪
@@ -113,7 +113,7 @@ RAG.Agent 解决的不是泛化聊天问题，而是受约束的知识库问答�
 1. 按文档结构提取章节和文本块
 2. 按 embedding token 预算做二次切分
 
-二次切分时会拼接知识空间、分类、主题、标签、版本、章节路径和来源位置等 metadata 前缀，以提升召回质量。
+二次切分时会拼接知识库名称、标签、章节路径和来源位置等 metadata 前缀，以提升召回质量。
 
 ### 3. 可追溯问答
 
@@ -178,6 +178,7 @@ pnpm dev
 ```
 
 开发地址默认是：http://localhost:5173
+Web 开发态默认通过 Vite 代理将 `/api` 请求转发到 http://localhost:8000
 
 ### 3. 启动桌面开发态
 
@@ -188,6 +189,10 @@ pnpm desktop:dev
 ```
 
 桌面开发态会先启动 Vite，再由 Electron 打开窗口并连接内置后端。
+
+- 前端开发服务端口：5173
+- 桌面内置后端默认端口：8000
+- 如果 8000 被占用，Electron 会从 8000 开始向上查找可用端口
 
 ### 4. 构建桌面包
 
@@ -254,16 +259,15 @@ pnpm desktop:build:win
 
 ### 知识库
 
-- GET /api/knowledge-base/spaces：知识空间树
-- POST /api/knowledge-base/spaces：创建知识空间
+- GET /api/knowledge-base/spaces：知识库列表
+- POST /api/knowledge-base/spaces：创建知识库
+- PUT /api/knowledge-base/spaces/{space_id}：更新知识库
 - POST /api/knowledge-base/upload：同步上传
 - POST /api/knowledge-base/upload-jobs：后台上传任务
-- POST /api/knowledge-base/documents/migrate-ungrouped：同步迁移未归类文档
-- POST /api/knowledge-base/documents/migrate-ungrouped/jobs：后台迁移任务
 - GET /api/knowledge-base/jobs/{job_id}：查询任务进度
 - GET /api/knowledge-base/documents：文档列表
 - DELETE /api/knowledge-base/documents/{doc_id}：删除文档
-- DELETE /api/knowledge-base/spaces/{space_id}：删除知识空间
+- DELETE /api/knowledge-base/spaces/{space_id}：删除知识库
 - GET /api/knowledge-base/stats：统计信息
 
 ### 健康检查

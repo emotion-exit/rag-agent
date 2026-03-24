@@ -5,31 +5,27 @@ defineOptions({
 
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import {
-  CaretDownOutlined,
-  CaretRightOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  EditOutlined,
   FilePdfOutlined,
   FileTextOutlined,
   FileWordOutlined,
-  FolderOpenOutlined,
   LoadingOutlined,
   PlusOutlined,
   ReloadOutlined,
-  UploadOutlined,
-  WarningOutlined
+  UploadOutlined
 } from '@ant-design/icons-vue';
 import KnowledgeSpaceCreateModal from '@/components/knowledge-base/KnowledgeSpaceCreateModal.vue';
 import KnowledgeDangerConfirmModal from '@/components/knowledge-base/KnowledgeDangerConfirmModal.vue';
 import KnowledgeBaseTaskProgressModal from '@/components/knowledge-base/KnowledgeBaseTaskProgressModal.vue';
 import KnowledgeUploadModal from '@/components/knowledge-base/KnowledgeUploadModal.vue';
-import UngroupedMigrationModal from '@/components/knowledge-base/UngroupedMigrationModal.vue';
 import {
   OBadge,
   OButton,
   OCard,
   OEmptyState,
-  OTree,
+  OPanelRow,
   useOToast
 } from '@/orange-ui';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
@@ -50,7 +46,7 @@ interface KnowledgeBaseJobCreatedResponsePayload {
   message?: string;
 }
 
-interface KnowledgeSpaceCreateResponsePayload {
+interface KnowledgeSpaceMutationResponsePayload {
   detail?: string;
   message?: string;
   space?: KnowledgeSpace;
@@ -68,7 +64,6 @@ interface DangerConfirmState {
   visible: boolean;
   action: DangerActionType | null;
   targetId: string;
-  targetLabel: string;
   title: string;
   message: string;
   confirmText: string;
@@ -77,201 +72,129 @@ interface DangerConfirmState {
 }
 
 const KNOWLEDGE_BASE_TASK_STORAGE_KEY = 'knowledge-base-active-task';
-const CATEGORY_OPTIONS = [
-  '制度规范',
-  '操作手册',
-  '常见问题',
-  '方案资料',
-  '报告分析',
-  '会议纪要',
-  '其他'
-];
 
 const spaces = ref<KnowledgeSpace[]>([]);
 const documents = ref<DocumentInfo[]>([]);
 const stats = ref<Stats>({ total_chunks: 0, total_documents: 0 });
 const spaceSummary = ref<SpaceSummary>({
   total_spaces: 0,
+  total_documents: 0,
   ungrouped_documents: 0
 });
 const selectedSpaceId = ref('');
 const loading = ref(false);
-const creatingSpace = ref(false);
+const submittingSpace = ref(false);
 const deletingSpace = ref(false);
 const deletingDocumentId = ref('');
 const uploading = ref(false);
-const migratingUngrouped = ref(false);
 const createModalVisible = ref(false);
+const createModalMode = ref<'create' | 'edit'>('create');
 const uploadModalVisible = ref(false);
-const migrationModalVisible = ref(false);
 const taskProgressVisible = ref(false);
 const currentTask = ref<KnowledgeBaseJobStatus | null>(null);
+const createSpaceForm = ref<KnowledgeSpaceCreateForm>({
+  name: '',
+  tags: '',
+  description: ''
+});
+const uploadForm = ref<UploadForm>({
+  tags: ''
+});
 const dangerConfirm = ref<DangerConfirmState>({
   visible: false,
   action: null,
   targetId: '',
-  targetLabel: '',
   title: '',
   message: '',
   confirmText: '',
   impactStats: [],
   impactItems: []
 });
-const expandedSpaceIds = ref<string[]>([]);
 const oToast = useOToast();
 let taskPollingTimer: number | null = null;
 
-const createSpaceForm = ref<KnowledgeSpaceCreateForm>({
-  name: '',
-  parent_id: '',
-  category: '',
-  topic: '',
-  tags: '',
-  version_label: '',
-  description: ''
-});
-
-const uploadForm = ref<UploadForm>({
-  tags: '',
-  version_label: ''
-});
-
-function buildApiUrl(path: string) {
-  return `${getApiBase()}${path}`;
-}
-
-function flattenSpaces(nodes: KnowledgeSpace[]): KnowledgeSpace[] {
-  return nodes.flatMap((node) => [node, ...flattenSpaces(node.children || [])]);
-}
-
-const UNGROUPED_TREE_ITEM_ID = '__ungrouped__';
-
-type KnowledgeTreeItem = Record<string, any>;
-
-const flatSpaces = computed(() => flattenSpaces(spaces.value));
-const spaceMap = computed(
-  () => new Map(flatSpaces.value.map((item) => [item.space_id, item]))
-);
 const selectedSpace = computed(
   () =>
-    flatSpaces.value.find((item) => item.space_id === selectedSpaceId.value) ||
-    null
-);
-const visibleTreeSpaces = computed(() => {
-  const items: KnowledgeSpace[] = [];
-
-  const walk = (nodes: KnowledgeSpace[]) => {
-    for (const node of nodes) {
-      items.push(node);
-      if (
-        Array.isArray(node.children) &&
-        node.children.length > 0 &&
-        expandedSpaceIds.value.includes(node.space_id)
-      ) {
-        walk(node.children);
-      }
-    }
-  };
-
-  walk(spaces.value);
-  return items;
-});
-const treeItems = computed<KnowledgeTreeItem[]>(() => [
-  {
-    space_id: UNGROUPED_TREE_ITEM_ID,
-    name: '未归类文档',
-    path: '旧数据过渡区，不建议继续上传',
-    depth: 0,
-    direct_document_count: spaceSummary.value.ungrouped_documents,
-    total_document_count: spaceSummary.value.ungrouped_documents,
-    children: [],
-    isUngrouped: true
-  },
-  ...visibleTreeSpaces.value
-]);
-const selectedTreeKey = computed(
-  () => selectedSpaceId.value || UNGROUPED_TREE_ITEM_ID
-);
-const childSpaces = computed(() =>
-  flatSpaces.value.filter((item) => item.parent_id === selectedSpaceId.value)
+    spaces.value.find((item) => item.space_id === selectedSpaceId.value) || null
 );
 const visibleDocuments = computed(() => {
-  if (selectedSpaceId.value) {
-    return documents.value.filter(
-      (doc) => doc.space_id === selectedSpaceId.value
-    );
-  }
-
-  return documents.value.filter((doc) => !String(doc.space_id || '').trim());
+  if (!selectedSpace.value) return [];
+  return documents.value.filter(
+    (doc) => doc.space_id === selectedSpace.value?.space_id
+  );
 });
-const ungroupedDocuments = computed(() =>
-  documents.value.filter((doc) => !String(doc.space_id || '').trim())
-);
-const summaryItems = computed(() => [
-  {
-    label: '知识空间',
-    value: `${spaceSummary.value.total_spaces} 个`,
-    tone: 'neutral'
-  },
-  {
-    label: '总文档',
-    value: `${stats.value.total_documents} 篇`,
-    tone: 'neutral'
-  },
-  {
-    label: '文档分块',
-    value: `${stats.value.total_chunks} 个`,
-    tone: 'success'
-  },
-  {
-    label: '未归类',
-    value: `${spaceSummary.value.ungrouped_documents} 篇`,
-    tone: 'warning'
-  }
-]);
 const hasActiveTask = computed(
   () =>
     currentTask.value?.status === 'queued' ||
     currentTask.value?.status === 'running'
 );
-const documentPanelTitle = computed(() =>
-  selectedSpace.value ? `${selectedSpace.value.name} 的直属文档` : '未归类文档'
-);
-const documentPanelSubtitle = computed(() =>
-  selectedSpace.value
-    ? '当前列表仅展示所选空间的直属文档，继续下钻请点击子空间。'
-    : '这里只显示历史遗留的未归类文档，建议逐步迁移到正式空间。'
-);
-const knowledgeHeaderStatusLabel = computed(() => {
-  if (hasActiveTask.value) return '后台任务执行中';
-  if (loading.value) return '正在同步知识库';
-  if (spaceSummary.value.ungrouped_documents > 0) {
-    return `${spaceSummary.value.ungrouped_documents} 篇待迁移文档`;
+const summaryItems = computed(() => [
+  {
+    label: '知识库',
+    value: `${spaceSummary.value.total_spaces} 个`,
+    tone: 'neutral'
+  },
+  {
+    label: '文档',
+    value: `${stats.value.total_documents} 篇`,
+    tone: 'neutral'
+  },
+  {
+    label: '分块',
+    value: `${stats.value.total_chunks} 个`,
+    tone: 'success'
   }
-  return '知识库结构已就绪';
-});
-const knowledgeHeaderStatusClass = computed(() => {
-  if (hasActiveTask.value || loading.value) {
-    return 'warning';
-  }
+]);
 
-  if (spaceSummary.value.ungrouped_documents > 0) {
-    return 'warning';
-  }
+function buildApiUrl(path: string) {
+  return `${getApiBase()}${path}`;
+}
 
-  return 'success';
-});
-
-function buildDefaultCreateSpaceForm(parentId = ''): KnowledgeSpaceCreateForm {
+function buildDefaultCreateSpaceForm(
+  space?: KnowledgeSpace | null
+): KnowledgeSpaceCreateForm {
   return {
-    name: '',
-    parent_id: parentId,
-    category: '',
-    topic: '',
-    tags: '',
-    version_label: '',
-    description: ''
+    name: space?.name || '',
+    tags: space?.tags || '',
+    description: space?.description || ''
   };
+}
+
+function buildTagList(value: string) {
+  return String(value || '')
+    .split(/[，,、]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function formatDate(text: string) {
+  if (!text) return '-';
+  try {
+    return new Date(text).toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return text;
+  }
+}
+
+function formatChunkCount(value: number) {
+  return `${value || 0} 个分块`;
+}
+
+function formatImageCount(value: number) {
+  return value > 0 ? `${value} 张附图` : '无附图';
+}
+
+function getFileIcon(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') return FilePdfOutlined;
+  if (ext === 'doc' || ext === 'docx') return FileWordOutlined;
+  return FileTextOutlined;
 }
 
 function showToast(message: string, type: 'success' | 'error' = 'success') {
@@ -314,203 +237,6 @@ function readPersistedTaskSnapshot() {
   }
 }
 
-function getFileIcon(filename: string) {
-  const ext = filename.split('.').pop()?.toLowerCase();
-  if (ext === 'pdf') return FilePdfOutlined;
-  if (ext === 'doc' || ext === 'docx') return FileWordOutlined;
-  return FileTextOutlined;
-}
-
-function formatDate(text: string) {
-  if (!text) return '-';
-  try {
-    return new Date(text).toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
-    return text;
-  }
-}
-
-function formatMetadata(value: string) {
-  return value?.trim() || '未设置';
-}
-
-function formatTagList(value: string) {
-  return String(value || '')
-    .split(/[，,、]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function formatImageCount(value: number) {
-  return value > 0 ? `附图 ${value} 张` : '无附图';
-}
-
-function formatChunkCount(value: number) {
-  return `${value || 0} 个分块`;
-}
-
-function hasChildSpaces(space: KnowledgeSpace) {
-  return Array.isArray(space.children) && space.children.length > 0;
-}
-
-function isUngroupedTreeItem(item: Record<string, any>) {
-  return item.space_id === UNGROUPED_TREE_ITEM_ID;
-}
-
-function getTreeItemDescription(item: Record<string, any>) {
-  return isUngroupedTreeItem(item) ? item.path : item.path;
-}
-
-function getTreeItemCount(item: Record<string, any>) {
-  return isUngroupedTreeItem(item)
-    ? `${spaceSummary.value.ungrouped_documents}`
-    : getSpaceTreeCount(item);
-}
-
-function getTreeItemChildren(item: Record<string, any>) {
-  return isUngroupedTreeItem(item) ? [] : item.children || [];
-}
-
-function getTreeItemDepth(item: Record<string, any>) {
-  return isUngroupedTreeItem(item) ? 0 : item.depth;
-}
-
-function getTreeItemRowClass(item: Record<string, any>) {
-  if (!isUngroupedTreeItem(item)) return undefined;
-
-  return selectedTreeKey.value === UNGROUPED_TREE_ITEM_ID
-    ? 'border-[rgba(180,125,29,0.28)] bg-[rgba(180,125,29,0.14)] shadow-[inset_0_1px_0_rgba(255,255,255,0.5),0_6px_16px_rgba(180,125,29,0.08)]'
-    : 'border-[rgba(180,125,29,0.14)] bg-[rgba(180,125,29,0.06)] hover:border-[rgba(180,125,29,0.24)] hover:bg-[rgba(180,125,29,0.1)]';
-}
-
-function selectTreeItem(item: Record<string, any>) {
-  if (isUngroupedTreeItem(item)) {
-    selectedSpaceId.value = '';
-    return;
-  }
-
-  selectSpace(item.space_id);
-}
-
-function toggleTreeItem(item: Record<string, any>) {
-  if (isUngroupedTreeItem(item)) return;
-  toggleSpaceExpanded(item.space_id);
-}
-
-function isSpaceExpanded(spaceId: string) {
-  return expandedSpaceIds.value.includes(spaceId);
-}
-
-function ensureExpanded(spaceId: string) {
-  if (!expandedSpaceIds.value.includes(spaceId)) {
-    expandedSpaceIds.value = [...expandedSpaceIds.value, spaceId];
-  }
-}
-
-function expandAncestors(spaceId: string) {
-  let current = spaceMap.value.get(spaceId);
-  while (current?.parent_id) {
-    ensureExpanded(current.parent_id);
-    current = spaceMap.value.get(current.parent_id);
-  }
-}
-
-function toggleSpaceExpanded(spaceId: string) {
-  if (expandedSpaceIds.value.includes(spaceId)) {
-    expandedSpaceIds.value = expandedSpaceIds.value.filter(
-      (item) => item !== spaceId
-    );
-    return;
-  }
-
-  ensureExpanded(spaceId);
-}
-
-function collectDescendantSpaceIds(spaceId: string) {
-  const descendantIds = new Set<string>();
-  const queue = [spaceId];
-
-  while (queue.length > 0) {
-    const currentId = queue.shift();
-    if (!currentId || descendantIds.has(currentId)) continue;
-
-    descendantIds.add(currentId);
-    flatSpaces.value
-      .filter((item) => item.parent_id === currentId)
-      .forEach((item) => {
-        queue.push(item.space_id);
-      });
-  }
-
-  return descendantIds;
-}
-
-function buildSpaceDeleteImpactStats(
-  space: KnowledgeSpace
-): DangerImpactStat[] {
-  const relatedSpaceIds = collectDescendantSpaceIds(space.space_id);
-  const relatedDocuments = documents.value.filter((doc) =>
-    relatedSpaceIds.has(String(doc.space_id || '').trim())
-  );
-  const chunkCount = relatedDocuments.reduce(
-    (sum, item) => sum + Number(item.chunk_count || 0),
-    0
-  );
-  const imageCount = relatedDocuments.reduce(
-    (sum, item) => sum + Number(item.image_count || 0),
-    0
-  );
-
-  return [
-    {
-      label: '覆盖空间',
-      value: `${relatedSpaceIds.size} 个`,
-      kind: 'metric'
-    },
-    {
-      label: '关联文档',
-      value: `${relatedDocuments.length} 篇`,
-      kind: 'metric'
-    },
-    {
-      label: '文档分块',
-      value: `${chunkCount} 个`,
-      kind: 'metric'
-    },
-    {
-      label: '附图资源',
-      value: `${imageCount} 张`,
-      kind: 'metric'
-    }
-  ];
-}
-
-function buildDocumentDeleteImpactStats(doc: DocumentInfo): DangerImpactStat[] {
-  return [
-    {
-      label: '所属空间',
-      value: formatMetadata(doc.knowledge_space),
-      kind: 'context'
-    },
-    {
-      label: '文档分块',
-      value: `${Number(doc.chunk_count || 0)} 个`,
-      kind: 'metric'
-    },
-    {
-      label: '附图资源',
-      value: `${Number(doc.image_count || 0)} 张`,
-      kind: 'metric'
-    }
-  ];
-}
-
 async function parseApiResponse(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') || '';
 
@@ -538,33 +264,19 @@ function extractApiErrorMessage(payload: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
-function normalizeCreateSpaceErrorMessage(message: string) {
-  const normalized = String(message || '').trim();
-  if (normalized === '主题不能为空' || normalized === '分类不能为空') {
-    return '当前后端仍在使用旧的必填校验，请重启后端后重试。';
-  }
-
-  return normalized;
-}
-
 function syncSelectedSpace(preferredSpaceId = '') {
-  const availableIds = new Set(flatSpaces.value.map((item) => item.space_id));
+  const availableIds = new Set(spaces.value.map((item) => item.space_id));
 
   if (preferredSpaceId && availableIds.has(preferredSpaceId)) {
     selectedSpaceId.value = preferredSpaceId;
-    expandAncestors(preferredSpaceId);
     return;
   }
 
   if (selectedSpaceId.value && availableIds.has(selectedSpaceId.value)) {
-    expandAncestors(selectedSpaceId.value);
     return;
   }
 
-  selectedSpaceId.value = flatSpaces.value[0]?.space_id || '';
-  if (selectedSpaceId.value) {
-    ensureExpanded(selectedSpaceId.value);
-  }
+  selectedSpaceId.value = spaces.value[0]?.space_id || '';
 }
 
 async function refreshKnowledgeBase(preferredSpaceId = '') {
@@ -600,33 +312,64 @@ async function refreshKnowledgeBase(preferredSpaceId = '') {
     stats.value = statsData;
     spaceSummary.value = {
       total_spaces: Number(spacesData.summary?.total_spaces || 0),
+      total_documents: Number(
+        spacesData.summary?.total_documents || statsData.total_documents || 0
+      ),
       ungrouped_documents: Number(spacesData.summary?.ungrouped_documents || 0)
     };
     syncSelectedSpace(preferredSpaceId);
   } catch {
-    showToast('加载知识空间失败，请检查后端服务是否正常运行', 'error');
+    showToast('加载知识库失败，请检查后端服务是否正常运行', 'error');
   } finally {
     loading.value = false;
   }
 }
 
-function validateCreateSpaceForm(payload: KnowledgeSpaceCreateForm) {
+function validateSpaceForm(payload: KnowledgeSpaceCreateForm) {
   if (!payload.name.trim()) {
-    showToast('请先填写知识空间名称', 'error');
+    showToast('请先填写知识库名称', 'error');
     return false;
   }
 
   return true;
 }
 
-function openCreateSpaceModal(parentId = '') {
-  createSpaceForm.value = buildDefaultCreateSpaceForm(parentId);
+function openCreateSpaceModal() {
+  createModalMode.value = 'create';
+  createSpaceForm.value = buildDefaultCreateSpaceForm();
+  createModalVisible.value = true;
+}
+
+function openEditSpaceModal() {
+  if (!selectedSpace.value) return;
+  createModalMode.value = 'edit';
+  createSpaceForm.value = buildDefaultCreateSpaceForm(selectedSpace.value);
   createModalVisible.value = true;
 }
 
 function closeCreateSpaceModal() {
-  if (creatingSpace.value) return;
+  if (submittingSpace.value) return;
   createModalVisible.value = false;
+}
+
+function openUploadModal() {
+  if (hasActiveTask.value) {
+    taskProgressVisible.value = true;
+    showToast('当前已有知识库任务正在执行，请先等待完成', 'error');
+    return;
+  }
+
+  if (!selectedSpace.value) {
+    showToast('请先选择一个知识库，再上传文档', 'error');
+    return;
+  }
+
+  uploadModalVisible.value = true;
+}
+
+function closeUploadModal() {
+  if (uploading.value) return;
+  uploadModalVisible.value = false;
 }
 
 function resetDangerConfirm() {
@@ -634,7 +377,6 @@ function resetDangerConfirm() {
     visible: false,
     action: null,
     targetId: '',
-    targetLabel: '',
     title: '',
     message: '',
     confirmText: '',
@@ -648,6 +390,60 @@ function closeDangerConfirm() {
   resetDangerConfirm();
 }
 
+function buildSpaceDeleteImpactStats(
+  space: KnowledgeSpace
+): DangerImpactStat[] {
+  const relatedDocuments = documents.value.filter(
+    (doc) => doc.space_id === space.space_id
+  );
+  const chunkCount = relatedDocuments.reduce(
+    (sum, item) => sum + Number(item.chunk_count || 0),
+    0
+  );
+  const imageCount = relatedDocuments.reduce(
+    (sum, item) => sum + Number(item.image_count || 0),
+    0
+  );
+
+  return [
+    {
+      label: '关联文档',
+      value: `${relatedDocuments.length} 篇`,
+      kind: 'metric'
+    },
+    {
+      label: '文档分块',
+      value: `${chunkCount} 个`,
+      kind: 'metric'
+    },
+    {
+      label: '附图资源',
+      value: `${imageCount} 张`,
+      kind: 'metric'
+    }
+  ];
+}
+
+function buildDocumentDeleteImpactStats(doc: DocumentInfo): DangerImpactStat[] {
+  return [
+    {
+      label: '所属知识库',
+      value: doc.knowledge_space || '未设置',
+      kind: 'context'
+    },
+    {
+      label: '文档分块',
+      value: `${Number(doc.chunk_count || 0)} 个`,
+      kind: 'metric'
+    },
+    {
+      label: '附图资源',
+      value: `${Number(doc.image_count || 0)} 张`,
+      kind: 'metric'
+    }
+  ];
+}
+
 function openDeleteSpaceConfirm() {
   const space = selectedSpace.value;
   if (!space || deletingSpace.value || hasActiveTask.value) return;
@@ -656,16 +452,15 @@ function openDeleteSpaceConfirm() {
     visible: true,
     action: 'delete-space',
     targetId: space.space_id,
-    targetLabel: space.path,
-    title: `删除空间“${space.name}”`,
-    message: '该操作不可恢复。确认后会递归清理当前空间下的全部结构和索引数据。',
-    confirmText: '确认删除空间',
+    title: `删除知识库“${space.name}”`,
+    message:
+      '该操作不可恢复，知识库下的全部文档、分块索引和附图资源都会被清理。',
+    confirmText: '确认删除知识库',
     impactStats: buildSpaceDeleteImpactStats(space),
     impactItems: [
-      '当前知识空间',
-      '所有子空间',
-      '空间下全部文档',
-      '文档分块与向量索引',
+      '知识库记录',
+      '知识库下全部文档',
+      '向量索引与文本分块',
       '附图与资源目录'
     ]
   };
@@ -678,46 +473,85 @@ function openDeleteDocumentConfirm(doc: DocumentInfo) {
     visible: true,
     action: 'delete-document',
     targetId: doc.doc_id,
-    targetLabel: doc.filename,
     title: `删除文档“${doc.filename}”`,
     message:
-      '删除后该文档将从知识库中彻底移除，相关分块和附图资源也会同步清理。',
+      '删除后该文档会从当前知识库中彻底移除，相关分块与附图资源会同步清理。',
     confirmText: '确认删除文档',
     impactStats: buildDocumentDeleteImpactStats(doc),
-    impactItems: [
-      '当前文档记录',
-      '文档文本分块',
-      '向量索引数据',
-      '附图与资源文件'
-    ]
+    impactItems: ['当前文档记录', '文档分块', '向量索引数据', '附图与资源文件']
   };
 }
 
+async function submitSpaceForm(payload: KnowledgeSpaceCreateForm) {
+  if (submittingSpace.value || !validateSpaceForm(payload)) return;
+
+  const isEdit = createModalMode.value === 'edit' && !!selectedSpace.value;
+  submittingSpace.value = true;
+  try {
+    const response = await fetch(
+      buildApiUrl(
+        isEdit
+          ? `/api/knowledge-base/spaces/${encodeURIComponent(selectedSpace.value!.space_id)}`
+          : '/api/knowledge-base/spaces'
+      ),
+      {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildPublicConfigHeaders()
+        },
+        body: JSON.stringify({
+          name: payload.name.trim(),
+          tags: payload.tags.trim(),
+          description: payload.description.trim()
+        })
+      }
+    );
+
+    const data = (await parseApiResponse(
+      response
+    )) as KnowledgeSpaceMutationResponsePayload;
+    if (!response.ok) {
+      throw new Error(extractApiErrorMessage(data, response.status));
+    }
+
+    const resultSpaceId =
+      data.space?.space_id || selectedSpace.value?.space_id || '';
+    await refreshKnowledgeBase(resultSpaceId);
+    createModalVisible.value = false;
+    createSpaceForm.value = buildDefaultCreateSpaceForm();
+    showToast(data.message || (isEdit ? '知识库已更新' : '知识库创建成功'));
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    showToast(
+      `${createModalMode.value === 'edit' ? '更新' : '创建'}知识库失败：${errMsg}`,
+      'error'
+    );
+  } finally {
+    submittingSpace.value = false;
+  }
+}
+
 async function deleteSelectedSpace() {
-  const targetSpaceId = String(dangerConfirm.value.targetId || '').trim();
-  const targetSpace =
-    spaceMap.value.get(targetSpaceId) ||
-    (selectedSpace.value?.space_id === targetSpaceId
-      ? selectedSpace.value
-      : null);
-  if (!targetSpaceId || deletingSpace.value || hasActiveTask.value) return;
+  const targetSpace = selectedSpace.value;
+  if (!targetSpace || deletingSpace.value || hasActiveTask.value) return;
 
   deletingSpace.value = true;
   try {
-    const fallbackParentId = String(targetSpace?.parent_id || '').trim();
     let response = await fetch(
       buildApiUrl(
-        `/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}`
+        `/api/knowledge-base/spaces/${encodeURIComponent(targetSpace.space_id)}`
       ),
       {
         method: 'DELETE',
         headers: buildPublicConfigHeaders()
       }
     );
+
     if (response.status === 404 || response.status === 405) {
       response = await fetch(
         buildApiUrl(
-          `/api/knowledge-base/spaces/${encodeURIComponent(targetSpaceId)}/delete`
+          `/api/knowledge-base/spaces/${encodeURIComponent(targetSpace.space_id)}/delete`
         ),
         {
           method: 'POST',
@@ -725,6 +559,7 @@ async function deleteSelectedSpace() {
         }
       );
     }
+
     const data = (await parseApiResponse(response)) as {
       detail?: string;
       message?: string;
@@ -733,108 +568,15 @@ async function deleteSelectedSpace() {
       throw new Error(extractApiErrorMessage(data, response.status));
     }
 
-    selectedSpaceId.value = fallbackParentId;
-    await refreshKnowledgeBase(fallbackParentId);
+    await refreshKnowledgeBase('');
     resetDangerConfirm();
-    showToast(
-      data.message ||
-        `知识空间“${targetSpace?.path || dangerConfirm.value.targetLabel || targetSpaceId}”已删除`
-    );
+    showToast(data.message || `知识库“${targetSpace.name}”已删除`);
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    showToast(`删除知识空间失败：${errMsg}`, 'error');
+    showToast(`删除知识库失败：${errMsg}`, 'error');
   } finally {
     deletingSpace.value = false;
   }
-}
-
-async function createSpace(payload: KnowledgeSpaceCreateForm) {
-  if (creatingSpace.value || !validateCreateSpaceForm(payload)) return;
-
-  creatingSpace.value = true;
-  try {
-    const response = await fetch(buildApiUrl('/api/knowledge-base/spaces'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...buildPublicConfigHeaders()
-      },
-      body: JSON.stringify({
-        name: payload.name.trim(),
-        parent_id: payload.parent_id.trim(),
-        category: payload.category.trim(),
-        topic: payload.topic.trim(),
-        tags: payload.tags.trim(),
-        version_label: payload.version_label.trim(),
-        description: payload.description.trim()
-      })
-    });
-
-    const data = (await parseApiResponse(
-      response
-    )) as KnowledgeSpaceCreateResponsePayload;
-    if (!response.ok) {
-      throw new Error(extractApiErrorMessage(data, response.status));
-    }
-
-    const createdSpaceId = data.space?.space_id || '';
-    await refreshKnowledgeBase(createdSpaceId);
-    createSpaceForm.value = buildDefaultCreateSpaceForm();
-    createModalVisible.value = false;
-    showToast(data.message || '知识空间创建成功');
-  } catch (err: unknown) {
-    const errMsg = normalizeCreateSpaceErrorMessage(
-      err instanceof Error ? err.message : String(err)
-    );
-    showToast(`创建知识空间失败：${errMsg}`, 'error');
-  } finally {
-    creatingSpace.value = false;
-  }
-}
-
-function openUploadModal() {
-  if (hasActiveTask.value) {
-    taskProgressVisible.value = true;
-    showToast('当前已有知识库任务正在执行，请先等待完成', 'error');
-    return;
-  }
-
-  if (!selectedSpace.value) {
-    showToast('请先选择知识空间，再上传文档', 'error');
-    return;
-  }
-
-  uploadModalVisible.value = true;
-}
-
-function closeUploadModal() {
-  if (uploading.value) return;
-  uploadModalVisible.value = false;
-}
-
-function openMigrationModal() {
-  if (hasActiveTask.value) {
-    taskProgressVisible.value = true;
-    showToast('当前已有知识库任务正在执行，请先等待完成', 'error');
-    return;
-  }
-
-  if (spaceSummary.value.ungrouped_documents === 0) {
-    showToast('当前没有未归类文档可迁移', 'error');
-    return;
-  }
-
-  if (flatSpaces.value.length === 0) {
-    showToast('请先创建目标知识空间，再执行迁移', 'error');
-    return;
-  }
-
-  migrationModalVisible.value = true;
-}
-
-function closeMigrationModal() {
-  if (migratingUngrouped.value) return;
-  migrationModalVisible.value = false;
 }
 
 function closeTaskProgressModal() {
@@ -874,17 +616,15 @@ async function trackKnowledgeBaseJob(jobId: string) {
 
       clearTaskPollingTimer();
       uploading.value = false;
-      migratingUngrouped.value = false;
 
       const resultSpaceId = String(
         job.result?.space_id || selectedSpaceId.value || ''
       );
       await refreshKnowledgeBase(resultSpaceId);
       uploadModalVisible.value = false;
-      migrationModalVisible.value = false;
 
       if (job.status === 'completed') {
-        uploadForm.value = { tags: '', version_label: '' };
+        uploadForm.value = { tags: '' };
         showToast(job.message || '知识库任务已完成');
       } else {
         showToast(
@@ -895,7 +635,6 @@ async function trackKnowledgeBaseJob(jobId: string) {
     } catch (err: unknown) {
       clearTaskPollingTimer();
       uploading.value = false;
-      migratingUngrouped.value = false;
       const errMsg = err instanceof Error ? err.message : String(err);
       showToast(`获取任务进度失败：${errMsg}`, 'error');
     }
@@ -930,7 +669,6 @@ async function handleUploadSubmit(payload: UploadSubmitPayload) {
     }
     formData.append('space_id', selectedSpace.value.space_id);
     formData.append('tags', payload.tags.trim());
-    formData.append('version_label', payload.version_label.trim());
 
     const response = await fetch(
       buildApiUrl('/api/knowledge-base/upload-jobs'),
@@ -973,123 +711,62 @@ async function handleUploadSubmit(payload: UploadSubmitPayload) {
   }
 }
 
-async function handleUngroupedMigration(targetSpaceId: string) {
-  if (migratingUngrouped.value || hasActiveTask.value) return;
-
-  migratingUngrouped.value = true;
-  try {
-    const response = await fetch(
-      buildApiUrl('/api/knowledge-base/documents/migrate-ungrouped/jobs'),
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildPublicConfigHeaders()
-        },
-        body: JSON.stringify({ target_space_id: targetSpaceId })
-      }
-    );
-    const data = (await parseApiResponse(
-      response
-    )) as KnowledgeBaseJobCreatedResponsePayload;
-    if (!response.ok) {
-      throw new Error(extractApiErrorMessage(data, response.status));
-    }
-
-    currentTask.value = {
-      job_id: data.job_id,
-      job_type: 'migrate_ungrouped',
-      status: 'queued',
-      message: data.message || '迁移任务已创建',
-      error_message: '',
-      current_document: '',
-      total_documents: ungroupedDocuments.value.length,
-      processed_documents: 0,
-      total_chunks: ungroupedDocuments.value.reduce(
-        (sum, item) => sum + Number(item.chunk_count || 0),
-        0
-      ),
-      processed_chunks: 0,
-      created_at: '',
-      updated_at: '',
-      result: {
-        space_id: targetSpaceId
-      }
-    };
-    persistTaskSnapshot(currentTask.value);
-    await trackKnowledgeBaseJob(data.job_id);
-  } catch (err: unknown) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    showToast(`迁移失败：${errMsg}`, 'error');
-    migratingUngrouped.value = false;
-  }
-}
-
 async function deleteDocument(doc: DocumentInfo) {
+  if (!doc.doc_id || deletingDocumentId.value) return;
+
   deletingDocumentId.value = doc.doc_id;
   try {
     const response = await fetch(
-      buildApiUrl(`/api/knowledge-base/documents/${doc.doc_id}`),
+      buildApiUrl(
+        `/api/knowledge-base/documents/${encodeURIComponent(doc.doc_id)}`
+      ),
       {
         method: 'DELETE',
         headers: buildPublicConfigHeaders()
       }
     );
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    await refreshKnowledgeBase(selectedSpace.value?.space_id || '');
+    const data = (await parseApiResponse(response)) as {
+      detail?: string;
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(extractApiErrorMessage(data, response.status));
+    }
+
+    await refreshKnowledgeBase(selectedSpaceId.value);
     resetDangerConfirm();
-    showToast(`已删除文档“${doc.filename}”`);
+    showToast(data.message || `文档“${doc.filename}”已删除`);
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    showToast(`删除失败：${errMsg}`, 'error');
+    showToast(`删除文档失败：${errMsg}`, 'error');
   } finally {
     deletingDocumentId.value = '';
   }
 }
 
-async function confirmDangerAction() {
-  if (!dangerConfirm.value.action) return;
-
+async function handleDangerConfirm() {
   if (dangerConfirm.value.action === 'delete-space') {
     await deleteSelectedSpace();
     return;
   }
 
   if (dangerConfirm.value.action === 'delete-document') {
-    const doc = visibleDocuments.value.find(
+    const doc = documents.value.find(
       (item) => item.doc_id === dangerConfirm.value.targetId
     );
-    if (!doc) {
-      closeDangerConfirm();
-      showToast('目标文档不存在或已被移除', 'error');
-      return;
+    if (doc) {
+      await deleteDocument(doc);
     }
-
-    await deleteDocument(doc);
   }
 }
 
 function selectSpace(spaceId: string) {
   selectedSpaceId.value = spaceId;
-  expandAncestors(spaceId);
 }
 
-function assignSelectedSpaceAsParent() {
-  openCreateSpaceModal(selectedSpace.value?.space_id || '');
-}
-
-function getSpaceTreeCount(
-  space:
-    | { direct_document_count: number; total_document_count: number }
-    | Record<string, any>
-) {
-  return `${space.direct_document_count}/${space.total_document_count}`;
-}
-
-onMounted(() => {
-  refreshKnowledgeBase();
-  restorePersistedKnowledgeBaseTask();
+onMounted(async () => {
+  await refreshKnowledgeBase();
+  await restorePersistedKnowledgeBaseTask();
 });
 
 onBeforeUnmount(() => {
@@ -1098,497 +775,274 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="o-page-stack mx-auto max-w-full">
-    <OCard padding="md" class="flex flex-col gap-4 max-md:gap-3.5">
-      <div
-        class="flex items-start justify-between gap-5 max-[960px]:grid max-[960px]:grid-cols-1">
-        <div>
+  <div class="o-page-stack">
+    <section
+      class="overflow-hidden rounded-[28px] border border-[rgba(199,118,34,0.16)] bg-[radial-gradient(circle_at_top_left,rgba(255,236,208,0.96),rgba(255,248,238,0.92)_42%,rgba(255,255,255,0.98)_100%)] px-5 py-4 shadow-[0_16px_40px_rgba(148,93,37,0.1)]">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="max-w-2xl space-y-1.5">
           <div
-            class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-zinc-500">
-            Knowledge Base
+            class="inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs font-semibold text-[#9a5414] shadow-[0_8px_18px_rgba(154,84,20,0.08)]">
+            <DatabaseOutlined />
+            知识库
           </div>
-          <h1
-            class="m-0 text-[24px] leading-[1.08] font-bold tracking-[-0.04em] text-zinc-900 max-[768px]:text-[22px]">
-            知识空间
+          <h1 class="text-2xl font-semibold tracking-[0.01em] text-[#48230a]">
+            知识库管理
           </h1>
-          <p class="mt-1.5 max-w-160 text-[12px] leading-[1.6] text-zinc-500">
-            管理知识空间层级、上传文档、清理遗留数据，并维护当前知识库的目录结构与索引状态。
+          <p class="max-w-xl text-sm leading-6 text-[rgba(72,35,10,0.72)]">
+            创建知识库并上传文档以构建问答检索源。
           </p>
         </div>
-        <div
-          class="flex min-w-56 flex-col items-end gap-2 max-[960px]:min-w-0 max-[960px]:items-start">
-          <OBadge :variant="knowledgeHeaderStatusClass" size="lg">
-            <DatabaseOutlined />
-            <span>{{ knowledgeHeaderStatusLabel }}</span>
-          </OBadge>
-          <div class="text-[12px] text-zinc-500">
-            正式空间 {{ spaceSummary.total_spaces }} 个 · 文档
-            {{ stats.total_documents }} 篇
-          </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <OButton
+            variant="ghost"
+            :disabled="loading"
+            @click="refreshKnowledgeBase(selectedSpaceId)">
+            <ReloadOutlined :class="loading ? 'spin' : ''" />
+            刷新
+          </OButton>
+          <OButton variant="secondary" @click="openCreateSpaceModal">
+            <PlusOutlined />
+            新建知识库
+          </OButton>
+          <OButton
+            variant="primary"
+            :disabled="!selectedSpace"
+            @click="openUploadModal">
+            <UploadOutlined />
+            上传文档
+          </OButton>
         </div>
       </div>
 
-      <div
-        class="flex flex-wrap items-center gap-2.5 max-[720px]:grid max-[720px]:grid-cols-1">
-        <OButton
-          variant="secondary"
-          size="sm"
-          :disabled="loading"
-          @click="refreshKnowledgeBase(selectedSpaceId)">
-          <ReloadOutlined :class="loading ? 'animate-spin' : ''" />
-          刷新知识库
-        </OButton>
-        <OButton
-          v-if="spaceSummary.ungrouped_documents > 0"
-          variant="warning"
-          size="sm"
-          :disabled="hasActiveTask"
-          @click="openMigrationModal">
-          <WarningOutlined />
-          迁移未归类文档
-        </OButton>
-        <OButton
-          v-if="hasActiveTask"
-          variant="secondary"
-          size="sm"
-          @click="taskProgressVisible = true">
-          <LoadingOutlined class="animate-spin" />
-          查看任务进度
-        </OButton>
-      </div>
-
-      <div
-        class="grid grid-cols-4 gap-2.5 max-lg:grid-cols-2 max-sm:grid-cols-1">
+      <div class="mt-4 flex flex-wrap gap-3">
         <OCard
           v-for="item in summaryItems"
           :key="item.label"
-          :tone="
-            item.tone === 'success'
-              ? 'success'
-              : item.tone === 'warning'
-                ? 'warning'
-                : 'default'
-          "
           padding="sm"
-          :class="'min-h-22'">
-          <div class="text-xs text-zinc-500">{{ item.label }}</div>
-          <div class="mt-0.5 text-[15px] font-bold text-zinc-900">
+          class="min-w-30 bg-white/88 backdrop-blur-sm">
+          <div class="text-xs text-(--oui-color-text-muted)">
+            {{ item.label }}
+          </div>
+          <div class="mt-1 text-lg font-semibold text-(--oui-color-heading)">
             {{ item.value }}
-          </div>
-        </OCard>
-      </div>
-    </OCard>
-
-    <section
-      class="grid grid-cols-[minmax(260px,320px)_minmax(0,1fr)] items-start gap-5 max-[1024px]:grid-cols-1">
-      <OCard padding="lg" class="min-w-0 sticky top-2 max-[1024px]:static">
-        <div
-          class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
-          <div class="min-w-0 flex-1">
-            <div class="text-base font-bold text-zinc-900">空间树</div>
-            <div class="mt-1.5 text-xs leading-6 text-zinc-500">
-              {{ flatSpaces.length }} 个正式空间 ·
-              {{ spaceSummary.ungrouped_documents }} 篇待归类文档
-            </div>
-          </div>
-          <OButton
-            v-if="selectedSpace"
-            variant="secondary"
-            size="sm"
-            class="rounded-full"
-            :disabled="hasActiveTask"
-            @click="assignSelectedSpaceAsParent">
-            <PlusOutlined />
-            子空间
-          </OButton>
-        </div>
-
-        <div
-          class="o-scroll-fade mt-3 flex max-h-[min(72vh,820px)] flex-col gap-3 overflow-auto rounded-[22px] border border-black/5 bg-linear-to-b from-[rgba(24,24,27,0.015)] to-[rgba(24,24,27,0.04)] p-1 shadow-inner">
-          <OTree
-            :items="treeItems"
-            :selected-key="selectedTreeKey"
-            :expanded-keys="expandedSpaceIds"
-            :get-key="(space) => space.space_id"
-            :get-label="(space) => space.name"
-            :get-description="getTreeItemDescription"
-            :get-count="getTreeItemCount"
-            :get-children="getTreeItemChildren"
-            :get-depth="getTreeItemDepth"
-            :get-item-class="getTreeItemRowClass"
-            class="gap-2.5"
-            @select="selectTreeItem"
-            @toggle="toggleTreeItem">
-            <template #icon="{ item }">
-              <FolderOpenOutlined
-                :class="[
-                  'mt-1',
-                  isUngroupedTreeItem(item)
-                    ? 'text-zinc-400'
-                    : 'text-(--oui-color-text-muted)'
-                ]" />
-            </template>
-          </OTree>
-
-          <div v-if="flatSpaces.length === 0" class="mt-1">
-            <OEmptyState
-              title="暂无知识空间"
-              description="还没有知识空间，请先创建一个顶级空间系统化管理您的知识。">
-              <template #icon>
-                <FolderOpenOutlined class="text-[32px] text-muted p-2" />
-              </template>
-              <div class="flex justify-center mt-2">
-                <OButton variant="secondary" @click="openCreateSpaceModal()">
-                  <PlusOutlined />
-                  创建第一个空间
-                </OButton>
-              </div>
-            </OEmptyState>
-          </div>
-        </div>
-      </OCard>
-
-      <div class="grid min-w-0 gap-4.5">
-        <OCard v-if="selectedSpace" padding="lg" class="kb-focus-panel">
-          <div
-            class="mb-4.5 flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
-            <div class="min-w-0 flex-1">
-              <div class="text-base font-bold text-zinc-900">
-                {{ selectedSpace ? selectedSpace.name : '未归类文档' }}
-              </div>
-              <div class="text-[13px] leading-[1.7] text-(--color-text-muted)">
-                {{ selectedSpace ? selectedSpace.path : '历史遗留数据过渡区' }}
-              </div>
-            </div>
-            <div
-              class="flex flex-wrap items-start justify-end gap-3 max-[720px]:justify-start">
-              <OButton
-                v-if="selectedSpace"
-                variant="danger"
-                :disabled="hasActiveTask || deletingSpace"
-                @click="openDeleteSpaceConfirm">
-                <DeleteOutlined />
-                {{ deletingSpace ? '删除中...' : '删除空间' }}
-              </OButton>
-              <OButton
-                v-if="selectedSpace"
-                variant="secondary"
-                :disabled="hasActiveTask"
-                @click="assignSelectedSpaceAsParent">
-                <PlusOutlined />
-                新建子空间
-              </OButton>
-              <OButton
-                :disabled="!selectedSpace || hasActiveTask"
-                @click="openUploadModal">
-                <UploadOutlined />
-                上传到当前空间
-              </OButton>
-            </div>
-          </div>
-
-          <div
-            class="grid grid-cols-4 gap-3 max-xl:grid-cols-4 max-sm:grid-cols-1">
-            <div
-              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
-              <span class="text-[11px] text-zinc-500">直属文档</span>
-              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
-                {{ selectedSpace.direct_document_count }}
-              </strong>
-            </div>
-            <div
-              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
-              <span class="text-[11px] text-zinc-500">全部文档</span>
-              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
-                {{ selectedSpace.total_document_count }}
-              </strong>
-            </div>
-            <div
-              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
-              <span class="text-[11px] text-zinc-500">子空间</span>
-              <strong class="mt-1 block text-[19px] font-bold text-zinc-900">
-                {{ selectedSpace.child_count }}
-              </strong>
-            </div>
-            <div
-              class="rounded-[16px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-3">
-              <span class="text-[11px] text-zinc-500">创建时间</span>
-              <strong
-                class="mt-1 block text-[13px] leading-relaxed font-bold text-zinc-900">
-                {{ formatDate(selectedSpace.created_at) }}
-              </strong>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap gap-2">
-            <span
-              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-              分类 · {{ formatMetadata(selectedSpace.category) }}
-            </span>
-            <span
-              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-              主题 · {{ formatMetadata(selectedSpace.topic) }}
-            </span>
-            <span
-              v-if="selectedSpace.version_label"
-              class="inline-flex min-h-7.5 items-center rounded-full bg-[rgba(37,99,65,0.12)] px-2.5 py-1 text-xs font-semibold text-[#1f6b42]">
-              版本 · {{ selectedSpace.version_label }}
-            </span>
-            <span
-              v-for="tag in formatTagList(selectedSpace.tags)"
-              :key="`${selectedSpace.space_id}-${tag}`"
-              class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-              {{ tag }}
-            </span>
-          </div>
-
-          <p class="mt-4 text-[13px] leading-[1.7] text-(--color-text-muted)">
-            {{ selectedSpace.description || '当前空间未填写额外说明。' }}
-          </p>
-
-          <div v-if="childSpaces.length > 0" class="mt-5">
-            <div class="text-[13px] font-bold text-(--color-text-secondary)">
-              下一级空间
-            </div>
-            <div
-              class="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
-              <button
-                v-for="space in childSpaces"
-                :key="space.space_id"
-                type="button"
-                class="rounded-[18px] border border-black/8 bg-linear-to-b from-[#fcfcfd] to-[#f5f5f5] p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-black/14 hover:shadow-[0_12px_24px_rgba(24,24,27,0.06)]"
-                @click="selectSpace(space.space_id)">
-                <div class="font-bold text-zinc-900">{{ space.name }}</div>
-                <div
-                  class="mt-1.5 text-[13px] leading-[1.7] text-(--color-text-muted)">
-                  {{ space.path }}
-                </div>
-                <div
-                  class="mt-1.5 text-[13px] leading-[1.7] text-(--color-text-muted)">
-                  {{ space.child_count }} 个子空间 ·
-                  {{ space.total_document_count }} 篇文档
-                </div>
-              </button>
-            </div>
-          </div>
-        </OCard>
-
-        <OCard padding="lg" class="kb-docs-panel">
-          <div
-            class="flex items-start justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
-            <div class="min-w-0 flex-1">
-              <div class="text-base font-bold text-zinc-900">
-                {{ documentPanelTitle }}
-              </div>
-              <div class="text-[13px] leading-[1.7] text-(--color-text-muted)">
-                {{ documentPanelSubtitle }}
-              </div>
-            </div>
-            <div
-              class="flex flex-wrap items-center justify-end gap-2.5 max-[720px]:justify-start">
-              <OButton
-                variant="secondary"
-                size="sm"
-                :disabled="loading"
-                @click="refreshKnowledgeBase(selectedSpaceId)">
-                <ReloadOutlined :class="loading ? 'animate-spin' : ''" />
-                刷新
-              </OButton>
-              <div
-                class="min-w-15 shrink-0 rounded-full border border-black/8 bg-zinc-100 px-3 py-2 text-center text-xs font-bold text-zinc-900">
-                {{ visibleDocuments.length }} 篇
-              </div>
-            </div>
-          </div>
-
-          <OCard
-            v-if="!selectedSpace"
-            tone="warning"
-            padding="md"
-            class="mb-4.5">
-            <div>
-              <div class="text-base font-bold text-zinc-900">
-                未归类文档过渡区
-              </div>
-              <div
-                class="mt-2 max-w-190 text-[13px] leading-[1.7] text-zinc-600">
-                当前是历史遗留数据的过渡视图。建议尽快创建正式知识空间，并将这些文档迁移到目标空间以重建索引。
-              </div>
-            </div>
-            <div
-              class="mt-4 flex items-start justify-between gap-4 border-t border-[rgba(180,125,29,0.12)] pt-4 max-[720px]:flex-col">
-              <div>
-                <div class="text-sm font-bold text-[#9f670f]">
-                  迁移时会重新 embedding
-                </div>
-                <div class="mt-1 text-[13px] leading-[1.6] text-zinc-500">
-                  批量迁移会把目标空间的元数据重新写入这些文档，并重建对应向量索引，请尽量在低峰时段操作。
-                </div>
-              </div>
-              <div
-                class="flex flex-wrap justify-end gap-2.5 max-[720px]:w-full max-[720px]:justify-stretch">
-                <OButton
-                  v-if="spaceSummary.ungrouped_documents > 0"
-                  variant="warning"
-                  class="min-w-38.5"
-                  :disabled="hasActiveTask"
-                  @click="openMigrationModal">
-                  <WarningOutlined />
-                  批量迁移并重建索引
-                </OButton>
-                <OButton
-                  variant="secondary"
-                  class="min-w-38.5"
-                  :disabled="hasActiveTask"
-                  @click="openCreateSpaceModal()">
-                  <PlusOutlined />
-                  新建顶级空间
-                </OButton>
-              </div>
-            </div>
-          </OCard>
-
-          <div
-            v-if="loading && documents.length === 0"
-            class="flex flex-col items-center justify-center rounded-[18px] border border-dashed border-black/12 bg-[rgba(250,250,250,0.5)] px-5 py-10.5 text-center text-zinc-500">
-            <LoadingOutlined class="mb-3 animate-spin text-3xl text-zinc-400" />
-            <p>正在加载文档列表...</p>
-          </div>
-          <div v-else-if="visibleDocuments.length === 0" class="mt-2">
-            <OEmptyState
-              :title="selectedSpace ? '当前空间暂无直属文档' : '暂无未归类文档'"
-              :description="
-                selectedSpace
-                  ? '可以先上传文件，或进入子空间继续查看。'
-                  : '历史遗留数据已全部归类或本身为空。'
-              ">
-              <template #icon>
-                <DatabaseOutlined class="text-[32px] text-muted p-2" />
-              </template>
-            </OEmptyState>
-          </div>
-          <div
-            v-else
-            class="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3 max-[720px]:grid-cols-1">
-            <TransitionGroup
-              enter-active-class="transition duration-200 ease-out"
-              leave-active-class="transition duration-200 ease-out"
-              enter-from-class="translate-y-3 opacity-0"
-              leave-to-class="translate-y-3 opacity-0">
-              <OCard
-                v-for="doc in visibleDocuments"
-                :key="doc.doc_id"
-                padding="md"
-                class="kb-doc-card">
-                <div
-                  class="flex items-center justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
-                  <div class="flex min-w-0 flex-1 items-start gap-3">
-                    <div
-                      class="flex h-10.5 w-10.5 shrink-0 items-center justify-center rounded-[14px] bg-zinc-100">
-                      <component
-                        :is="getFileIcon(doc.filename)"
-                        class="shrink-0 text-lg text-zinc-600" />
-                    </div>
-                    <h3
-                      class="wrap-break-word text-sm leading-normal font-bold text-zinc-900"
-                      :title="doc.filename">
-                      {{ doc.filename }}
-                    </h3>
-                  </div>
-                  <button
-                    class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-transparent text-[#9e3328] transition hover:bg-[rgba(177,55,42,0.08)] disabled:cursor-not-allowed disabled:opacity-55"
-                    type="button"
-                    title="删除文档"
-                    @click="openDeleteDocumentConfirm(doc)">
-                    <DeleteOutlined />
-                  </button>
-                </div>
-
-                <div class="mt-3.5 flex flex-wrap gap-2">
-                  <span
-                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-                    {{ formatMetadata(doc.category) }}
-                  </span>
-                  <span
-                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-                    {{ formatMetadata(doc.knowledge_space) }}
-                  </span>
-                  <span
-                    v-if="doc.topic"
-                    class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-                    {{ doc.topic }}
-                  </span>
-                  <template v-if="doc.tags">
-                    <span
-                      v-for="tag in formatTagList(doc.tags)"
-                      :key="`${doc.doc_id}-${tag}`"
-                      class="inline-flex min-h-7.5 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-                      {{ tag }}
-                    </span>
-                  </template>
-                  <span
-                    v-if="doc.version_label"
-                    class="inline-flex min-h-7.5 items-center rounded-full bg-[rgba(37,99,65,0.12)] px-2.5 py-1 text-xs font-semibold text-[#1f6b42]">
-                    {{ doc.version_label }}
-                  </span>
-                </div>
-
-                <div
-                  class="mt-4 flex flex-wrap items-center justify-between gap-6 max-[720px]:flex-col max-[720px]:items-stretch">
-                  <div class="flex items-center gap-2">
-                    <span
-                      class="text-[13px] leading-[1.7] text-(--color-text-muted)">
-                      上传于
-                    </span>
-                    <span
-                      class="text-[13px] leading-[1.7] text-(--color-text-muted)">
-                      {{ formatDate(doc.upload_time) }}
-                    </span>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span
-                      class="inline-flex min-h-7 items-center rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-600">
-                      {{ formatChunkCount(doc.chunk_count) }}
-                    </span>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <span
-                      :class="[
-                        'inline-flex min-h-7 items-center rounded-full px-2.5 py-1 text-xs font-semibold',
-                        doc.image_count > 0
-                          ? 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]'
-                          : 'bg-zinc-100 text-zinc-600'
-                      ]">
-                      {{ formatImageCount(doc.image_count) }}
-                    </span>
-                  </div>
-                </div>
-              </OCard>
-            </TransitionGroup>
           </div>
         </OCard>
       </div>
     </section>
 
+    <div class="grid grid-cols-[300px_minmax(0,1fr)] gap-4 max-lg:grid-cols-1">
+      <OCard padding="sm" class="min-h-128 flex flex-col gap-2">
+        <div
+          class="flex items-center justify-between gap-3 border-b border-(--oui-color-border)/80 px-1 pb-2.5">
+          <div>
+            <div class="text-sm font-semibold text-(--oui-color-heading)">
+              知识库列表
+            </div>
+            <div class="text-xs leading-5 text-(--oui-color-text-muted)">
+              您的知识库集合。
+            </div>
+          </div>
+          <OBadge tone="neutral">{{ spaces.length }}</OBadge>
+        </div>
+
+        <div
+          v-if="loading"
+          class="flex min-h-105 items-center justify-center text-sm text-(--oui-color-text-muted)">
+          <LoadingOutlined class="mr-2 spin" />
+          正在同步知识库...
+        </div>
+
+        <div v-else-if="spaces.length > 0" class="mt-3 space-y-3">
+          <button
+            v-for="space in spaces"
+            :key="space.space_id"
+            type="button"
+            :class="[
+              'w-full rounded-[18px] border px-3.5 py-3 text-left transition-all duration-200',
+              selectedSpaceId === space.space_id
+                ? 'border-[rgba(199,118,34,0.28)] bg-[rgba(255,240,219,0.78)] shadow-[0_12px_28px_rgba(148,93,37,0.1)]'
+                : 'border-(--oui-color-border) bg-white hover:border-(--oui-color-border-strong) hover:bg-(--oui-color-surface-soft)'
+            ]"
+            @click="selectSpace(space.space_id)">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div
+                  class="truncate text-sm font-semibold text-(--oui-color-heading)">
+                  {{ space.name }}
+                </div>
+                <div
+                  class="mt-1 text-xs leading-5 text-(--oui-color-text-muted)">
+                  {{ space.description || '暂无说明' }}
+                </div>
+              </div>
+              <OBadge tone="neutral">{{ space.document_count || 0 }}</OBadge>
+            </div>
+
+            <div
+              v-if="buildTagList(space.tags).length > 0"
+              class="mt-2.5 flex flex-wrap gap-1.5">
+              <span
+                v-for="tag in buildTagList(space.tags)"
+                :key="tag"
+                class="rounded-full bg-white/88 px-2.5 py-1 text-[11px] font-medium text-[#8a4b12] border border-[rgba(199,118,34,0.12)]">
+                {{ tag }}
+              </span>
+            </div>
+          </button>
+        </div>
+
+        <div v-else class="py-10">
+          <OEmptyState
+            title="暂无知识库"
+            description="点击右上角新建以开始。" />
+        </div>
+      </OCard>
+
+      <div class="space-y-3 flex flex-col gap-4">
+        <OCard
+          v-if="selectedSpace"
+          padding="none"
+          class="px-4 py-3.5 sm:px-5 sm:py-4">
+          <div
+            class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-4">
+            <div class="space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <div class="text-xl font-semibold text-(--oui-color-heading)">
+                  {{ selectedSpace.name }}
+                </div>
+                <OBadge tone="neutral">
+                  {{ visibleDocuments.length }} 篇文档
+                </OBadge>
+              </div>
+              <div
+                class="max-w-2xl text-sm leading-5.5 text-(--oui-color-text-secondary)">
+                {{ selectedSpace.description || '暂无说明。' }}
+              </div>
+              <div
+                class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-(--oui-color-text-muted)">
+                <span>创建于 {{ formatDate(selectedSpace.created_at) }}</span>
+                <span v-if="selectedSpace.updated_at">
+                  最近更新 {{ formatDate(selectedSpace.updated_at) }}
+                </span>
+              </div>
+              <div
+                v-if="buildTagList(selectedSpace.tags).length > 0"
+                class="flex flex-wrap gap-1.5 pt-0.5">
+                <span
+                  v-for="tag in buildTagList(selectedSpace.tags)"
+                  :key="tag"
+                  class="rounded-full bg-(--oui-color-primary-soft) px-2.5 py-1 text-[11px] font-medium text-(--oui-color-primary)">
+                  {{ tag }}
+                </span>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 sm:justify-end sm:self-start">
+              <OButton variant="ghost" @click="openEditSpaceModal">
+                <EditOutlined />
+                编辑
+              </OButton>
+              <OButton variant="ghost" @click="openUploadModal">
+                <UploadOutlined />
+                上传文档
+              </OButton>
+              <OButton variant="danger" @click="openDeleteSpaceConfirm">
+                <DeleteOutlined />
+                删除知识库
+              </OButton>
+            </div>
+          </div>
+        </OCard>
+
+        <OCard
+          padding="none"
+          class="px-4 py-3.5 sm:px-5 sm:py-4 flex flex-col gap-2">
+          <div
+            class="flex items-center justify-between gap-3 border-b border-(--oui-color-border)/80 px-1 pb-2.5">
+            <div>
+              <div class="text-sm font-semibold text-(--oui-color-heading)">
+                文档列表
+              </div>
+              <div class="text-xs leading-5 text-(--oui-color-text-muted)">
+                {{
+                  selectedSpace
+                    ? '当前知识库的文档与索引。'
+                    : '请先选择要查看的知识库。'
+                }}
+              </div>
+            </div>
+            <OBadge tone="neutral">{{ visibleDocuments.length }}</OBadge>
+          </div>
+
+          <div v-if="!selectedSpace" class="py-12">
+            <OEmptyState
+              title="请选择知识库"
+              description="请在左侧选择要查看的知识库。" />
+          </div>
+
+          <div v-else-if="visibleDocuments.length === 0" class="py-12">
+            <OEmptyState
+              title="当前知识库还没有文档"
+              description="上传文档后，系统将自动构建索引。" />
+          </div>
+
+          <div v-else class="mt-3 space-y-3">
+            <OPanelRow
+              v-for="doc in visibleDocuments"
+              :key="doc.doc_id"
+              class="items-start gap-3 rounded-[18px] border border-(--oui-color-border) px-3.5 py-3.5">
+              <div class="flex min-w-0 flex-1 items-start gap-2.5">
+                <component
+                  :is="getFileIcon(doc.filename)"
+                  class="mt-0.5 text-lg text-(--oui-color-primary)" />
+                <div class="min-w-0 flex-1 space-y-1.5">
+                  <div>
+                    <div
+                      class="truncate text-sm font-semibold text-(--oui-color-heading)">
+                      {{ doc.filename }}
+                    </div>
+                    <div
+                      class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-(--oui-color-text-muted)">
+                      <span>{{ formatDate(doc.upload_time) }}</span>
+                      <span>{{ formatChunkCount(doc.chunk_count) }}</span>
+                      <span>{{ formatImageCount(doc.image_count) }}</span>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="buildTagList(doc.tags).length > 0"
+                    class="flex flex-wrap gap-1.5">
+                    <span
+                      v-for="tag in buildTagList(doc.tags)"
+                      :key="`${doc.doc_id}-${tag}`"
+                      class="rounded-full bg-(--oui-color-surface-soft) px-2.5 py-1 text-[11px] font-medium text-(--oui-color-text-secondary)">
+                      {{ tag }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <OButton
+                variant="ghost"
+                :disabled="deletingDocumentId === doc.doc_id"
+                @click="openDeleteDocumentConfirm(doc)">
+                <DeleteOutlined />
+                删除
+              </OButton>
+            </OPanelRow>
+          </div>
+        </OCard>
+      </div>
+    </div>
+
     <KnowledgeSpaceCreateModal
       :visible="createModalVisible"
-      :submitting="creatingSpace"
-      :spaces="flatSpaces"
-      :category-options="CATEGORY_OPTIONS"
+      :submitting="submittingSpace"
+      :mode="createModalMode"
       :initial-form="createSpaceForm"
       @close="closeCreateSpaceModal"
-      @submit="createSpace" />
-
-    <KnowledgeDangerConfirmModal
-      :visible="dangerConfirm.visible"
-      :title="dangerConfirm.title"
-      :message="dangerConfirm.message"
-      :impact-stats="dangerConfirm.impactStats"
-      :impact-items="dangerConfirm.impactItems"
-      :confirm-text="dangerConfirm.confirmText"
-      :submitting="deletingSpace || !!deletingDocumentId"
-      @close="closeDangerConfirm"
-      @confirm="confirmDangerAction" />
+      @submit="submitSpaceForm" />
 
     <KnowledgeUploadModal
       :visible="uploadModalVisible"
@@ -1598,13 +1052,16 @@ onBeforeUnmount(() => {
       @close="closeUploadModal"
       @submit="handleUploadSubmit" />
 
-    <UngroupedMigrationModal
-      :visible="migrationModalVisible"
-      :submitting="migratingUngrouped"
-      :spaces="flatSpaces"
-      :ungrouped-documents="ungroupedDocuments"
-      @close="closeMigrationModal"
-      @submit="handleUngroupedMigration" />
+    <KnowledgeDangerConfirmModal
+      :visible="dangerConfirm.visible"
+      :title="dangerConfirm.title"
+      :message="dangerConfirm.message"
+      :confirm-text="dangerConfirm.confirmText"
+      :impact-stats="dangerConfirm.impactStats"
+      :impact-items="dangerConfirm.impactItems"
+      :submitting="deletingSpace || !!deletingDocumentId"
+      @close="closeDangerConfirm"
+      @confirm="handleDangerConfirm" />
 
     <KnowledgeBaseTaskProgressModal
       :visible="taskProgressVisible"
