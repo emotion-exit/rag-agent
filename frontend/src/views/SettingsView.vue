@@ -8,21 +8,16 @@ import {
   CheckCircleOutlined,
   CloudServerOutlined,
   DownOutlined,
-  FolderOpenOutlined,
-  ReloadOutlined,
   WarningOutlined
 } from '@ant-design/icons-vue';
-import {
-  cloneDefaultDesktopConfig,
-  getApiBase,
-  isDesktopApp,
-  type DesktopAppConfig
-} from '@/services/runtime';
+import { getApiBase } from '@/services/runtime';
 import {
   buildPublicConfigHeaders,
+  cloneDefaultPublicFrontendConfig,
   loadPublicFrontendConfig,
   resetPublicFrontendConfig,
-  savePublicFrontendConfig
+  savePublicFrontendConfig,
+  type PublicFrontendConfig
 } from '@/services/publicConfig';
 import {
   OBadge,
@@ -35,14 +30,13 @@ import {
 } from '@/orange-ui';
 import { cn } from '@/utils/cn';
 
-const isDesktop = isDesktopApp();
 const apiBase = getApiBase();
-const form = reactive<DesktopAppConfig>(cloneDefaultDesktopConfig());
+const form = reactive<PublicFrontendConfig>(cloneDefaultPublicFrontendConfig());
 const loading = ref(false);
 const saving = ref(false);
-const health = ref<'unknown' | 'online' | 'offline' | 'restarting'>('unknown');
+const health = ref<'unknown' | 'online' | 'offline'>('unknown');
 const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
-const advancedExpanded = ref(!isDesktop);
+const advancedExpanded = ref(true);
 const providerHealthLoading = ref(false);
 const providerHealth = ref<Record<string, ProviderHealthItem>>({});
 const oToast = useOToast();
@@ -52,23 +46,16 @@ interface ProviderHealthItem {
   configured: boolean;
   message?: string;
   detail?: string;
-  base_url: string;
-  model: string;
+  base_url?: string;
+  model?: string;
   provider?: string;
   probe_mode?: string;
   token_usage?: string;
-  http_status?: number;
 }
 
 interface ProviderHealthResponse {
   status: string;
   providers?: Record<string, ProviderHealthItem>;
-}
-
-interface AdvancedSettingGroup {
-  key: string;
-  title: string;
-  description: string;
 }
 
 interface EffectRuleItem {
@@ -77,108 +64,51 @@ interface EffectRuleItem {
   tone: 'success' | 'warning' | 'neutral';
 }
 
-const advancedSettingGroups: AdvancedSettingGroup[] = [
+const effectRuleItems: EffectRuleItem[] = [
   {
-    key: 'request-metadata',
-    title: '请求元信息',
-    description:
-      '用于向上游网关传递应用来源、应用名称与请求标签等非敏感元信息。'
+    title: '下一次请求立即生效',
+    detail:
+      '公开高级设置保存在当前浏览器，并会自动附带到下一次聊天、知识库和来源详情请求。',
+    tone: 'success'
   },
   {
-    key: 'embedding-strategy',
-    title: 'Embedding 策略',
-    description: '控制向量化 provider、token 统计方式与切分上限。'
+    title: '不会改写后端基础凭据',
+    detail:
+      'Web 端只发送公开参数，不暴露也不覆盖服务端托管的 API Key、Base URL 和 Model。',
+    tone: 'neutral'
   },
   {
-    key: 'retrieval-strategy',
-    title: '检索策略',
-    description: '控制召回、重排、上下文保留与问题扩写数量。'
-  },
-  {
-    key: 'storage-runtime',
-    title: '存储与运行时',
-    description: '控制本地目录与跨域来源等运行环境参数。'
+    title: '仅保留 Web 所需配置',
+    detail: '当前分支已精简为纯 Web 形态，设置页只保留浏览器侧公开能力。',
+    tone: 'warning'
   }
 ];
-const requestMetadataGroup = advancedSettingGroups[0]!;
-const embeddingStrategyGroup = advancedSettingGroups[1]!;
-const retrievalStrategyGroup = advancedSettingGroups[2]!;
-const storageRuntimeGroup = advancedSettingGroups[3]!;
 
-const effectRuleItems = computed<EffectRuleItem[]>(() => {
-  if (isDesktop) {
-    return [
-      {
-        title: '保存后随服务重启生效',
-        detail:
-          '桌面端配置会写入本地 config，并在保存后自动重启内置后端；新的对话、检索与上传请求会使用最新参数。',
-        tone: 'warning'
-      },
-      {
-        title: '仅当前浏览器下一次请求立即生效',
-        detail:
-          '该规则主要适用于 Web 公开设置模式；桌面端不会跳过重启直接热更新后端运行参数。',
-        tone: 'neutral'
-      },
-      {
-        title: '仅桌面端可配置',
-        detail:
-          'API Key、Base URL、Model、本地目录和 CORS 等运行参数只在桌面端展示。',
-        tone: 'neutral'
-      }
-    ];
-  }
-
-  return [
-    {
-      title: '下一次请求立即生效',
-      detail:
-        '公开高级设置保存在当前浏览器，并随聊天、知识库、来源详情等下一次请求自动附带到后端。',
-      tone: 'success'
-    },
-    {
-      title: '不会修改后端基础凭据',
-      detail:
-        'Web 模式只允许调整公开参数，不会覆盖服务端或桌面端保存的 API Key、Base URL 与 Model。',
-      tone: 'neutral'
-    },
-    {
-      title: '仅桌面端可配置',
-      detail: '目录、CORS 和敏感 provider 凭据等运行参数不会在 Web 端显示。',
-      tone: 'warning'
-    }
-  ];
+const healthText = computed(() => {
+  if (health.value === 'online') return '后端服务运行中';
+  if (health.value === 'offline') return '后端服务不可用';
+  return '等待检测服务状态';
 });
 
-const advancedSettingsEffectText = computed(() =>
-  isDesktop
-    ? '桌面端高级设置会在点击“保存配置并重启服务”后统一生效。'
-    : '这些高级设置会在当前浏览器的下一次请求中立即生效。'
-);
+const providerEntries = computed(() => [
+  {
+    key: 'embedding',
+    title: 'Embedding',
+    item: providerHealth.value.embedding
+  },
+  { key: 'reranker', title: 'Reranker', item: providerHealth.value.reranker },
+  { key: 'chat', title: 'Chat', item: providerHealth.value.chat }
+]);
 
-const requestMetadataEffectText = computed(() =>
-  isDesktop
-    ? '请求元信息属于桌面端运行配置的一部分，保存后会随服务重启生效。'
-    : '请求元信息会在当前浏览器的下一次对话或检测请求中立即生效。'
-);
+watch(notice, (nextNotice) => {
+  if (!nextNotice) return;
+  if (nextNotice.type === 'error') {
+    oToast.error(nextNotice.text);
+    return;
+  }
 
-const embeddingStrategyEffectText = computed(() =>
-  isDesktop
-    ? 'Embedding 策略会影响后续上传切分、向量化与 token 统计，保存后重启生效。'
-    : 'Embedding 策略会影响后续上传与向量化请求，下一次请求立即生效。'
-);
-
-const retrievalStrategyEffectText = computed(() =>
-  isDesktop
-    ? '检索策略会影响后续召回、重排、上下文保留与扩写，保存后重启生效。'
-    : '检索策略会影响后续聊天检索请求，下一次请求立即生效。'
-);
-
-const storageRuntimeEffectText = computed(() =>
-  isDesktop
-    ? '存储与运行时参数属于桌面端本地服务配置，保存后重启生效。'
-    : '这一组参数只在桌面端可配置。'
-);
+  oToast.success(nextNotice.text);
+});
 
 function getEffectRuleToneClass(tone: EffectRuleItem['tone']) {
   if (tone === 'success') {
@@ -192,34 +122,13 @@ function getEffectRuleToneClass(tone: EffectRuleItem['tone']) {
   return 'border-black/8 bg-black/3 text-zinc-700';
 }
 
-const healthText = computed(() => {
-  if (health.value === 'online') return '后端服务运行中';
-  if (health.value === 'restarting') return '正在重启本地知识库服务';
-  if (health.value === 'offline') return '后端服务不可用';
-  return '等待检测服务状态';
-});
-
-const providerEntries = computed(() => {
-  return [
-    {
-      key: 'embedding',
-      title: 'Embedding',
-      item: providerHealth.value.embedding
-    },
-    { key: 'reranker', title: 'Reranker', item: providerHealth.value.reranker },
-    { key: 'chat', title: 'Chat', item: providerHealth.value.chat }
-  ];
-});
-
-watch(notice, (nextNotice) => {
-  if (!nextNotice) return;
-  if (nextNotice.type === 'error') {
-    oToast.error(nextNotice.text);
-    return;
-  }
-
-  oToast.success(nextNotice.text);
-});
+function getStatusVariant(
+  status: 'unknown' | 'online' | 'offline'
+): 'success' | 'danger' | 'warning' {
+  if (status === 'online') return 'success';
+  if (status === 'offline') return 'danger';
+  return 'warning';
+}
 
 function getProviderStateLabel(status: string) {
   if (status === 'ok') return '连接正常';
@@ -229,20 +138,6 @@ function getProviderStateLabel(status: string) {
   if (status === 'network_error') return '网络异常';
   if (status === 'upstream_error') return '上游异常';
   return '待检测';
-}
-
-function getStatusVariant(
-  status: 'unknown' | 'online' | 'offline' | 'restarting'
-): 'success' | 'danger' | 'warning' {
-  if (status === 'online') {
-    return 'success';
-  }
-
-  if (status === 'offline') {
-    return 'danger';
-  }
-
-  return 'warning';
 }
 
 function getProviderCardTone(
@@ -300,36 +195,11 @@ function formatTokenUsage(tokenUsage?: string) {
   return tokenUsage;
 }
 
-async function resolveBackendApiBase() {
-  if (!window.desktopApp) {
-    return apiBase;
-  }
-
-  const status = await window.desktopApp.getBackendStatus();
-  return status.apiBase || apiBase;
-}
-
 async function refreshHealth() {
-  if (!window.desktopApp) {
-    try {
-      const response = await fetch(`${apiBase}/health/public`, {
-        headers: buildPublicConfigHeaders(form)
-      });
-      health.value = response.ok ? 'online' : 'offline';
-    } catch {
-      health.value = 'offline';
-    }
-    return;
-  }
-
   try {
-    const status = await window.desktopApp.getBackendStatus();
-    if (!status.ready) {
-      health.value = 'offline';
-      return;
-    }
-
-    const response = await fetch(`${status.apiBase}/health`);
+    const response = await fetch(`${apiBase}/health/public`, {
+      headers: buildPublicConfigHeaders(form)
+    });
     health.value = response.ok ? 'online' : 'offline';
   } catch {
     health.value = 'offline';
@@ -340,15 +210,9 @@ async function checkProviderHealth(options?: { silent?: boolean }) {
   providerHealthLoading.value = true;
 
   try {
-    const backendApiBase = await resolveBackendApiBase();
-    const response = await fetch(
-      `${backendApiBase}${isDesktop ? '/health/providers' : '/health/providers/public'}`,
-      isDesktop
-        ? undefined
-        : {
-            headers: buildPublicConfigHeaders(form)
-          }
-    );
+    const response = await fetch(`${apiBase}/health/providers/public`, {
+      headers: buildPublicConfigHeaders(form)
+    });
     const data = (await response.json()) as ProviderHealthResponse;
 
     if (!response.ok) {
@@ -377,25 +241,15 @@ async function loadConfig() {
   notice.value = null;
 
   try {
-    if (window.desktopApp) {
-      Object.assign(
-        form,
-        cloneDefaultDesktopConfig(),
-        await window.desktopApp.getConfig()
-      );
-      await refreshHealth();
-      await checkProviderHealth({ silent: true });
-    } else {
-      Object.assign(
-        form,
-        cloneDefaultDesktopConfig(),
-        loadPublicFrontendConfig()
-      );
-      await refreshHealth();
-      await checkProviderHealth({ silent: true });
-    }
+    Object.assign(
+      form,
+      cloneDefaultPublicFrontendConfig(),
+      loadPublicFrontendConfig()
+    );
+    await refreshHealth();
+    await checkProviderHealth({ silent: true });
   } catch (error) {
-    health.value = isDesktop ? 'offline' : 'unknown';
+    health.value = 'unknown';
     notice.value = {
       type: 'error',
       text: error instanceof Error ? error.message : '读取配置失败。'
@@ -412,28 +266,19 @@ async function saveConfig() {
   notice.value = null;
 
   try {
-    if (window.desktopApp) {
-      health.value = 'restarting';
-      const saved = await window.desktopApp.saveConfig({ ...form });
-      Object.assign(form, cloneDefaultDesktopConfig(), saved);
-      notice.value = { type: 'success', text: '配置已保存，内置服务已重启。' };
-      await refreshHealth();
-      await checkProviderHealth({ silent: true });
-    } else {
-      Object.assign(
-        form,
-        cloneDefaultDesktopConfig(),
-        savePublicFrontendConfig(form)
-      );
-      await refreshHealth();
-      await checkProviderHealth({ silent: true });
-      notice.value = {
-        type: 'success',
-        text: '浏览器公开设置已保存，新的请求将自动使用这些参数。'
-      };
-    }
+    Object.assign(
+      form,
+      cloneDefaultPublicFrontendConfig(),
+      savePublicFrontendConfig(form)
+    );
+    await refreshHealth();
+    await checkProviderHealth({ silent: true });
+    notice.value = {
+      type: 'success',
+      text: '浏览器公开设置已保存，新的请求将自动使用这些参数。'
+    };
   } catch (error) {
-    health.value = isDesktop ? 'offline' : 'unknown';
+    health.value = 'unknown';
     notice.value = {
       type: 'error',
       text: error instanceof Error ? error.message : '保存配置失败。'
@@ -443,49 +288,20 @@ async function saveConfig() {
   }
 }
 
-function resetWebConfig() {
-  if (window.desktopApp || saving.value) return;
+async function resetWebConfig() {
+  if (saving.value) return;
 
-  Object.assign(form, cloneDefaultDesktopConfig(), resetPublicFrontendConfig());
-  refreshHealth();
-  checkProviderHealth({ silent: true });
+  Object.assign(
+    form,
+    cloneDefaultPublicFrontendConfig(),
+    resetPublicFrontendConfig()
+  );
+  await refreshHealth();
+  await checkProviderHealth({ silent: true });
   notice.value = {
     type: 'success',
     text: '浏览器公开设置已恢复默认值。'
   };
-}
-
-async function restartBackend() {
-  if (!window.desktopApp) return;
-
-  health.value = 'restarting';
-  notice.value = null;
-
-  try {
-    await window.desktopApp.restartBackend();
-    await refreshHealth();
-    await checkProviderHealth({ silent: true });
-    notice.value = { type: 'success', text: '本地服务已手动重启。' };
-  } catch (error) {
-    health.value = 'offline';
-    notice.value = {
-      type: 'error',
-      text: error instanceof Error ? error.message : '重启本地服务失败。'
-    };
-  }
-}
-
-async function pickDirectory(field: 'CHROMA_PERSIST_DIR' | 'UPLOAD_DIR') {
-  if (!window.desktopApp) return;
-
-  const selected = await window.desktopApp.pickDirectory(form[field]);
-  if (selected) {
-    form[field] = selected;
-  }
-}
-
-async function openDataDirectory() {
-  await window.desktopApp?.openDataDirectory();
 }
 
 function toggleAdvanced() {
@@ -493,7 +309,7 @@ function toggleAdvanced() {
 }
 
 onMounted(() => {
-  loadConfig();
+  void loadConfig();
 });
 </script>
 
@@ -505,18 +321,15 @@ onMounted(() => {
       <div>
         <div
           class="mb-2 text-[11px] font-bold uppercase tracking-[0.08em] text-muted">
-          {{ isDesktop ? 'Desktop Runtime' : 'Web Runtime' }}
+          Web Runtime
         </div>
         <h1
           class="m-0 text-[24px] leading-[1.08] font-bold tracking-tight text-heading max-[768px]:text-[22px]">
-          {{ isDesktop ? '本地服务配置' : '公开高级设置' }}
+          公开高级设置
         </h1>
         <p class="mt-1.5 max-w-160 text-[13px] leading-[1.6] text-secondary">
-          {{
-            isDesktop
-              ? '桌面端可配置完整运行参数；敏感 API 凭据仍保存在本地环境。'
-              : 'Web 端对用户开放公开高级设置，配置保存在当前浏览器，并会随请求发送给后端；基础 API 配置不会在前端暴露。'
-          }}
+          当前分支为纯 Web
+          版本。这里保存的是浏览器侧公开参数，会随请求发送给后端，但不会暴露服务端基础凭据。
         </p>
       </div>
       <div
@@ -528,13 +341,12 @@ onMounted(() => {
       </div>
     </OCard>
 
-    <OCard v-if="!isDesktop" tone="warning" class="flex items-center gap-4">
+    <OCard tone="warning" class="flex items-center gap-4">
       <WarningOutlined class="text-[26px] text-[#9e3328]" />
       <div>
-        <h2>当前为 Web 公开设置模式</h2>
+        <h2>当前为纯 Web 模式</h2>
         <p>
-          当前页面对 Web 用户开放，但仅显示不会泄露凭据的高级设置。基础 API
-          Key、Base URL 与 Model 仍由服务端或桌面端托管。
+          本地壳层、运行时桥接和桌面专属目录管理能力都已移除，当前页面只保留浏览器可安全调整的公开参数。
         </p>
       </div>
     </OCard>
@@ -547,18 +359,13 @@ onMounted(() => {
             生效规则
           </div>
           <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
-            {{
-              isDesktop
-                ? '桌面端配置统一通过“保存配置并重启服务”生效；Web 模式则以请求级覆盖为主。'
-                : 'Web 模式的公开设置会作为请求级覆盖附带给后端，不修改服务端基础配置。'
-            }}
+            Web
+            模式下的公开设置会作为请求级覆盖附带给后端，不修改服务端的基础模型凭据和部署配置。
           </div>
         </div>
         <div
           class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-          {{
-            isDesktop ? '当前模式：Desktop Runtime' : '当前模式：Web Runtime'
-          }}
+          当前模式：Web Runtime
         </div>
       </div>
 
@@ -580,53 +387,210 @@ onMounted(() => {
       </div>
     </OCard>
 
-    <section
-      class="grid grid-cols-[minmax(0,1fr)] gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
-      <OCard v-if="isDesktop" padding="lg" class="flex flex-col gap-3.5">
-        <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
-          能力配置
-        </div>
+    <OCard padding="lg" class="flex flex-col gap-3.5">
+      <div
+        class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
+        @click="toggleAdvanced">
+        <span>公开高级设置</span>
+        <DownOutlined
+          :class="[
+            'transition-transform duration-200',
+            advancedExpanded ? 'rotate-180' : ''
+          ]" />
+      </div>
+      <div v-if="advancedExpanded" class="flex flex-col gap-3">
+        <p class="text-zinc-500 leading-[1.7]">
+          这些参数会保存在当前浏览器，并自动附带到聊天、知识库和来源详情请求中。
+        </p>
         <div
-          class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-          <!-- Dialogue Section -->
+          class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-xs leading-6 text-zinc-700">
+          新参数会在当前浏览器的下一次请求中立即生效。
+        </div>
+
+        <div class="flex flex-col gap-4 pt-1.5">
           <OFormSection
-            title="Dialogue (对话)"
+            title="请求元信息"
+            description="用于向上游网关传递应用来源、应用名称与请求标签等非敏感元信息。下一次请求立即生效。"
             padding="sm"
-            class="flex flex-col gap-3"
-            header-spacing="compact">
-            <div class="flex flex-col gap-3">
+            class="flex flex-col gap-4">
+            <div
+              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
               <OFormItem
-                label="对话 API Key"
-                help="对话模型请求使用的密钥。具体由你接入的 LiteLLM 后端或代理策略决定。"
+                label="请求来源地址"
+                help="当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。"
                 class="gap-1.5">
                 <OInput
-                  v-model="form.CHAT_API_KEY"
-                  type="password"
-                  placeholder="用于对话能力调用" />
-              </OFormItem>
-
-              <OFormItem
-                label="对话 EndPoint"
-                help="对话请求发送到的接口地址。由于底层走 LiteLLM，这里不限定具体服务商。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.CHAT_BASE_URL"
+                  v-model="form.OPENROUTER_SITE_URL"
                   type="text"
-                  placeholder="请输入对话接口地址" />
+                  placeholder="https://localhost.invalid" />
               </OFormItem>
 
               <OFormItem
-                label="对话 Model"
-                help="对话能力使用的模型标识，格式由你的 LiteLLM 路由规则决定。"
+                label="应用名称"
+                help="当上游网关需要记录请求来自哪个客户端时使用。"
                 class="gap-1.5">
                 <OInput
-                  v-model="form.CHAT_MODEL"
+                  v-model="form.OPENROUTER_APP_TITLE"
                   type="text"
-                  placeholder="请输入对话模型标识" />
+                  placeholder="RAG.Agent Web" />
               </OFormItem>
 
               <OFormItem
-                label="温度"
+                label="请求分类标签"
+                help="请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。"
+                class="col-span-2 gap-1.5 max-[768px]:col-span-1">
+                <OInput
+                  v-model="form.OPENROUTER_CATEGORIES"
+                  type="text"
+                  placeholder="general-chat" />
+              </OFormItem>
+            </div>
+          </OFormSection>
+
+          <OFormSection
+            title="Embedding 策略"
+            description="控制向量化 provider、token 统计方式与切分上限。下一次上传与向量化请求立即生效。"
+            padding="sm"
+            class="flex flex-col gap-4">
+            <div
+              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+              <OFormItem
+                label="Embedding Provider"
+                help="LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI 兼容接口通常填 openai。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_PROVIDER"
+                  type="text"
+                  placeholder="openai" />
+              </OFormItem>
+
+              <OFormItem
+                label="Embedding 最大输入 Token"
+                help="单段文本允许进入嵌入接口的最大 token 数，超过后会自动继续切分。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="512" />
+              </OFormItem>
+
+              <OFormItem
+                label="Embedding 目标分块 Token"
+                help="二次切分时的目标大小。建议小于最大输入 token，上调会减少 chunk 数。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="384" />
+              </OFormItem>
+
+              <OFormItem
+                label="Embedding 重叠 Token"
+                help="相邻分块之间保留的上下文 token 数，用于降低切分边界带来的信息断裂。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="48" />
+              </OFormItem>
+
+              <OFormItem
+                label="Embedding Tokenizer Model"
+                help="用于 token 计数的模型标识；留空时默认跟随当前 embedding model。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_TOKENIZER_MODEL"
+                  type="text"
+                  placeholder="留空时跟随 embedding provider 配置" />
+              </OFormItem>
+
+              <OFormItem
+                label="Embedding Tokenizer Encoding"
+                help="tokenizer model 无法直接识别时使用的编码兜底值。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.EMBEDDING_TOKENIZER_ENCODING"
+                  type="text"
+                  placeholder="cl100k_base" />
+              </OFormItem>
+            </div>
+          </OFormSection>
+
+          <OFormSection
+            title="检索策略"
+            description="控制召回、重排、上下文保留与问题扩写数量。下一次聊天检索请求立即生效。"
+            padding="sm"
+            class="flex flex-col gap-4">
+            <div
+              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+              <OFormItem
+                label="Reranker Timeout"
+                help="重排请求超时时间，单位秒，用于控制直连 rerank 接口的等待上限。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RERANKER_REQUEST_TIMEOUT"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="20" />
+              </OFormItem>
+
+              <OFormItem
+                label="召回候选数量"
+                help="每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="12" />
+              </OFormItem>
+
+              <OFormItem
+                label="最终上下文数量"
+                help="重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="3" />
+              </OFormItem>
+
+              <OFormItem
+                label="引用来源数量"
+                help="回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RETRIEVAL_SOURCE_LIMIT"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="3" />
+              </OFormItem>
+
+              <OFormItem
+                label="问题扩写数量"
+                help="口语问题会先扩写出多少个更正式的相近问法再做召回。填 0 表示关闭扩写。"
+                class="gap-1.5">
+                <OInput
+                  v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="2" />
+              </OFormItem>
+
+              <OFormItem
+                label="回答温度"
                 help="控制回答稳定性与发散度。值越低越稳，越高越灵活。"
                 class="gap-1.5">
                 <OInput
@@ -635,364 +599,13 @@ onMounted(() => {
                   min="0"
                   max="1"
                   step="0.1"
-                  placeholder="请输入 0 到 1" />
-              </OFormItem>
-            </div>
-          </OFormSection>
-
-          <!-- Embedding Section -->
-          <OFormSection
-            title="Embedding (嵌入)"
-            padding="sm"
-            class="flex flex-col gap-3"
-            header-spacing="compact">
-            <div class="flex flex-col gap-3">
-              <OFormItem
-                label="嵌入 API Key"
-                help="文档分块和问题向量化所使用的密钥。可以与对话、重排分别使用不同提供商。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_API_KEY"
-                  type="password"
-                  placeholder="用于嵌入能力调用" />
-              </OFormItem>
-
-              <OFormItem
-                label="嵌入 EndPoint"
-                help="嵌入请求发送到的接口地址。可独立于重排和对话配置。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_BASE_URL"
-                  type="text"
-                  placeholder="请输入嵌入接口地址" />
-              </OFormItem>
-
-              <OFormItem
-                label="嵌入 Model"
-                help="文档切片与问题向量化所使用的嵌入模型。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_MODEL"
-                  type="text"
-                  placeholder="请输入嵌入模型标识" />
-              </OFormItem>
-            </div>
-          </OFormSection>
-
-          <!-- Reranker Section -->
-          <OFormSection
-            title="Reranker (重排)"
-            padding="sm"
-            class="flex flex-col gap-3"
-            header-spacing="compact">
-            <div class="flex flex-col gap-3">
-              <OFormItem
-                label="重排 API Key"
-                help="候选片段二次排序所使用的密钥。需要与嵌入或对话分供应商时单独配置这里。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RERANKER_API_KEY"
-                  type="password"
-                  placeholder="用于重排能力调用" />
-              </OFormItem>
-
-              <OFormItem
-                label="重排 EndPoint"
-                help="重排请求发送到的接口地址。可与嵌入完全不同。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RERANKER_BASE_URL"
-                  type="text"
-                  placeholder="请输入重排接口地址" />
-              </OFormItem>
-
-              <OFormItem
-                label="重排 Model"
-                help="用于对召回结果再次排序的模型，决定最终送进上下文窗口的片段优先级。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RERANKER_MODEL"
-                  type="text"
-                  placeholder="请输入重排模型标识" />
+                  placeholder="0" />
               </OFormItem>
             </div>
           </OFormSection>
         </div>
-      </OCard>
-
-      <OCard padding="lg" class="flex flex-col gap-3.5">
-        <div
-          class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
-          @click="toggleAdvanced">
-          <span>{{ isDesktop ? '运行维护' : '公开高级设置' }}</span>
-          <DownOutlined
-            :class="[
-              'transition-transform duration-200',
-              advancedExpanded ? 'rotate-180' : ''
-            ]" />
-        </div>
-        <div v-if="advancedExpanded" class="flex flex-col gap-3">
-          <p class="text-zinc-500 leading-[1.7]">
-            {{
-              isDesktop
-                ? '默认情况下只展示常用能力配置。目录、跨域和请求分类等低频参数放在高级设置里，避免干扰日常使用。'
-                : '这些参数会保存在当前浏览器，并自动附带到聊天、知识库和来源详情请求中。'
-            }}
-          </p>
-          <div
-            class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-xs leading-6 text-zinc-700">
-            {{ advancedSettingsEffectText }}
-          </div>
-
-          <div class="flex flex-col gap-4 pt-1.5">
-            <OFormSection
-              :title="requestMetadataGroup.title"
-              :description="`${requestMetadataGroup.description} ${requestMetadataEffectText}`"
-              padding="sm"
-              class="flex flex-col gap-4">
-              <div
-                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <OFormItem
-                  label="请求来源地址"
-                  help="当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.OPENROUTER_SITE_URL"
-                    type="text"
-                    placeholder="https://localhost.invalid" />
-                </OFormItem>
-
-                <OFormItem
-                  label="应用名称"
-                  help="当上游网关需要记录请求来自哪个客户端时使用。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.OPENROUTER_APP_TITLE"
-                    type="text"
-                    placeholder="RAG.Agent Desktop" />
-                </OFormItem>
-
-                <OFormItem
-                  label="请求分类标签"
-                  help="请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。"
-                  class="col-span-2 gap-1.5 max-[768px]:col-span-1">
-                  <OInput
-                    v-model="form.OPENROUTER_CATEGORIES"
-                    type="text"
-                    placeholder="general-chat" />
-                </OFormItem>
-              </div>
-            </OFormSection>
-
-            <OFormSection
-              :title="embeddingStrategyGroup.title"
-              :description="`${embeddingStrategyGroup.description} ${embeddingStrategyEffectText}`"
-              padding="sm"
-              class="flex flex-col gap-4">
-              <div
-                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <OFormItem
-                  label="Embedding Provider"
-                  help="LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI 兼容接口通常填 openai。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_PROVIDER"
-                    type="text"
-                    placeholder="openai" />
-                </OFormItem>
-
-                <OFormItem
-                  label="Embedding 最大输入 Token"
-                  help="单段文本允许进入嵌入接口的最大 token 数，超过后会自动继续切分。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="512" />
-                </OFormItem>
-
-                <OFormItem
-                  label="Embedding 目标分块 Token"
-                  help="二次切分时的目标大小。建议小于最大输入 token，上调会减少 chunk 数。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="384" />
-                </OFormItem>
-
-                <OFormItem
-                  label="Embedding 重叠 Token"
-                  help="相邻分块之间保留的上下文 token 数，用于降低切分边界带来的信息断裂。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="48" />
-                </OFormItem>
-
-                <OFormItem
-                  label="Embedding Tokenizer Model"
-                  help="用于 token 计数的模型标识；留空时默认跟随当前 embedding model。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_TOKENIZER_MODEL"
-                    type="text"
-                    placeholder="留空时跟随 EMBEDDING_MODEL" />
-                </OFormItem>
-
-                <OFormItem
-                  label="Embedding Tokenizer Encoding"
-                  help="tokenizer model 无法直接识别时使用的编码兜底值。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.EMBEDDING_TOKENIZER_ENCODING"
-                    type="text"
-                    placeholder="cl100k_base" />
-                </OFormItem>
-              </div>
-            </OFormSection>
-
-            <OFormSection
-              :title="retrievalStrategyGroup.title"
-              :description="`${retrievalStrategyGroup.description} ${retrievalStrategyEffectText}`"
-              padding="sm"
-              class="flex flex-col gap-4">
-              <div
-                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <OFormItem
-                  label="Reranker Timeout"
-                  help="重排请求超时时间，单位秒，用于控制直连 rerank 接口的等待上限。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.RERANKER_REQUEST_TIMEOUT"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="20" />
-                </OFormItem>
-
-                <OFormItem
-                  label="召回候选数量"
-                  help="每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="10" />
-                </OFormItem>
-
-                <OFormItem
-                  label="最终上下文数量"
-                  help="重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="3" />
-                </OFormItem>
-
-                <OFormItem
-                  label="引用来源数量"
-                  help="回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.RETRIEVAL_SOURCE_LIMIT"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="3" />
-                </OFormItem>
-
-                <OFormItem
-                  label="问题扩写数量"
-                  help="口语问题会先扩写出多少个更正式的相近问法再做召回。填 0 表示关闭扩写。"
-                  class="gap-1.5">
-                  <OInput
-                    v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="2" />
-                </OFormItem>
-              </div>
-            </OFormSection>
-
-            <OFormSection
-              :title="storageRuntimeGroup.title"
-              :description="`${storageRuntimeGroup.description} ${storageRuntimeEffectText}`"
-              padding="sm"
-              class="flex flex-col gap-4">
-              <div
-                class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-                <OFormItem
-                  v-if="isDesktop"
-                  label="向量库目录"
-                  help="Chroma 持久化目录，保存向量索引与本地检索数据。只有在迁移或隔离数据时才需要修改。"
-                  class="gap-1.5">
-                  <div
-                    class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
-                    <OInput
-                      v-model="form.CHROMA_PERSIST_DIR"
-                      type="text"
-                      placeholder="例如 ./data/chroma" />
-                    <OButton
-                      variant="secondary"
-                      class="shrink-0"
-                      @click="pickDirectory('CHROMA_PERSIST_DIR')">
-                      <FolderOpenOutlined />
-                      选择目录
-                    </OButton>
-                  </div>
-                </OFormItem>
-
-                <OFormItem
-                  v-if="isDesktop"
-                  label="上传文件目录"
-                  help="原始上传文档的存放目录。修改后适合把资料与应用程序分开管理。"
-                  class="gap-1.5">
-                  <div
-                    class="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5 max-[768px]:grid-cols-1">
-                    <OInput
-                      v-model="form.UPLOAD_DIR"
-                      type="text"
-                      placeholder="例如 ./data/uploads" />
-                    <OButton
-                      variant="secondary"
-                      class="shrink-0"
-                      @click="pickDirectory('UPLOAD_DIR')">
-                      <FolderOpenOutlined />
-                      选择目录
-                    </OButton>
-                  </div>
-                </OFormItem>
-
-                <OFormItem
-                  v-if="isDesktop"
-                  label="CORS Origins"
-                  help="允许访问本地后端的前端来源列表。桌面版通常无需调整，联调其他前端时再修改。"
-                  class="col-span-2 gap-1.5 max-[768px]:col-span-1">
-                  <OInput
-                    v-model="form.CORS_ORIGINS"
-                    type="text"
-                    placeholder="http://localhost:5173,http://localhost:3000,null" />
-                </OFormItem>
-              </div>
-            </OFormSection>
-          </div>
-        </div>
-      </OCard>
-    </section>
+      </div>
+    </OCard>
 
     <OCard padding="lg" class="flex flex-col gap-4">
       <section class="flex flex-col gap-3">
@@ -1003,11 +616,7 @@ onMounted(() => {
               Provider 检测
             </div>
             <div class="mt-1.5 text-[13px] text-zinc-500">
-              {{
-                isDesktop
-                  ? '检查 Embedding、Reranker 和 Chat 三类上游配置是否可用。'
-                  : 'Web 端显示脱敏后的 Provider 检测结果，不返回后端敏感配置明细。'
-              }}
+              Web 端显示脱敏后的 Provider 检测结果，不返回服务端敏感配置明细。
             </div>
           </div>
           <OButton
@@ -1092,37 +701,9 @@ onMounted(() => {
           :disabled="loading || saving"
           :loading="saving"
           @click="saveConfig">
-          {{
-            isDesktop
-              ? saving
-                ? '正在保存并重启服务...'
-                : '保存配置并重启服务'
-              : saving
-                ? '正在保存浏览器设置...'
-                : '保存浏览器设置'
-          }}
+          {{ saving ? '正在保存浏览器设置...' : '保存浏览器设置' }}
         </OButton>
-        <OButton
-          v-if="isDesktop"
-          variant="secondary"
-          :disabled="loading || saving"
-          @click="restartBackend">
-          <ReloadOutlined />
-          手动重启服务
-        </OButton>
-        <OButton
-          v-if="isDesktop"
-          variant="secondary"
-          :disabled="loading || saving"
-          @click="openDataDirectory">
-          <FolderOpenOutlined />
-          打开数据目录
-        </OButton>
-        <OButton
-          v-if="!isDesktop"
-          variant="secondary"
-          :disabled="saving"
-          @click="resetWebConfig">
+        <OButton variant="secondary" :disabled="saving" @click="resetWebConfig">
           恢复默认设置
         </OButton>
       </div>

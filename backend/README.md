@@ -8,7 +8,7 @@ FastAPI backend for the RAG Agent system.
 - API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
-When started by Electron in desktop development or packaged desktop mode, the backend also starts from port 8000 by default. If port 8000 is occupied, Electron will choose the next available port and pass it through `BACKEND_PORT`.
+In the current web workflow, the backend starts from port 8000 by default. If you need another port, override it with `BACKEND_PORT` or your uvicorn startup command.
 
 ## 图片处理
 

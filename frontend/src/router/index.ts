@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { shouldRedirectToSettingsOnDesktop } from '@/services/runtime';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -28,24 +27,6 @@ const router = createRouter({
       component: () => import('../views/SettingsView.vue')
     }
   ]
-});
-
-router.beforeEach(async (to) => {
-  if (to.name === 'settings') {
-    return true;
-  }
-
-  const shouldRedirect = await shouldRedirectToSettingsOnDesktop();
-  if (!shouldRedirect) {
-    return true;
-  }
-
-  return {
-    name: 'settings',
-    query: {
-      setup: 'required'
-    }
-  };
 });
 
 export default router;
