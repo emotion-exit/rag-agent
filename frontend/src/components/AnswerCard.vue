@@ -282,7 +282,7 @@ function toggleProgress() {
                     <li
                       v-for="(variant, variantIndex) in expandedQueryVariants"
                       :key="`${message.id}-variant-${variantIndex}`"
-                      class="flex gap-2">
+                      class="flex gap-2 items-center">
                       <span
                         class="mt-0.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-zinc-400"></span>
                       <span class="leading-6">{{ variant }}</span>
