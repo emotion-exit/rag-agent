@@ -12,6 +12,14 @@ import {
 } from '@ant-design/icons-vue';
 import { getApiBase } from '@/services/runtime';
 import {
+  createManagedUser,
+  fetchManagedUsers,
+  resetManagedUserPassword,
+  updateManagedUser,
+  useAuthState,
+  type ManagedAuthUser
+} from '@/services/auth';
+import {
   buildPublicConfigHeaders,
   cloneDefaultPublicFrontendConfig,
   loadPublicFrontendConfig,
@@ -26,11 +34,14 @@ import {
   OFormItem,
   OFormSection,
   OInput,
+  OModal,
+  OSelect,
   useOToast
 } from '@/orange-ui';
 import { cn } from '@/utils/cn';
 
 const apiBase = getApiBase();
+const authState = useAuthState();
 const form = reactive<PublicFrontendConfig>(cloneDefaultPublicFrontendConfig());
 const loading = ref(false);
 const saving = ref(false);
@@ -39,6 +50,23 @@ const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
 const advancedExpanded = ref(true);
 const providerHealthLoading = ref(false);
 const providerHealth = ref<Record<string, ProviderHealthItem>>({});
+const managedUsers = ref<ManagedAuthUser[]>([]);
+const managedUsersLoading = ref(false);
+const createUserModalVisible = ref(false);
+const createUserSubmitting = ref(false);
+const resetPasswordModalVisible = ref(false);
+const resetPasswordSubmitting = ref(false);
+const pendingUserActions = reactive<Record<string, boolean>>({});
+const createUserForm = reactive({
+  username: '',
+  password: '',
+  role: 'user' as 'admin' | 'user'
+});
+const resetPasswordForm = reactive({
+  userId: '',
+  username: '',
+  password: ''
+});
 const oToast = useOToast();
 
 interface ProviderHealthItem {
@@ -62,6 +90,12 @@ interface EffectRuleItem {
   title: string;
   detail: string;
   tone: 'success' | 'warning' | 'neutral';
+}
+
+interface ReflectionTokenPreset {
+  label: string;
+  value: number;
+  detail: string;
 }
 
 const effectRuleItems: EffectRuleItem[] = [
@@ -88,6 +122,48 @@ const healthText = computed(() => {
   if (health.value === 'online') return '后端服务运行中';
   if (health.value === 'offline') return '后端服务不可用';
   return '等待检测服务状态';
+});
+
+const isAdminMode = computed(() => authState.session?.user.role === 'admin');
+const currentUserId = computed(() =>
+  String(authState.session?.user.user_id || '')
+);
+
+const userRoleOptions = [
+  { label: '普通用户', value: 'user' },
+  { label: '管理员', value: 'admin' }
+];
+
+const reflectionTokenPresets: ReflectionTokenPreset[] = [
+  {
+    label: '关闭拦截',
+    value: 0,
+    detail: '直接放行答案，适合总被反思挡回的弱模型。'
+  },
+  {
+    label: '保守校验',
+    value: 128,
+    detail: '保留基础 reflection 判定，减少模型负担。'
+  },
+  {
+    label: '默认推荐',
+    value: 256,
+    detail: '适合大多数通用模型，兼顾稳定性和拦截精度。'
+  },
+  {
+    label: '强校验',
+    value: 512,
+    detail: '给高能力模型更多反思空间，但输出负担更高。'
+  }
+];
+
+const managedUserSummary = computed(() => {
+  const items = managedUsers.value;
+  return {
+    total: items.length,
+    active: items.filter((item) => item.is_active).length,
+    admins: items.filter((item) => item.role === 'admin').length
+  };
 });
 
 const providerEntries = computed(() => [
@@ -193,6 +269,187 @@ function formatTokenUsage(tokenUsage?: string) {
   if (tokenUsage === 'minimal_embedding_probe') return '极少量 embedding token';
   if (tokenUsage === 'minimal_rerank_probe') return '极少量 rerank token';
   return tokenUsage;
+}
+
+function isReflectionPresetActive(value: number) {
+  return Number(form.REFLECTION_TOKENS) === value;
+}
+
+function applyReflectionPreset(value: number) {
+  form.REFLECTION_TOKENS = value;
+}
+
+function formatUserRole(role: ManagedAuthUser['role']) {
+  return role === 'admin' ? '管理员' : '普通用户';
+}
+
+function formatUserStatus(isActive: boolean) {
+  return isActive ? '启用中' : '已停用';
+}
+
+function formatDateTime(value: string) {
+  if (!value) return '—';
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+
+  return parsed.toLocaleString('zh-CN', { hour12: false });
+}
+
+function setPendingUserAction(userId: string, pending: boolean) {
+  const normalizedUserId = String(userId || '');
+  if (!normalizedUserId) return;
+
+  if (pending) {
+    pendingUserActions[normalizedUserId] = true;
+    return;
+  }
+
+  delete pendingUserActions[normalizedUserId];
+}
+
+function isPendingUserAction(userId: string) {
+  return Boolean(pendingUserActions[String(userId || '')]);
+}
+
+function upsertManagedUser(nextUser: ManagedAuthUser) {
+  const nextItems = [...managedUsers.value];
+  const targetIndex = nextItems.findIndex(
+    (item) => item.user_id === nextUser.user_id
+  );
+  if (targetIndex >= 0) {
+    nextItems.splice(targetIndex, 1, nextUser);
+  } else {
+    nextItems.push(nextUser);
+  }
+
+  managedUsers.value = nextItems.sort((left, right) => {
+    if (left.role !== right.role) {
+      return left.role === 'admin' ? -1 : 1;
+    }
+    return left.created_at.localeCompare(right.created_at);
+  });
+}
+
+async function loadManagedUserList(options?: { silent?: boolean }) {
+  if (!isAdminMode.value) return;
+
+  managedUsersLoading.value = true;
+  try {
+    managedUsers.value = await fetchManagedUsers();
+  } catch (error) {
+    if (!options?.silent) {
+      oToast.error(
+        error instanceof Error ? error.message : '读取用户列表失败。'
+      );
+    }
+  } finally {
+    managedUsersLoading.value = false;
+  }
+}
+
+function openCreateUserModal() {
+  createUserForm.username = '';
+  createUserForm.password = '';
+  createUserForm.role = 'user';
+  createUserModalVisible.value = true;
+}
+
+function closeCreateUserModal() {
+  if (createUserSubmitting.value) return;
+  createUserModalVisible.value = false;
+}
+
+async function submitCreateUser() {
+  if (createUserSubmitting.value) return;
+
+  createUserSubmitting.value = true;
+  try {
+    const createdUser = await createManagedUser({
+      username: createUserForm.username,
+      password: createUserForm.password,
+      role: createUserForm.role
+    });
+    upsertManagedUser(createdUser);
+    createUserModalVisible.value = false;
+    oToast.success('用户创建成功。');
+  } catch (error) {
+    oToast.error(error instanceof Error ? error.message : '用户创建失败。');
+  } finally {
+    createUserSubmitting.value = false;
+  }
+}
+
+function openResetPasswordModal(user: ManagedAuthUser) {
+  resetPasswordForm.userId = user.user_id;
+  resetPasswordForm.username = user.username;
+  resetPasswordForm.password = '';
+  resetPasswordModalVisible.value = true;
+}
+
+function closeResetPasswordModal() {
+  if (resetPasswordSubmitting.value) return;
+  resetPasswordModalVisible.value = false;
+}
+
+async function submitResetPassword() {
+  if (resetPasswordSubmitting.value) return;
+
+  resetPasswordSubmitting.value = true;
+  try {
+    const updatedUser = await resetManagedUserPassword(
+      resetPasswordForm.userId,
+      resetPasswordForm.password
+    );
+    upsertManagedUser(updatedUser);
+    resetPasswordModalVisible.value = false;
+    oToast.success('密码已重置，目标账号将被强制重新登录。');
+  } catch (error) {
+    oToast.error(error instanceof Error ? error.message : '密码重置失败。');
+  } finally {
+    resetPasswordSubmitting.value = false;
+  }
+}
+
+async function handleUserRoleChange(
+  user: ManagedAuthUser,
+  role: 'admin' | 'user'
+) {
+  if (user.role === role || isPendingUserAction(user.user_id)) return;
+
+  setPendingUserAction(user.user_id, true);
+  try {
+    const updatedUser = await updateManagedUser(user.user_id, { role });
+    upsertManagedUser(updatedUser);
+    oToast.success(`已更新 ${user.username} 的角色。`);
+  } catch (error) {
+    oToast.error(error instanceof Error ? error.message : '更新角色失败。');
+  } finally {
+    setPendingUserAction(user.user_id, false);
+  }
+}
+
+async function toggleUserActive(user: ManagedAuthUser) {
+  if (isPendingUserAction(user.user_id)) return;
+
+  setPendingUserAction(user.user_id, true);
+  try {
+    const updatedUser = await updateManagedUser(user.user_id, {
+      is_active: !user.is_active
+    });
+    upsertManagedUser(updatedUser);
+    oToast.success(
+      user.is_active
+        ? `已停用 ${user.username}。`
+        : `已重新启用 ${user.username}。`
+    );
+  } catch (error) {
+    oToast.error(error instanceof Error ? error.message : '更新账号状态失败。');
+  } finally {
+    setPendingUserAction(user.user_id, false);
+  }
 }
 
 async function refreshHealth() {
@@ -310,6 +567,20 @@ function toggleAdvanced() {
 
 onMounted(() => {
   void loadConfig();
+  if (isAdminMode.value) {
+    void loadManagedUserList({ silent: true });
+  }
+});
+
+watch(isAdminMode, (nextValue) => {
+  if (!nextValue) {
+    managedUsers.value = [];
+    return;
+  }
+
+  if (!managedUsers.value.length) {
+    void loadManagedUserList({ silent: true });
+  }
 });
 </script>
 
@@ -348,6 +619,141 @@ onMounted(() => {
         <p>
           本地壳层、运行时桥接和桌面专属目录管理能力都已移除，当前页面只保留浏览器可安全调整的公开参数。
         </p>
+      </div>
+    </OCard>
+
+    <OCard v-if="isAdminMode" padding="lg" class="flex flex-col gap-4">
+      <div
+        class="flex items-start justify-between gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
+        <div>
+          <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
+            用户管理
+          </div>
+          <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
+            管理员可以在这里创建账号、分配管理员权限、停用账号，以及强制重置用户密码。
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2.5 max-[768px]:w-full">
+          <OButton
+            variant="secondary"
+            :disabled="managedUsersLoading"
+            :loading="managedUsersLoading"
+            @click="loadManagedUserList()">
+            {{ managedUsersLoading ? '刷新中...' : '刷新用户列表' }}
+          </OButton>
+          <OButton @click="openCreateUserModal">新增用户</OButton>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-3 gap-3 max-[960px]:grid-cols-1">
+        <div class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3.5">
+          <div
+            class="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            总账号数
+          </div>
+          <div class="mt-2 text-2xl font-bold text-zinc-900">
+            {{ managedUserSummary.total }}
+          </div>
+        </div>
+        <div class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3.5">
+          <div
+            class="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            启用账号
+          </div>
+          <div class="mt-2 text-2xl font-bold text-zinc-900">
+            {{ managedUserSummary.active }}
+          </div>
+        </div>
+        <div class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3.5">
+          <div
+            class="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">
+            管理员账号
+          </div>
+          <div class="mt-2 text-2xl font-bold text-zinc-900">
+            {{ managedUserSummary.admins }}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid gap-3">
+        <OCard
+          v-for="user in managedUsers"
+          :key="user.user_id"
+          padding="sm"
+          :tone="
+            !user.is_active
+              ? 'muted'
+              : user.role === 'admin'
+                ? 'success'
+                : 'default'
+          "
+          class="flex flex-col gap-3.5">
+          <div
+            class="flex items-start justify-between gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <div
+                  class="text-[16px] font-bold tracking-[-0.01em] text-zinc-900">
+                  {{ user.username }}
+                </div>
+                <span
+                  v-if="user.user_id === currentUserId"
+                  class="rounded-full bg-black/6 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                  当前账号
+                </span>
+                <span
+                  :class="[
+                    'rounded-full px-2.5 py-1 text-[11px] font-semibold',
+                    user.is_active
+                      ? 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]'
+                      : 'bg-black/6 text-zinc-600'
+                  ]">
+                  {{ formatUserStatus(user.is_active) }}
+                </span>
+              </div>
+              <div class="mt-1.5 text-xs leading-6 text-zinc-500">
+                创建于 {{ formatDateTime(user.created_at) }}
+              </div>
+            </div>
+
+            <div
+              class="grid min-w-90 grid-cols-[150px_repeat(2,minmax(0,1fr))] gap-2.5 max-[960px]:min-w-0 max-[960px]:grid-cols-1">
+              <OSelect
+                :model-value="user.role"
+                :options="userRoleOptions"
+                :disabled="isPendingUserAction(user.user_id)"
+                @update:model-value="
+                  handleUserRoleChange(user, $event as 'admin' | 'user')
+                " />
+              <OButton
+                variant="secondary"
+                :disabled="isPendingUserAction(user.user_id)"
+                @click="openResetPasswordModal(user)">
+                重置密码
+              </OButton>
+              <OButton
+                :variant="user.is_active ? 'warning' : 'secondary'"
+                :disabled="isPendingUserAction(user.user_id)"
+                @click="toggleUserActive(user)">
+                {{ user.is_active ? '停用账号' : '重新启用' }}
+              </OButton>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span>角色：{{ formatUserRole(user.role) }}</span>
+            <span class="text-black/20">/</span>
+            <span>最近更新：{{ formatDateTime(user.updated_at) }}</span>
+          </div>
+        </OCard>
+
+        <OCard
+          v-if="!managedUsers.length && !managedUsersLoading"
+          padding="sm"
+          tone="muted"
+          class="text-sm leading-7 text-zinc-500">
+          当前没有可管理的用户记录。
+        </OCard>
       </div>
     </OCard>
 
@@ -608,6 +1014,65 @@ onMounted(() => {
     </OCard>
 
     <OCard padding="lg" class="flex flex-col gap-4">
+      <div>
+        <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
+          反思策略
+        </div>
+        <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
+          控制回答前的 reflection 校验强度。弱模型容易因为 reflection
+          不完整而被直接拦截，这里可以按模型能力快速切换策略。
+        </div>
+      </div>
+
+      <div class="grid gap-4 max-[960px]:grid-cols-1">
+        <!-- <OFormItem
+          label="Reflection Tokens"
+          help="填 0 表示关闭反思拦截；其他值越大，模型越容易输出完整 reflection 判定。"
+          class="gap-1.5">
+          <OInput
+            v-model="form.REFLECTION_TOKENS"
+            type="number"
+            min="0"
+            step="1"
+            placeholder="256" />
+        </OFormItem> -->
+
+        <div
+          class="grid grid-cols-4 gap-2.5 max-[1200px]:grid-cols-2 max-[768px]:grid-cols-1">
+          <button
+            v-for="preset in reflectionTokenPresets"
+            :key="preset.value"
+            type="button"
+            :class="[
+              'rounded-2xl border px-4 py-3 text-left transition-all duration-200',
+              isReflectionPresetActive(preset.value)
+                ? 'border-[rgba(37,99,65,0.28)] bg-[rgba(37,99,65,0.09)] shadow-[0_8px_20px_rgba(37,99,65,0.08)]'
+                : 'border-black/8 bg-zinc-50 hover:border-black/14 hover:bg-white'
+            ]"
+            @click="applyReflectionPreset(preset.value)">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-sm font-bold text-zinc-900">
+                {{ preset.label }}
+              </span>
+              <span
+                :class="[
+                  'rounded-full px-2.5 py-1 text-[11px] font-semibold',
+                  isReflectionPresetActive(preset.value)
+                    ? 'bg-[rgba(37,99,65,0.14)] text-[#1f6b42]'
+                    : 'bg-black/6 text-zinc-600'
+                ]">
+                {{ preset.value }}
+              </span>
+            </div>
+            <div class="mt-2 text-xs leading-6 text-zinc-600">
+              {{ preset.detail }}
+            </div>
+          </button>
+        </div>
+      </div>
+    </OCard>
+
+    <OCard padding="lg" class="flex flex-col gap-4">
       <section class="flex flex-col gap-3">
         <div
           class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
@@ -708,5 +1173,59 @@ onMounted(() => {
         </OButton>
       </div>
     </OCard>
+
+    <OModal
+      :visible="createUserModalVisible"
+      title="新增用户"
+      subtitle="创建账号后，管理员可继续调整角色与状态。"
+      cancel-text="取消"
+      confirm-text="创建用户"
+      :confirm-loading="createUserSubmitting"
+      @close="closeCreateUserModal"
+      @confirm="submitCreateUser">
+      <div class="grid gap-4">
+        <OFormItem label="用户名" help="至少 3 个字符，系统会统一转成小写。">
+          <OInput
+            v-model="createUserForm.username"
+            type="text"
+            placeholder="alice" />
+        </OFormItem>
+        <OFormItem label="初始密码" help="至少 6 个字符。首次登录后可再重置。">
+          <OInput
+            v-model="createUserForm.password"
+            type="password"
+            placeholder="请输入初始密码" />
+        </OFormItem>
+        <OFormItem label="角色">
+          <OSelect v-model="createUserForm.role" :options="userRoleOptions" />
+        </OFormItem>
+      </div>
+    </OModal>
+
+    <OModal
+      :visible="resetPasswordModalVisible"
+      title="重置密码"
+      :subtitle="`为 ${resetPasswordForm.username || '该用户'} 设置新密码，并立即使旧登录态失效。`"
+      cancel-text="取消"
+      confirm-text="确认重置"
+      confirm-variant="warning"
+      :confirm-loading="resetPasswordSubmitting"
+      @close="closeResetPasswordModal"
+      @confirm="submitResetPassword">
+      <div class="grid gap-4">
+        <OFormItem label="目标用户">
+          <div
+            class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-sm font-medium text-zinc-800">
+            {{ resetPasswordForm.username || '—' }}
+          </div>
+        </OFormItem>
+        <OFormItem label="新密码" help="密码更新后，目标账号需要重新登录。">
+          <OInput
+            v-model="resetPasswordForm.password"
+            type="password"
+            placeholder="请输入新密码" />
+        </OFormItem>
+      </div>
+    </OModal>
   </div>
 </template>

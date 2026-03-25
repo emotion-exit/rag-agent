@@ -15,13 +15,23 @@ from app.config import (
     set_request_settings_overrides,
     settings,
 )
-from app.routers import chat_router, knowledge_base_router
+from app.routers import auth_router, chat_router, knowledge_base_router
+from app.services.auth import (
+    extract_token_from_request,
+    get_user_by_token,
+    initialize_auth_db,
+    reset_current_user,
+    set_current_user,
+)
+from app.services.knowledge_spaces import initialize_knowledge_space_db
 
 logger = logging.getLogger(__name__)
 
 # Ensure data directories exist
 os.makedirs(_base_settings.chroma_persist_dir, exist_ok=True)
 os.makedirs(_base_settings.upload_dir, exist_ok=True)
+initialize_auth_db()
+initialize_knowledge_space_db()
 
 app = FastAPI(
     title="RAG Agent API",
@@ -39,6 +49,7 @@ app.add_middleware(
 )
 
 # Routers
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
 
@@ -59,6 +70,10 @@ async def apply_public_frontend_config(request: Request, call_next):
             parsed_config = None
 
     token = set_request_settings_overrides(parsed_config)
+    auth_token = extract_token_from_request(request)
+    current_user = get_user_by_token(auth_token) if auth_token else None
+    user_token = set_current_user(current_user)
+    request.state.current_user = current_user
     try:
         response = await call_next(request)
 
@@ -67,14 +82,17 @@ async def apply_public_frontend_config(request: Request, call_next):
 
             async def wrapped_body_iterator():
                 stream_token = set_request_settings_overrides(parsed_config)
+                stream_user_token = set_current_user(current_user)
                 try:
                     async for chunk in original_body_iterator:
                         yield chunk
                 finally:
+                    reset_current_user(stream_user_token)
                     reset_request_settings_overrides(stream_token)
 
             response.body_iterator = wrapped_body_iterator()
     finally:
+        reset_current_user(user_token)
         reset_request_settings_overrides(token)
 
     return response

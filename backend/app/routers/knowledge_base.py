@@ -8,6 +8,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.auth import get_current_user, is_admin
 from app.services.document_assets import delete_document_assets, save_document_images
 from app.services.knowledge_base_jobs import (
     advance_job,
@@ -18,9 +19,13 @@ from app.services.knowledge_base_jobs import (
     update_job,
 )
 from app.services.knowledge_spaces import (
+    VISIBILITY_PRIVATE,
+    VISIBILITY_PUBLIC,
+    can_manage_space,
     create_knowledge_space,
     delete_knowledge_space,
     get_knowledge_space,
+    list_accessible_space_ids,
     list_knowledge_spaces,
     update_knowledge_space,
 )
@@ -55,12 +60,15 @@ class DocumentInfo(BaseModel):
     tags: str = ""
     image_count: int = 0
     space_id: str = ""
+    visibility: str = VISIBILITY_PUBLIC
+    owner_id: str = ""
 
 
 class KnowledgeSpaceCreateRequest(BaseModel):
     name: str
     tags: str = ""
     description: str = ""
+    visibility: str = VISIBILITY_PRIVATE
 
 
 class KnowledgeBaseJobCreatedResponse(BaseModel):
@@ -130,10 +138,38 @@ def _build_space_list(flat_spaces: list[dict], documents: list[dict]) -> list[di
     return sorted(spaces, key=lambda item: (str(item.get("name", "")), str(item.get("created_at", ""))))
 
 
+def _get_request_user() -> dict:
+    user = get_current_user(required=True)
+    if user is None:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return user
+
+
+def _resolve_space_visibility(requested_visibility: str, user: dict) -> str:
+    normalized_visibility = _normalize_metadata_value(requested_visibility) or VISIBILITY_PRIVATE
+    if normalized_visibility not in (VISIBILITY_PUBLIC, VISIBILITY_PRIVATE):
+        raise HTTPException(status_code=400, detail="知识库可见性不合法")
+    if normalized_visibility == VISIBILITY_PUBLIC and not is_admin(user):
+        raise HTTPException(status_code=403, detail="只有管理员可以创建或维护公有知识库")
+    if normalized_visibility == VISIBILITY_PRIVATE and not settings.private_knowledge_base_enabled:
+        raise HTTPException(status_code=403, detail="当前部署模式已禁用私有知识库")
+    return normalized_visibility
+
+
+def _require_managed_space(space_id: str, user: dict) -> dict:
+    space = get_knowledge_space(space_id, user)
+    if space is None:
+        raise HTTPException(status_code=404, detail="知识库不存在")
+    if not can_manage_space(space, user):
+        raise HTTPException(status_code=403, detail="没有权限操作该知识库")
+    return space
+
+
 @router.get("/spaces")
 async def get_spaces():
-    docs = list_documents()
-    flat_spaces = list_knowledge_spaces()
+    user = _get_request_user()
+    docs = list_documents(accessible_space_ids=list_accessible_space_ids(user))
+    flat_spaces = list_knowledge_spaces(user)
     spaces = _build_space_list(flat_spaces, docs)
 
     return {
@@ -148,11 +184,15 @@ async def get_spaces():
 
 @router.post("/spaces")
 async def create_space(payload: KnowledgeSpaceCreateRequest):
+    user = _get_request_user()
+    visibility = _resolve_space_visibility(payload.visibility, user)
     try:
         space = create_knowledge_space(
             name=payload.name,
             tags=payload.tags,
             description=payload.description,
+            owner_id="" if visibility == VISIBILITY_PUBLIC else str(user.get("user_id", "")),
+            visibility=visibility,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -166,12 +206,18 @@ async def create_space(payload: KnowledgeSpaceCreateRequest):
 
 @router.put("/spaces/{space_id}")
 async def update_space(space_id: str, payload: KnowledgeSpaceCreateRequest):
+    user = _get_request_user()
+    existing_space = _require_managed_space(space_id, user)
+    visibility = _resolve_space_visibility(payload.visibility or str(existing_space.get("visibility", "")), user)
+    if visibility != str(existing_space.get("visibility", VISIBILITY_PRIVATE)):
+        raise HTTPException(status_code=400, detail="暂不支持修改知识库可见性")
     try:
         space = update_knowledge_space(
             space_id=space_id,
             name=payload.name,
             tags=payload.tags,
             description=payload.description,
+            visibility=visibility,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -298,6 +344,8 @@ def _build_document_chunk_metadatas(
             "knowledge_space": semantic_metadata["knowledge_space"],
             "tags": semantic_metadata["tags"],
             "space_id": space_id,
+            "visibility": semantic_metadata["visibility"],
+            "owner_id": semantic_metadata["owner_id"],
             "source_type": chunk_info.get("source_type", "text"),
             "source_label": chunk_info.get("source_label", "正文文本"),
             "source_page": int(chunk_info.get("source_page", 0) or 0),
@@ -322,9 +370,12 @@ def _resolve_semantic_metadata(
     if not normalized_space_id:
         raise HTTPException(status_code=400, detail="请先选择知识库")
 
-    space = get_knowledge_space(normalized_space_id)
+    user = _get_request_user()
+    space = get_knowledge_space(normalized_space_id, user)
     if space is None:
         raise HTTPException(status_code=404, detail="知识库不存在，请先创建后再上传文档")
+    if not can_manage_space(space, user):
+        raise HTTPException(status_code=403, detail="没有权限向该知识库上传文档")
 
     normalized_knowledge_space = _require_metadata_value("知识库", str(space.get("name", "")))
     normalized_tags = _merge_tag_values(str(space.get("tags", "")), tags)
@@ -333,6 +384,8 @@ def _resolve_semantic_metadata(
         {
             "knowledge_space": normalized_knowledge_space,
             "tags": normalized_tags,
+            "visibility": str(space.get("visibility", VISIBILITY_PUBLIC)),
+            "owner_id": str(space.get("owner_id", "")),
         },
         normalized_space_id,
     )
@@ -467,6 +520,7 @@ async def upload_document(
     tags: str = Form(default=""),
 ):
     """Upload a document to the knowledge base."""
+    _get_request_user()
     try:
         file_bytes = await file.read()
         return _store_uploaded_document(
@@ -498,12 +552,14 @@ async def create_upload_job(
     space_id: str = Form(default=""),
     tags: str = Form(default=""),
 ):
+    user = _get_request_user()
     if not files:
         raise HTTPException(status_code=400, detail="请至少上传一个文件")
 
     normalized_space_id = _normalize_metadata_value(space_id)
     if not normalized_space_id:
         raise HTTPException(status_code=400, detail="请先选择知识库")
+    _require_managed_space(normalized_space_id, user)
 
     files_payload: list[dict] = []
     for file in files:
@@ -542,6 +598,7 @@ async def create_upload_job(
     }
 @router.get("/jobs/{job_id}")
 async def get_knowledge_base_job(job_id: str):
+    _get_request_user()
     snapshot = get_job(job_id)
     if snapshot is None:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -551,7 +608,8 @@ async def get_knowledge_base_job(job_id: str):
 @router.get("/documents")
 async def get_documents():
     """List all documents in the knowledge base."""
-    docs = list_documents()
+    user = _get_request_user()
+    docs = list_documents(accessible_space_ids=list_accessible_space_ids(user))
     result = []
     for doc in docs:
         result.append({
@@ -563,6 +621,8 @@ async def get_documents():
             "tags": doc.get("tags", ""),
             "image_count": int(doc.get("image_count", 0) or 0),
             "space_id": doc.get("space_id", ""),
+            "visibility": doc.get("visibility", VISIBILITY_PUBLIC),
+            "owner_id": doc.get("owner_id", ""),
         })
     return {"documents": result, "total": len(result)}
 
@@ -570,6 +630,12 @@ async def get_documents():
 @router.delete("/documents/{doc_id}")
 async def delete_document_endpoint(doc_id: str):
     """Delete a document from the knowledge base."""
+    user = _get_request_user()
+    accessible_docs = list_documents(accessible_space_ids=list_accessible_space_ids(user))
+    target_doc = next((doc for doc in accessible_docs if str(doc.get("doc_id", "")) == doc_id), None)
+    if target_doc is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    _require_managed_space(str(target_doc.get("space_id", "")), user)
     deleted_count = delete_document(doc_id)
     if deleted_count == 0:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -586,11 +652,10 @@ async def _delete_space_and_related_data(space_id: str):
     if not normalized_space_id:
         raise HTTPException(status_code=404, detail="知识空间不存在")
 
-    target_space = get_knowledge_space(normalized_space_id)
-    if target_space is None:
-        raise HTTPException(status_code=404, detail="知识空间不存在")
+    user = _get_request_user()
+    target_space = _require_managed_space(normalized_space_id, user)
 
-    docs = list_documents()
+    docs = list_documents(accessible_space_ids=list_accessible_space_ids(user))
 
     try:
         deleted_space_ids = delete_knowledge_space(normalized_space_id)
@@ -635,9 +700,9 @@ async def delete_space_endpoint_fallback(space_id: str):
 @router.get("/stats", response_model=KnowledgeBaseStats)
 async def get_stats():
     """Get knowledge base statistics."""
-    docs = list_documents()
-    flat_spaces = list_knowledge_spaces()
+    user = _get_request_user()
+    docs = list_documents(accessible_space_ids=list_accessible_space_ids(user))
     return KnowledgeBaseStats(
-        total_chunks=collection_count(),
+        total_chunks=sum(int(doc.get("chunk_count", 0) or 0) for doc in docs),
         total_documents=len(docs),
     )

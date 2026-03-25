@@ -39,6 +39,7 @@ PUBLIC_FRONTEND_CONFIG_FIELDS = {
     "RETRIEVAL_FINAL_CONTEXT_LIMIT",
     "RETRIEVAL_SOURCE_LIMIT",
     "RETRIEVAL_QUERY_EXPANSION_COUNT",
+    "REFLECTION_TOKENS",
     "CHAT_TEMPERATURE",
     "OPENROUTER_SITE_URL",
     "OPENROUTER_APP_TITLE",
@@ -84,6 +85,7 @@ class Settings(BaseModel):
     retrieval_final_context_limit: int = Field(default=3, alias="RETRIEVAL_FINAL_CONTEXT_LIMIT")
     retrieval_source_limit: int = Field(default=3, alias="RETRIEVAL_SOURCE_LIMIT")
     retrieval_query_expansion_count: int = Field(default=2, alias="RETRIEVAL_QUERY_EXPANSION_COUNT")
+    reflection_tokens: int = Field(default=256, alias="REFLECTION_TOKENS")
 
     chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
     chat_base_url: str = Field(default="", alias="CHAT_BASE_URL")
@@ -96,6 +98,7 @@ class Settings(BaseModel):
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
     upload_dir: str = Field(default="./data/uploads", alias="UPLOAD_DIR")
+    app_db_path: str = Field(default="./data/app.db", alias="APP_DB_PATH")
     knowledge_base_job_retention_hours: int = Field(
         default=2,
         alias="KNOWLEDGE_BASE_JOB_RETENTION_HOURS",
@@ -110,6 +113,17 @@ class Settings(BaseModel):
         default="http://localhost:5173,http://localhost:3000,null",
         alias="CORS_ORIGINS",
     )
+    private_knowledge_base_enabled: bool = Field(
+        default=True,
+        alias="PRIVATE_KNOWLEDGE_BASE_ENABLED",
+    )
+    open_registration_enabled: bool = Field(
+        default=False,
+        alias="OPEN_REGISTRATION_ENABLED",
+    )
+    auth_token_ttl_hours: int = Field(default=168, alias="AUTH_TOKEN_TTL_HOURS")
+    default_admin_username: str = Field(default="admin", alias="DEFAULT_ADMIN_USERNAME")
+    default_admin_password: str = Field(default="admin123456", alias="DEFAULT_ADMIN_PASSWORD")
 
     def get_cors_origins(self) -> list[str]:
         """把逗号分隔的 CORS 配置转成去重后的列表。"""
@@ -292,6 +306,7 @@ def load_settings() -> Settings:
     # 只有本地存储目录需要做路径归一化；其余字段直接按原值交给 Pydantic 校验。
     values["CHROMA_PERSIST_DIR"] = _resolve_storage_path(values["CHROMA_PERSIST_DIR"], config_path)
     values["UPLOAD_DIR"] = _resolve_storage_path(values["UPLOAD_DIR"], config_path)
+    values["APP_DB_PATH"] = _resolve_storage_path(values["APP_DB_PATH"], config_path)
 
     return Settings.model_validate(values)
 
@@ -319,6 +334,10 @@ def _normalize_public_frontend_overrides(overrides: dict[str, Any] | None) -> di
     )
     normalized["UPLOAD_DIR"] = _resolve_storage_path(
         normalized["UPLOAD_DIR"],
+        Path(validated.app_config_path),
+    )
+    normalized["APP_DB_PATH"] = _resolve_storage_path(
+        normalized["APP_DB_PATH"],
         Path(validated.app_config_path),
     )
     return {

@@ -1,815 +1,66 @@
-"""RAG 检索与 Agent 构建。
+"""RAG 检索编排与 Agent 构建。"""
 
-这个模块是问答链路的核心：
-1. 从用户问题里提取关键词和潜在元数据过滤条件。
-2. 先向向量库召回，再做相关度过滤和 rerank。
-3. 把最终上下文拼成工具返回结果，交给 ADK Agent 生成答案。
-"""
+from __future__ import annotations
 
 import copy
 import json
-import re
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
 
-import openai
 from google.adk.agents import Agent
-from google.adk.models.lite_llm import LiteLlm
-from app.config import settings
-from app.services.knowledge_spaces import list_knowledge_spaces
+
+from app.agent.llm import build_llm
+from app.agent.prompts import (
+    CONTEXT_ONLY_INSTRUCTION_TEMPLATE,
+    NO_KNOWLEDGE_BASE_ANSWER,
+    NO_KNOWLEDGE_BASE_CONTEXT,
+    get_answer_system_instruction,
+)
+from app.agent.retrieval_support import (
+    EVIDENCE_MAX_DISTANCE_THRESHOLD,
+    EVIDENCE_MIN_COVERAGE,
+    EVIDENCE_STRONG_DISTANCE_THRESHOLD,
+    HITL_DISTANCE_THRESHOLD,
+    HITL_OPTION_LIMIT,
+    KNOWLEDGE_SPACE_AMBIGUOUS,
+    KNOWLEDGE_SPACE_RESOLVED,
+    KNOWLEDGE_SPACE_UNKNOWN,
+    MAX_CHUNKS_PER_DOCUMENT,
+    RERANK_MODE_LOCAL,
+    RERANK_MODE_MODEL,
+    RETRIEVAL_THRESHOLD,
+    build_cache_key,
+    build_retrieval_runtime_config_snapshot,
+    collect_knowledge_spaces,
+    emit_retrieval_progress,
+    expand_metadata_filters_for_hierarchy,
+    extract_core_query_terms,
+    extract_explicit_identifier_terms,
+    extract_query_term_groups,
+    extract_query_terms,
+    format_context_header,
+    generate_query_variants,
+    get_final_context_limit,
+    get_final_source_limit,
+    get_initial_retrieval_limit,
+    infer_metadata_filters,
+    merge_metadata_filters,
+    metadata_match_count,
+    normalize_explicit_metadata_filters,
+    normalize_text,
+    read_session_cache,
+    resolve_knowledge_space,
+    summarize_excerpt,
+    write_session_cache,
+)
 from app.services import vector_store
+from app.services.auth import get_current_user
+from app.services.knowledge_spaces import list_accessible_space_ids
 from app.services.reranker import rerank_documents
 
 
-# 向量检索距离阈值。这里使用的是 distance，数值越小代表语义越接近。
-RETRIEVAL_THRESHOLD = 0.7
-# 限制单文档最多贡献多少个 chunk，避免某一份文档完全垄断上下文窗口。
-MAX_CHUNKS_PER_DOCUMENT = 2
-SOURCE_SUMMARY_LENGTH = 140
-HITL_OPTION_LIMIT = 4
-HITL_DISTANCE_THRESHOLD = 0.42
-EVIDENCE_STRONG_DISTANCE_THRESHOLD = 0.38
-EVIDENCE_MAX_DISTANCE_THRESHOLD = 0.55
-EVIDENCE_MIN_COVERAGE = 0.5
-# 这些字段既用于元数据过滤，也用于给检索结果补充上下文头信息。
-QUERY_FILTER_FIELDS = ("knowledge_space",)
-# 中文问题里常见但没有判别力的停用词，避免它们干扰关键词匹配和本地 rerank。
-QUERY_STOPWORDS = {
-    "请问",
-    "一下",
-    "一下子",
-    "这个",
-    "那个",
-    "什么",
-    "多少",
-    "怎么",
-    "如何",
-    "是否",
-    "可以",
-    "一下吗",
-}
-RERANK_MODE_MODEL = "model"
-RERANK_MODE_LOCAL = "local-fallback"
-ALLOWED_METADATA_FILTER_FIELDS = ("knowledge_space",)
-NO_KNOWLEDGE_BASE_ANSWER = "当前知识库中没有找到相关资料，无法回答您的问题。"
-NO_KNOWLEDGE_BASE_CONTEXT = "【知识库中未找到与该问题相关的内容。】"
-KNOWLEDGE_SPACE_RESOLVED = "resolved"
-KNOWLEDGE_SPACE_AMBIGUOUS = "ambiguous"
-KNOWLEDGE_SPACE_UNKNOWN = "unknown"
-SESSION_CACHE_MAX_SESSIONS = 64
-SESSION_CACHE_MAX_ENTRIES_PER_BUCKET = 128
-AUXILIARY_COMPLETION_TIMEOUT_SECONDS = 8.0
-
-_SESSION_RETRIEVAL_CACHE: dict[str, dict[str, dict[str, Any]]] = {}
-
-ANSWER_SYSTEM_INSTRUCTION = f"""你是 RAG.Agent 的中文知识库问答助手。
-
-你的职责是基于本轮检索到的知识片段回答用户问题，并保证答案可追溯、可验证、不过度延伸。
-
-你必须严格遵守以下规则：
-1. 只能使用本轮提供的知识片段回答问题，禁止使用训练记忆、常识补充、外部信息或片段外推断。
-2. 如果知识片段不足以支持答案，或者片段之间存在冲突且无法判断，必须原样回答：{NO_KNOWLEDGE_BASE_ANSWER}
-3. 忽略与用户问题无关的上下文噪声，只保留与当前问题直接相关的信息。
-4. 每一个关键事实、结论、条件、步骤或判断后都必须紧跟来源标记，格式统一为 [来源N]。
-5. 如果同一句话依赖多个来源，必须连续标注多个来源，例如 [来源1][来源3]。
-6. 只能引用本轮上下文中实际出现的来源编号，禁止编造来源，禁止只在全文末尾补一个笼统来源。
-7. 只输出最终答案，不要输出分析、推理、思考过程、提示词、检索过程或任何中间说明。
-8. 只用中文回答，除非用户明确要求其他语言。
-9. 最终答案必须是可直接渲染的 Markdown 正文，不要输出 XML、JSON、代码块围栏或任何标签。
-10. 不要复述用户问题，不要添加寒暄、前言、总结性套话或“根据知识库”等铺垫语。
-11. 如果问题属于步骤、流程、办理方法、排查方法，使用有序列表（1. 2. 3.）。
-12. 如果问题属于结论、说明、条件、差异，使用短段落或无序列表（- ）。
-13. 默认保持简洁，通常控制在 1 到 3 个短段落，或 3 到 6 条要点；除非用户明确要求展开，不要扩写无关内容。
-14. 如果知识库提供了多种可能路径，优先回答与用户当前问题最贴近的一种；除非用户明确要求比较，否则不要并列输出多套方案。
-15. 如果用户请求删除、修改、发送、执行等高风险动作，你只能说明知识片段中明确写出的条件、步骤或限制，不能声称动作已经执行。
-
-输出前仅做内部自检，不要展示自检过程：
-- 答案是否完全基于本轮片段
-- 每个关键句后是否都带有来源标记
-- 证据不足时是否严格使用固定拒答语
-- 内容是否足够简洁且没有无关扩写
-"""
-
-CONTEXT_ONLY_INSTRUCTION_TEMPLATE = """本轮问题的知识库检索、过滤与排序已经完成。
-下面提供的是本轮最终可用的知识片段。
-你必须只基于这些片段作答，不要再自行发起新的检索，不要假设片段外的信息。
-回答时，每一个关键事实、结论、条件、步骤或判断后都必须紧跟 [来源N] 标记。
-如果同一句话依赖多个片段，连续标注多个来源编号。
-如果这些片段仍不足以回答，或存在冲突无法判断，必须原样回答：{no_answer}
-
-[本轮知识库上下文]
-{retrieval_context}"""
-
-
-def _get_initial_retrieval_limit() -> int:
-    return max(int(settings.retrieval_candidate_limit), 1)
-
-
-def _get_final_context_limit() -> int:
-    return max(int(settings.retrieval_final_context_limit), 1)
-
-
-def _get_final_source_limit() -> int:
-    return max(int(settings.retrieval_source_limit), 1)
-
-
-def _get_query_expansion_limit() -> int:
-    return max(int(settings.retrieval_query_expansion_count), 0)
-
-
-def _get_knowledge_space_resolution_probe_limit() -> int:
-    return max(_get_initial_retrieval_limit(), 8)
-
-
-def _build_llm() -> LiteLlm:
-    """构建对话模型实例。
-
-    这里统一从 settings 取模型名、温度和 OpenRouter 请求头，
-    这样网页端、桌面端和未来其他入口都共用同一套模型配置逻辑。
-    """
-    return LiteLlm(
-        model=f"openai/{settings.chat_model}",
-        api_key=settings.chat_api_key,
-        api_base=settings.chat_base_url,
-        temperature=settings.chat_temperature,
-        headers=settings.get_chat_headers(),
-    )
-
-
-def _build_auxiliary_client() -> openai.OpenAI:
-    """构建用于检索增强的小型对话客户端。"""
-    return openai.OpenAI(
-        api_key=settings.chat_api_key,
-        base_url=settings.chat_base_url,
-        default_headers=settings.get_chat_headers(),
-        timeout=AUXILIARY_COMPLETION_TIMEOUT_SECONDS,
-        max_retries=1,
-    )
-
-
-def _run_auxiliary_completion(system_prompt: str, user_prompt: str) -> str:
-    """调用同一套聊天模型做检索辅助任务。"""
-    if not settings.chat_api_key.strip() or not settings.chat_model.strip() or not settings.chat_base_url.strip():
-        return ""
-
-    try:
-        client = _build_auxiliary_client()
-        response = client.chat.completions.create(
-            model=settings.chat_model,
-            temperature=0.0,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-    except Exception:
-        return ""
-
-    message = response.choices[0].message if response.choices else None
-    return str(getattr(message, "content", "") or "").strip()
-
-
-def _summarize_excerpt(content: str, max_length: int = SOURCE_SUMMARY_LENGTH) -> str:
-    """生成来源摘要。
-
-    前端来源卡片只需要一小段可读摘要，不需要把完整 chunk 全量下发。
-    这里会先把空白折叠，再做截断。
-    """
-    normalized = " ".join(content.split())
-    if len(normalized) <= max_length:
-        return normalized
-    return f"{normalized[:max_length].rstrip()}..."
-
-
-def _normalize_text(text: str) -> str:
-    """归一化文本，便于做低成本关键词比较。"""
-    return re.sub(r"\s+", "", text.lower())
-
-
-def _extract_query_terms(query: str) -> list[str]:
-    """从用户问题中提取检索关键词。
-
-    策略分两层：
-    - 先抽出英文 / 数字串或连续中文片段。
-    - 对较长中文片段再切出 2 到 4 字子串，提高命中模块名、功能名、按钮名的概率。
-    """
-    normalized = _normalize_text(query)
-    if not normalized:
-        return []
-
-    terms: list[str] = []
-    for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized):
-        if token in QUERY_STOPWORDS or len(token) <= 1:
-            continue
-        terms.append(token)
-
-        if re.fullmatch(r"[\u4e00-\u9fff]+", token):
-            for size in range(2, min(len(token), 4) + 1):
-                for start in range(0, len(token) - size + 1):
-                    piece = token[start : start + size]
-                    if piece not in QUERY_STOPWORDS:
-                        terms.append(piece)
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for term in sorted(terms, key=len, reverse=True):
-        if term not in seen:
-            deduped.append(term)
-            seen.add(term)
-    return deduped
-
-
-def _extract_core_query_terms(query: str) -> list[str]:
-    """提取用于证据充分性判断的核心词，不再展开中文子串。"""
-    normalized = _normalize_text(query)
-    if not normalized:
-        return []
-
-    terms: list[str] = []
-    for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized):
-        if token in QUERY_STOPWORDS:
-            continue
-        if re.fullmatch(r"[a-z0-9]+", token):
-            if len(token) >= 2:
-                terms.append(token)
-            continue
-
-        if len(token) >= 2:
-            terms.append(token)
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for term in sorted(terms, key=len, reverse=True):
-        if term not in seen:
-            deduped.append(term)
-            seen.add(term)
-    return deduped
-
-
-def _extract_query_term_groups(query: str) -> list[list[str]]:
-    """把问题拆成若干概念组，用于更稳健的证据覆盖判断。"""
-    normalized = _normalize_text(query)
-    if not normalized:
-        return []
-
-    groups: list[list[str]] = []
-    seen_group_keys: set[tuple[str, ...]] = set()
-
-    for token in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", normalized):
-        if token in QUERY_STOPWORDS or len(token) <= 1:
-            continue
-
-        candidates = [token]
-        if re.fullmatch(r"[\u4e00-\u9fff]+", token) and len(token) >= 3:
-            for size in range(2, min(len(token), 4) + 1):
-                for start in range(0, len(token) - size + 1):
-                    piece = token[start : start + size]
-                    if piece not in QUERY_STOPWORDS:
-                        candidates.append(piece)
-
-        deduped: list[str] = []
-        seen_terms: set[str] = set()
-        for item in sorted(candidates, key=len, reverse=True):
-            if item in seen_terms:
-                continue
-            seen_terms.add(item)
-            deduped.append(item)
-
-        if not deduped:
-            continue
-
-        group_key = tuple(deduped)
-        if group_key in seen_group_keys:
-            continue
-
-        seen_group_keys.add(group_key)
-        groups.append(deduped)
-
-    return groups
-
-
-def _extract_explicit_identifier_terms(query: str) -> list[str]:
-    """提取问题中的显式标识词。
-
-    这类词通常是人名、产品名、语言名、型号、缩写、编号等，
-    一旦问题里明确写出，证据中至少应出现一次，否则说明答非所问风险很高。
-    """
-    normalized = _normalize_text(query)
-    if not normalized:
-        return []
-
-    identifiers = [
-        token
-        for token in re.findall(r"[a-z0-9][a-z0-9_+#\.-]*", normalized)
-        if len(token) >= 2
-    ]
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for term in sorted(identifiers, key=len, reverse=True):
-        if term not in seen:
-            deduped.append(term)
-            seen.add(term)
-    return deduped
-
-
-def _normalize_metadata_value(value: str) -> str:
-    """把元数据值归一化为适合包含判断的形式。"""
-    return re.sub(r"\s+", "", value.lower())
-
-
-def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
-    """从模型文本中提取第一个 JSON 对象。"""
-    text = str(raw_text or "").strip()
-    if not text:
-        return None
-
-    candidates = [text]
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        candidates.insert(0, match.group(0))
-
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(payload, dict):
-            return payload
-
-    return None
-
-
-def _build_cache_key(query: str, suffix: str = "") -> str:
-    """构建会话内缓存键。"""
-    normalized_query = _normalize_text(query)
-    return f"{normalized_query}::{suffix}" if suffix else normalized_query
-
-
-def _build_retrieval_runtime_config_snapshot() -> dict[str, Any]:
-    """返回会影响检索结果的运行时配置快照，用于缓存失效。"""
-    return {
-        "retrieval_candidate_limit": _get_initial_retrieval_limit(),
-        "retrieval_final_context_limit": _get_final_context_limit(),
-        "retrieval_source_limit": _get_final_source_limit(),
-        "retrieval_query_expansion_count": _get_query_expansion_limit(),
-        "reranker_request_timeout": settings.get_reranker_timeout(),
-    }
-
-
-def _get_session_cache_bucket(session_id: str | None, bucket_name: str) -> dict[str, Any] | None:
-    """获取指定会话的某个缓存桶。"""
-    if not session_id:
-        return None
-
-    session_cache = _SESSION_RETRIEVAL_CACHE.setdefault(session_id, {})
-    bucket = session_cache.setdefault(bucket_name, {})
-
-    while len(_SESSION_RETRIEVAL_CACHE) > SESSION_CACHE_MAX_SESSIONS:
-        oldest_session_id = next(iter(_SESSION_RETRIEVAL_CACHE))
-        if oldest_session_id == session_id and len(_SESSION_RETRIEVAL_CACHE) == 1:
-            break
-        _SESSION_RETRIEVAL_CACHE.pop(oldest_session_id, None)
-
-    return bucket
-
-
-def _read_session_cache(session_id: str | None, bucket_name: str, cache_key: str) -> Any | None:
-    """读取会话内缓存项。"""
-    bucket = _get_session_cache_bucket(session_id, bucket_name)
-    if bucket is None:
-        return None
-    return bucket.get(cache_key)
-
-
-def _write_session_cache(session_id: str | None, bucket_name: str, cache_key: str, value: Any) -> None:
-    """写入会话内缓存项，并控制单桶大小。"""
-    bucket = _get_session_cache_bucket(session_id, bucket_name)
-    if bucket is None:
-        return
-
-    if cache_key in bucket:
-        bucket.pop(cache_key, None)
-    bucket[cache_key] = value
-
-    while len(bucket) > SESSION_CACHE_MAX_ENTRIES_PER_BUCKET:
-        oldest_key = next(iter(bucket))
-        bucket.pop(oldest_key, None)
-
-
-def _normalize_explicit_metadata_filters(
-    metadata_filters: dict[str, str] | None,
-) -> dict[str, str]:
-    """清洗前端传入的显式过滤条件，只保留受支持字段。"""
-    if not metadata_filters:
-        return {}
-
-    normalized_filters: dict[str, str] = {}
-    for field in ALLOWED_METADATA_FILTER_FIELDS:
-        value = str(metadata_filters.get(field, "") or "").strip()
-        if value:
-            normalized_filters[field] = value
-
-    return normalized_filters
-
-
-def _merge_metadata_filters(
-    inferred_filters: dict[str, str],
-    explicit_filters: dict[str, str] | None,
-) -> dict[str, str]:
-    """合并推断过滤与显式过滤，显式过滤优先。"""
-    merged = dict(inferred_filters)
-    merged.update(_normalize_explicit_metadata_filters(explicit_filters))
-    return merged
-
-
-def _collect_filter_candidates() -> dict[str, set[str]]:
-    """从现有知识库文档中收集所有可用于过滤的元数据候选值。"""
-    candidates: dict[str, set[str]] = {field: set() for field in QUERY_FILTER_FIELDS}
-    for document in vector_store.list_documents():
-        for field in QUERY_FILTER_FIELDS:
-            value = str(document.get(field, "")).strip()
-            if value:
-                candidates[field].add(value)
-    return candidates
-
-
-def _collect_knowledge_spaces() -> list[str]:
-    """返回当前知识库里所有知识空间。"""
-    spaces = {
-        str(document.get("knowledge_space", "") or "").strip()
-        for document in vector_store.list_documents()
-    }
-    return sorted(space for space in spaces if space)
-
-
-def _collect_knowledge_space_records() -> list[dict[str, str]]:
-    """返回知识库记录，供检索范围提示使用。"""
-    records: list[dict[str, str]] = []
-    seen_names: set[str] = set()
-
-    try:
-        for item in list_knowledge_spaces():
-            name = str(item.get("name", "") or "").strip()
-            if not name or name in seen_names:
-                continue
-
-            seen_names.add(name)
-            records.append(
-                {
-                    "space_id": str(item.get("space_id", "") or "").strip(),
-                    "name": name,
-                }
-            )
-    except Exception:
-        records = []
-
-    if records:
-        return sorted(records, key=lambda item: item["name"])
-
-    return [
-        {"space_id": "", "name": name}
-        for name in _collect_knowledge_spaces()
-    ]
-
-
-def _split_knowledge_space_segments(space: str) -> list[str]:
-    """拆分知识空间路径。"""
-    return [segment.strip() for segment in str(space or "").split("/") if segment.strip()]
-
-
-def _knowledge_space_overlap_score(query: str, knowledge_space: str) -> int:
-    """评估问题与知识空间路径的词面重合程度。"""
-    normalized_space = _normalize_text(knowledge_space)
-    if not normalized_space:
-        return 0
-
-    query_text = _normalize_text(query)
-    score = 0
-    for group in _extract_query_term_groups(query):
-        if any(term in normalized_space or normalized_space in term for term in group):
-            score += 1
-
-    for segment in _split_knowledge_space_segments(knowledge_space):
-        normalized_segment = _normalize_text(segment)
-        if normalized_segment and normalized_segment in query_text:
-            score += 2
-
-    return score
-
-
-def _should_use_knowledge_space_llm(query: str, candidates: list[str]) -> bool:
-    """只有在问题与候选知识空间存在明显关联时，才调用辅助 LLM。"""
-    if len(candidates) <= 1:
-        return False
-
-    return any(_knowledge_space_overlap_score(query, candidate) > 0 for candidate in candidates)
-
-
-def _expand_knowledge_space_filter_values(knowledge_space: str) -> list[str]:
-    """扁平知识库下只保留当前知识库名本身。"""
-    normalized = str(knowledge_space or "").strip()
-    if not normalized:
-        return []
-    return [normalized]
-
-
-def _expand_metadata_filters_for_hierarchy(metadata_filters: dict[str, Any]) -> dict[str, Any]:
-    """扁平知识库模型下无需做层级扩展。"""
-    return dict(metadata_filters)
-
-
-def _infer_metadata_filters(query: str) -> dict[str, str]:
-    """从问题文本里推断元数据过滤条件。
-
-    例如问题里直接出现了系统名、模块名或版本名时，
-    可以先缩小向量检索范围，减少噪声召回。
-    """
-    normalized_query = _normalize_metadata_value(query)
-    if not normalized_query:
-        return {}
-
-    inferred: dict[str, str] = {}
-    candidates = _collect_filter_candidates()
-
-    for field, values in candidates.items():
-        for value in sorted(values, key=len, reverse=True):
-            if _normalize_metadata_value(value) in normalized_query:
-                inferred[field] = value
-                break
-
-    return inferred
-
-
-def _rank_knowledge_space_candidates(query: str, candidates: list[str]) -> list[str]:
-    """按问题文本对候选知识空间做轻量排序。"""
-    def score(space: str) -> tuple[int, int, str]:
-        overlap_score = _knowledge_space_overlap_score(query, space)
-        depth_score = len(_split_knowledge_space_segments(space))
-        return (-overlap_score, -depth_score, -len(space), space)
-
-    return sorted(candidates, key=score)
-
-
-def _probe_knowledge_space_candidates(query: str) -> list[str]:
-    """通过一次宽松召回给知识空间澄清提供候选。"""
-    try:
-        probe_results = vector_store.query_documents(
-            query,
-            n_results=_get_knowledge_space_resolution_probe_limit(),
-        )
-    except Exception:
-        probe_results = []
-
-    candidates = _collect_hitl_options(probe_results, "knowledge_space")
-    if candidates:
-        return candidates
-    return _rank_knowledge_space_candidates(query, _collect_knowledge_spaces())[:HITL_OPTION_LIMIT]
-
-
-def _resolve_knowledge_space_with_llm(query: str, candidates: list[str]) -> dict[str, Any] | None:
-    """让模型判断问题最可能属于哪个知识空间。"""
-    if len(candidates) <= 1:
-        return None
-
-    raw = _run_auxiliary_completion(
-        "你是知识库路由器。必须只输出 JSON，不要附加解释。",
-        (
-            "请根据用户问题判断它最应该归属到哪个知识空间。\n"
-            f"候选知识空间：{json.dumps(candidates, ensure_ascii=False)}\n"
-            f"用户问题：{query}\n"
-            "如果可以唯一确定，返回："
-            '{"status":"resolved","knowledge_space":"候选中的某一项","candidates":["候选中的某一项"]}\n'
-            "如果存在多个可能，返回："
-            '{"status":"ambiguous","knowledge_space":"","candidates":["候选中的多个候选"]}\n'
-            "如果无法判断或明显不属于任何候选，返回："
-            '{"status":"unknown","knowledge_space":"","candidates":[]}\n'
-            "JSON 中的 knowledge_space 和 candidates 必须完全来自候选知识空间原文。"
-        ),
-    )
-    payload = _extract_json_object(raw)
-    if not payload:
-        return None
-
-    status = str(payload.get("status", "")).strip().lower()
-    knowledge_space = str(payload.get("knowledge_space", "") or "").strip()
-    raw_candidates = payload.get("candidates", [])
-    candidate_set = {candidate for candidate in candidates}
-    filtered_candidates = [
-        candidate
-        for candidate in raw_candidates
-        if isinstance(candidate, str) and candidate.strip() in candidate_set
-    ]
-
-    if knowledge_space and knowledge_space not in candidate_set:
-        knowledge_space = ""
-
-    if status not in {KNOWLEDGE_SPACE_RESOLVED, KNOWLEDGE_SPACE_AMBIGUOUS, KNOWLEDGE_SPACE_UNKNOWN}:
-        return None
-
-    return {
-        "status": status,
-        "knowledge_space": knowledge_space,
-        "candidates": filtered_candidates,
-    }
-
-
-def _resolve_knowledge_space(
-    query: str,
-    inferred_filters: dict[str, str],
-    explicit_filters: dict[str, str],
-    session_id: str | None = None,
-) -> dict[str, Any]:
-    """在检索前先确定问题属于哪个知识空间。"""
-    cache_suffix = json.dumps(explicit_filters, ensure_ascii=False, sort_keys=True)
-    cache_key = _build_cache_key(query, cache_suffix)
-    cached_result = _read_session_cache(session_id, "knowledge_space_resolution", cache_key)
-    if isinstance(cached_result, dict):
-        return {**cached_result, "cache_hit": True}
-
-    explicit_space = str(explicit_filters.get("knowledge_space", "") or "").strip()
-    if explicit_space:
-        resolved = {
-            "status": KNOWLEDGE_SPACE_RESOLVED,
-            "knowledge_space": explicit_space,
-            "candidates": [explicit_space],
-            "reason": "explicit_filter",
-        }
-        _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-        return resolved
-
-    inferred_space = str(inferred_filters.get("knowledge_space", "") or "").strip()
-    if inferred_space:
-        resolved = {
-            "status": KNOWLEDGE_SPACE_RESOLVED,
-            "knowledge_space": inferred_space,
-            "candidates": [inferred_space],
-            "reason": "query_match",
-        }
-        _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-        return resolved
-
-    knowledge_spaces = _collect_knowledge_spaces()
-    if not knowledge_spaces:
-        resolved = {
-            "status": KNOWLEDGE_SPACE_UNKNOWN,
-            "knowledge_space": "",
-            "candidates": [],
-            "reason": "empty_knowledge_base",
-        }
-        _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-        return resolved
-
-    if len(knowledge_spaces) == 1:
-        resolved = {
-            "status": KNOWLEDGE_SPACE_RESOLVED,
-            "knowledge_space": knowledge_spaces[0],
-            "candidates": knowledge_spaces,
-            "reason": "single_knowledge_space",
-        }
-        _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-        return resolved
-
-    llm_result = None
-    if _should_use_knowledge_space_llm(query, knowledge_spaces):
-        llm_result = _resolve_knowledge_space_with_llm(query, knowledge_spaces)
-    if llm_result and llm_result.get("status") == KNOWLEDGE_SPACE_RESOLVED:
-        resolved = {
-            **llm_result,
-            "reason": "llm_resolution",
-        }
-        _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-        return resolved
-
-    candidate_spaces = _probe_knowledge_space_candidates(query)
-    unresolved_status = KNOWLEDGE_SPACE_UNKNOWN
-    if llm_result and llm_result.get("status") == KNOWLEDGE_SPACE_AMBIGUOUS:
-        unresolved_status = KNOWLEDGE_SPACE_AMBIGUOUS
-        candidate_spaces = llm_result.get("candidates") or candidate_spaces
-
-    if not candidate_spaces:
-        candidate_spaces = knowledge_spaces[:HITL_OPTION_LIMIT]
-
-    resolved = {
-        "status": unresolved_status,
-        "knowledge_space": "",
-        "candidates": candidate_spaces[:HITL_OPTION_LIMIT],
-        "reason": "needs_user_clarification",
-    }
-    _write_session_cache(session_id, "knowledge_space_resolution", cache_key, resolved)
-    return resolved
-
-
-def _generate_query_variants(query: str, knowledge_space: str = "", session_id: str | None = None) -> tuple[list[str], bool]:
-    """把口语问题扩写成更适合知识库检索的多个问法。"""
-    normalized_query = str(query or "").strip()
-    if not normalized_query:
-        return [], False
-
-    config_snapshot = _build_retrieval_runtime_config_snapshot()
-    cache_key = _build_cache_key(
-        normalized_query,
-        json.dumps(
-            {
-                "knowledge_space": knowledge_space.strip(),
-                "retrieval_query_expansion_count": config_snapshot["retrieval_query_expansion_count"],
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        ),
-    )
-    cached_variants = _read_session_cache(session_id, "query_variants", cache_key)
-    if isinstance(cached_variants, list) and cached_variants:
-        return list(cached_variants), True
-
-    variants = [normalized_query]
-    query_expansion_limit = _get_query_expansion_limit()
-    if query_expansion_limit <= 0:
-        _write_session_cache(session_id, "query_variants", cache_key, variants)
-        return variants, False
-
-    scope_hint = f"当前知识空间：{knowledge_space}\n" if knowledge_space else ""
-    raw = _run_auxiliary_completion(
-        "你是知识库检索改写器。只输出若干行中文问句，不要编号，不要解释。",
-        (
-            f"{scope_hint}"
-            f"原始问题：{normalized_query}\n"
-            f"请生成 {query_expansion_limit} 个与原问题语义等价、但更接近正式文档写法的中文检索问句。\n"
-            "要求：\n"
-            "1. 不要引入原问题中没有的新事实、新对象或新流程。\n"
-            "2. 可以补充同义词、正式术语、模块名称、流程名称。\n"
-            "3. 每行一个问句。"
-        ),
-    )
-
-    if not raw:
-        _write_session_cache(session_id, "query_variants", cache_key, variants)
-        return variants, False
-
-    for line in raw.splitlines():
-        candidate = re.sub(r"^[\-\d\s.、]+", "", line).strip(" \t\"'“”")
-        if candidate and candidate not in variants:
-            variants.append(candidate)
-        if len(variants) >= query_expansion_limit + 1:
-            break
-
-    _write_session_cache(session_id, "query_variants", cache_key, variants)
-    return variants, False
-
-
-def _format_context_header(metadata: dict) -> str:
-    """把文档元数据整理成上下文头。
-
-    这段头信息会和正文 chunk 一起送给模型，
-    帮助模型理解内容来自哪个知识空间、主题或章节。
-    """
-    header_parts = []
-    for label, key in (
-        ("知识空间", "knowledge_space"),
-        ("标签", "tags"),
-    ):
-        value = str(metadata.get(key, "")).strip()
-        if value:
-            header_parts.append(f"[{label}] {value}")
-
-    source_type = str(metadata.get("source_type", "")).strip()
-    if source_type:
-        header_parts.append("[来源类型] 正文文本")
-
-    source_label = str(metadata.get("source_label", "")).strip()
-    if source_label:
-        header_parts.append(f"[来源位置] {source_label}")
-
-    heading_path = str(metadata.get("heading_path", "")).strip()
-    if heading_path:
-        header_parts.append(f"[章节路径] {heading_path}")
-
-    section_title = str(metadata.get("section_title", "")).strip()
-    if section_title and section_title != heading_path:
-        header_parts.append(f"[章节标题] {section_title}")
-
-    return "\n".join(header_parts)
-
-
-def _metadata_match_count(query_terms: list[str], metadata: dict) -> int:
-    """统计 query_terms 在元数据中的命中数。"""
-    values = [
-        _normalize_text(str(metadata.get(field, "")))
-        for field in QUERY_FILTER_FIELDS
-    ]
-    values.extend(
-        [
-            _normalize_text(str(metadata.get("section_title", ""))),
-            _normalize_text(str(metadata.get("heading_path", ""))),
-            _normalize_text(str(metadata.get("source_label", ""))),
-        ]
-    )
-    return sum(1 for term in query_terms if any(term in value for value in values if value))
-
-
 def _document_match_count(query_terms: list[str], doc: dict) -> int:
-    """统计单个候选片段对问题核心词的覆盖数。"""
     if not query_terms:
         return 0
 
@@ -825,24 +76,18 @@ def _document_match_count(query_terms: list[str], doc: dict) -> int:
             str(metadata.get("source_label", "") or ""),
         ]
     )
-    normalized = _normalize_text(combined)
+    normalized = normalize_text(combined)
     return sum(1 for term in query_terms if term in normalized)
 
 
 def _has_sufficient_evidence(query: str, documents: list[dict]) -> bool:
-    """判断当前召回证据是否足以支持继续作答。
-
-    这里不依赖特定领域词表，只看两个通用信号：
-    1. 最佳语义距离是否足够近。
-    2. 问题核心词在最终证据中的覆盖是否足够。
-    """
     if not documents:
         return False
 
     best_distance = min(float(doc.get("distance", 1.0)) for doc in documents)
-    core_terms = _extract_core_query_terms(query)
-    concept_groups = _extract_query_term_groups(query)
-    identifier_terms = _extract_explicit_identifier_terms(query)
+    core_terms = extract_core_query_terms(query)
+    concept_groups = extract_query_term_groups(query)
+    identifier_terms = extract_explicit_identifier_terms(query)
 
     if identifier_terms:
         missing_identifiers = [
@@ -869,14 +114,7 @@ def _has_sufficient_evidence(query: str, documents: list[dict]) -> bool:
 
 
 def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
-    """为本地 fallback rerank 计算综合分数。
-
-    综合考虑三部分：
-    - 向量语义分 semantic_score
-    - 正文关键词命中 keyword_score
-    - 元数据命中 metadata_score
-    """
-    content = _normalize_text(doc.get("content", ""))
+    content = normalize_text(doc.get("content", ""))
     distance = float(doc.get("distance", 1.0))
     semantic_score = max(0.0, 1.0 - distance)
 
@@ -886,21 +124,19 @@ def _score_document(query_terms: list[str], doc: dict) -> tuple[float, int]:
     keyword_hits = sum(1 for term in query_terms if term in content)
     weighted_hits = sum(len(term) for term in query_terms if term in content)
     keyword_score = min(weighted_hits / max(len("".join(query_terms)), 1), 1.0)
-    metadata_hits = _metadata_match_count(query_terms, doc.get("metadata", {}))
-    metadata_score = min(metadata_hits / max(len(query_terms), 1), 1.0)
+    meta_hits = metadata_match_count(query_terms, doc.get("metadata", {}))
+    metadata_score = min(meta_hits / max(len(query_terms), 1), 1.0)
     final_score = semantic_score * 0.55 + keyword_score * 0.3 + metadata_score * 0.15
-    return final_score, keyword_hits + metadata_hits
+    return final_score, keyword_hits + meta_hits
 
 
 def _build_rerank_status(mode: str) -> str:
-    """生成给前端进度条使用的 rerank 状态文案。"""
     if mode == RERANK_MODE_MODEL:
         return "已完成候选片段排序。"
     return "已完成候选片段排序。"
 
 
 def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
-    """根据检索 trace 生成用户可见的进度步骤。"""
     steps: list[str] = []
     query_variant_count = int(trace.get("query_variant_count", 1) or 1)
     query_expansion_count = max(query_variant_count - 1, 0)
@@ -961,7 +197,6 @@ def build_retrieval_progress_steps(trace: dict[str, Any]) -> list[str]:
 
 
 def _collect_hitl_options(documents: list[dict], field: str) -> list[str]:
-    """按命中频次和距离为澄清问题收集候选选项。"""
     ranked: dict[str, tuple[int, float]] = {}
 
     for doc in documents:
@@ -979,15 +214,11 @@ def _collect_hitl_options(documents: list[dict], field: str) -> list[str]:
         count, best_distance = current
         ranked[value] = (count + 1, min(best_distance, distance))
 
-    ordered = sorted(
-        ranked.items(),
-        key=lambda item: (-item[1][0], item[1][1], item[0]),
-    )
+    ordered = sorted(ranked.items(), key=lambda item: (-item[1][0], item[1][1], item[0]))
     return [value for value, _ in ordered[:HITL_OPTION_LIMIT]]
 
 
 def build_hitl_clarification(trace: dict[str, Any]) -> dict[str, Any] | None:
-    """当检索来源存在歧义时，生成需要用户二次确认的澄清问题。"""
     knowledge_space_resolution = trace.get("knowledge_space_resolution", {}) or {}
     if knowledge_space_resolution.get("status") in {KNOWLEDGE_SPACE_AMBIGUOUS, KNOWLEDGE_SPACE_UNKNOWN}:
         options = [
@@ -1004,10 +235,7 @@ def build_hitl_clarification(trace: dict[str, Any]) -> dict[str, Any] | None:
         if knowledge_space_resolution.get("status") == KNOWLEDGE_SPACE_UNKNOWN:
             question = "我暂时无法判断你的问题属于哪个知识空间，或者它可能不在现有知识库内。请先明确你要查询的知识空间。"
 
-        return {
-            "question": question,
-            "options": options[:HITL_OPTION_LIMIT],
-        }
+        return {"question": question, "options": options[:HITL_OPTION_LIMIT]}
 
     documents = list(trace.get("documents", []))
     if len(documents) <= 1:
@@ -1022,44 +250,29 @@ def build_hitl_clarification(trace: dict[str, Any]) -> dict[str, Any] | None:
     missing_space_filter = not str(metadata_filters.get("knowledge_space", "")).strip()
     ambiguous_space = missing_space_filter and len(knowledge_space_options) > 1
 
-    if not ambiguous_space:
-        return None
-
-    if best_distance <= HITL_DISTANCE_THRESHOLD:
+    if not ambiguous_space or best_distance <= HITL_DISTANCE_THRESHOLD:
         return None
 
     question = "当前命中的内容来自多个知识库，我暂时无法确认应该使用哪一个知识库。请先选择范围。"
-
-    options: list[dict[str, str]] = []
-    options.extend(
+    options = [
         {
             "field": "knowledge_space",
             "value": option,
             "label": f"知识库：{option}",
         }
         for option in knowledge_space_options
-    )
+    ]
 
-    return {
-        "question": question,
-        "options": options[: HITL_OPTION_LIMIT * 2],
-    }
+    return {"question": question, "options": options[: HITL_OPTION_LIMIT * 2]}
 
 
 def _fallback_rerank_documents(query: str, documents: list[dict]) -> list[dict]:
-    """当模型 rerank 不可用时，使用本地规则排序候选文档。"""
-    query_terms = _extract_query_terms(query)
+    query_terms = extract_query_terms(query)
     scored_docs: list[dict] = []
 
     for doc in documents:
         rerank_score, keyword_hits = _score_document(query_terms, doc)
-        scored_docs.append(
-            {
-                **doc,
-                "rerank_score": rerank_score,
-                "keyword_hits": keyword_hits,
-            }
-        )
+        scored_docs.append({**doc, "rerank_score": rerank_score, "keyword_hits": keyword_hits})
 
     scored_docs.sort(
         key=lambda item: (
@@ -1083,14 +296,16 @@ def _query_documents_with_variants(
     n_results: int,
     metadata_filters: dict[str, str] | None = None,
 ) -> list[dict]:
-    """对多个问法并行做召回，并按 chunk 去重合并。"""
     merged: dict[tuple[str, int, str], dict[str, Any]] = {}
+    user = get_current_user(required=False)
+    accessible_space_ids = list_accessible_space_ids(user) if user else []
 
     for variant in query_variants:
         results = vector_store.query_documents(
             variant,
             n_results=n_results,
             metadata_filters=metadata_filters,
+            accessible_space_ids=accessible_space_ids,
         )
         for result in results:
             metadata = result.get("metadata", {})
@@ -1108,31 +323,21 @@ def _query_documents_with_variants(
             if existing is not None and float(existing.get("distance", 1.0)) <= float(result.get("distance", 1.0)):
                 best_result = existing
 
-            merged[key] = {
-                **best_result,
-                "matched_queries": matched_queries,
-            }
+            merged[key] = {**best_result, "matched_queries": matched_queries}
 
     merged_results = list(merged.values())
     merged_results.sort(
-        key=lambda item: (
-            -len(item.get("matched_queries", [])),
-            float(item.get("distance", 1.0)),
-        )
+        key=lambda item: (-len(item.get("matched_queries", [])), float(item.get("distance", 1.0)))
     )
     return merged_results[: max(int(n_results or 0), 1)]
 
 
 def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[list[dict], str]:
-    """对过滤后的候选文档做 rerank，并限制最终保留条数。"""
     scored_docs: list[dict]
     rerank_mode = RERANK_MODE_MODEL
 
     try:
-        rerank_results = rerank_documents(
-            query,
-            [doc.get("content", "") for doc in documents],
-        )
+        rerank_results = rerank_documents(query, [doc.get("content", "") for doc in documents])
 
         reranked_by_model: list[dict] = []
         for item in rerank_results:
@@ -1155,7 +360,6 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
         scored_docs = _fallback_rerank_documents(query, documents)
         rerank_mode = RERANK_MODE_LOCAL
 
-    # 即使某篇文档相关度很高，也只允许少量 chunk 进入最终上下文，避免答案过度偏向单一来源。
     per_document_count: dict[str, int] = defaultdict(int)
     reranked: list[dict] = []
 
@@ -1173,21 +377,6 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
     return reranked, rerank_mode
 
 
-def _emit_retrieval_progress(
-    progress_callback: Callable[[str], None] | None,
-    message: str,
-) -> None:
-    """向外层推送检索阶段进度。"""
-    if progress_callback is None:
-        return
-
-    text = str(message or "").strip()
-    if not text:
-        return
-
-    progress_callback(text)
-
-
 def retrieve_relevant_documents_trace(
     query: str,
     initial_n_results: int | None = None,
@@ -1196,15 +385,11 @@ def retrieve_relevant_documents_trace(
     session_id: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """执行完整检索流程，并返回可追踪的中间状态。
-
-    这个 trace 会被聊天流式接口复用，用于展示“已召回多少条、过滤后还剩多少条”等进度信息。
-    """
-    normalized_explicit_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
-    initial_n_results = initial_n_results or _get_initial_retrieval_limit()
-    final_n_results = final_n_results or _get_final_context_limit()
-    runtime_config_snapshot = _build_retrieval_runtime_config_snapshot()
-    trace_cache_key = _build_cache_key(
+    normalized_explicit_filters = normalize_explicit_metadata_filters(explicit_metadata_filters)
+    initial_n_results = initial_n_results or get_initial_retrieval_limit()
+    final_n_results = final_n_results or get_final_context_limit()
+    runtime_config_snapshot = build_retrieval_runtime_config_snapshot()
+    trace_cache_key = build_cache_key(
         query,
         json.dumps(
             {
@@ -1217,17 +402,17 @@ def retrieve_relevant_documents_trace(
             sort_keys=True,
         ),
     )
-    cached_trace = _read_session_cache(session_id, "retrieval_trace", trace_cache_key)
+    cached_trace = read_session_cache(session_id, "retrieval_trace", trace_cache_key)
     if isinstance(cached_trace, dict):
         reused_trace = copy.deepcopy(cached_trace)
         reused_trace["retrieval_cache_hit"] = True
-        _emit_retrieval_progress(progress_callback, "已复用当前会话中的检索结果。")
+        emit_retrieval_progress(progress_callback, "已复用当前会话中的检索结果。")
         return reused_trace
 
-    _emit_retrieval_progress(progress_callback, "正在确认问题所属的知识空间。")
-    inferred_metadata_filters = _infer_metadata_filters(query)
+    emit_retrieval_progress(progress_callback, "正在确认问题所属的知识空间。")
+    inferred_metadata_filters = infer_metadata_filters(query)
     explicit_filters = normalized_explicit_filters
-    knowledge_space_resolution = _resolve_knowledge_space(
+    knowledge_space_resolution = resolve_knowledge_space(
         query,
         inferred_metadata_filters,
         explicit_filters,
@@ -1235,17 +420,17 @@ def retrieve_relevant_documents_trace(
     )
 
     if knowledge_space_resolution.get("cache_hit"):
-        _emit_retrieval_progress(progress_callback, "已复用当前会话中的知识空间判定结果。")
+        emit_retrieval_progress(progress_callback, "已复用当前会话中的知识空间判定结果。")
     elif knowledge_space_resolution.get("status") == KNOWLEDGE_SPACE_RESOLVED:
         resolved_space = str(knowledge_space_resolution.get("knowledge_space", "") or "").strip()
         if resolved_space:
-            _emit_retrieval_progress(progress_callback, f"已确认问题归属到知识空间“{resolved_space}”。")
+            emit_retrieval_progress(progress_callback, f"已确认问题归属到知识空间“{resolved_space}”。")
     else:
-        _emit_retrieval_progress(progress_callback, "知识空间仍需进一步确认。")
+        emit_retrieval_progress(progress_callback, "知识空间仍需进一步确认。")
 
     if (
         knowledge_space_resolution.get("status") != KNOWLEDGE_SPACE_RESOLVED
-        and len(_collect_knowledge_spaces()) > 1
+        and len(collect_knowledge_spaces()) > 1
     ):
         trace = {
             "documents": [],
@@ -1263,17 +448,17 @@ def retrieve_relevant_documents_trace(
             "query_variants_cache_hit": False,
             "retrieval_cache_hit": False,
         }
-        _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
+        write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
 
-    metadata_filters = _merge_metadata_filters(inferred_metadata_filters, explicit_filters)
+    metadata_filters = merge_metadata_filters(inferred_metadata_filters, explicit_filters)
     if (
         knowledge_space_resolution.get("status") == KNOWLEDGE_SPACE_RESOLVED
         and not metadata_filters.get("knowledge_space")
     ):
         metadata_filters["knowledge_space"] = str(knowledge_space_resolution.get("knowledge_space", "") or "")
 
-    effective_metadata_filters = _expand_metadata_filters_for_hierarchy(metadata_filters)
+    effective_metadata_filters = expand_metadata_filters_for_hierarchy(metadata_filters)
     effective_knowledge_space_filter = effective_metadata_filters.get("knowledge_space")
     expanded_knowledge_space_count = 0
     if isinstance(effective_knowledge_space_filter, list):
@@ -1281,20 +466,20 @@ def retrieve_relevant_documents_trace(
     elif str(effective_knowledge_space_filter or "").strip():
         expanded_knowledge_space_count = 1
 
-    _emit_retrieval_progress(progress_callback, "正在生成检索问法。")
-    query_variants, query_variants_cache_hit = _generate_query_variants(
+    emit_retrieval_progress(progress_callback, "正在生成检索问法。")
+    query_variants, query_variants_cache_hit = generate_query_variants(
         query,
         str(metadata_filters.get("knowledge_space", "") or ""),
         session_id=session_id,
     )
     if query_variants_cache_hit:
-        _emit_retrieval_progress(progress_callback, "已复用当前会话中的问题扩写结果。")
+        emit_retrieval_progress(progress_callback, "已复用当前会话中的问题扩写结果。")
     elif len(query_variants) > 1:
-        _emit_retrieval_progress(progress_callback, f"已生成 {len(query_variants) - 1} 个扩写问法用于辅助检索。")
+        emit_retrieval_progress(progress_callback, f"已生成 {len(query_variants) - 1} 个扩写问法用于辅助检索。")
     else:
-        _emit_retrieval_progress(progress_callback, "当前问题将直接用于检索。")
+        emit_retrieval_progress(progress_callback, "当前问题将直接用于检索。")
 
-    _emit_retrieval_progress(progress_callback, "正在向量检索相关片段。")
+    emit_retrieval_progress(progress_callback, "正在向量检索相关片段。")
     results = _query_documents_with_variants(
         query_variants,
         n_results=initial_n_results,
@@ -1302,16 +487,15 @@ def retrieve_relevant_documents_trace(
     )
     fallback_without_filters = False
 
-    # 如果基于元数据过滤没有召回结果，就自动回退到无过滤检索，避免误过滤导致完全答不出来。
     if not results and metadata_filters and not explicit_filters:
         fallback_without_filters = True
-        _emit_retrieval_progress(progress_callback, "限定范围内未命中内容，正在放宽检索范围重试。")
+        emit_retrieval_progress(progress_callback, "限定范围内未命中内容，正在放宽检索范围重试。")
         results = _query_documents_with_variants(query_variants, n_results=initial_n_results)
 
     if results:
-        _emit_retrieval_progress(progress_callback, f"已完成初步召回，找到 {len(results)} 个候选片段。")
+        emit_retrieval_progress(progress_callback, f"已完成初步召回，找到 {len(results)} 个候选片段。")
     else:
-        _emit_retrieval_progress(progress_callback, "初步召回未找到相关片段。")
+        emit_retrieval_progress(progress_callback, "初步召回未找到相关片段。")
 
     if not results:
         trace = {
@@ -1332,15 +516,15 @@ def retrieve_relevant_documents_trace(
             "query_variants_cache_hit": query_variants_cache_hit,
             "retrieval_cache_hit": False,
         }
-        _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
+        write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
 
     filtered = [result for result in results if result["distance"] < RETRIEVAL_THRESHOLD]
 
     if filtered:
-        _emit_retrieval_progress(progress_callback, f"已完成相关度过滤，保留 {len(filtered)} 个候选片段。")
+        emit_retrieval_progress(progress_callback, f"已完成相关度过滤，保留 {len(filtered)} 个候选片段。")
     else:
-        _emit_retrieval_progress(progress_callback, "候选片段相关度不足，未保留可用内容。")
+        emit_retrieval_progress(progress_callback, "候选片段相关度不足，未保留可用内容。")
 
     if not filtered:
         trace = {
@@ -1361,14 +545,14 @@ def retrieve_relevant_documents_trace(
             "query_variants_cache_hit": query_variants_cache_hit,
             "retrieval_cache_hit": False,
         }
-        _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
+        write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
 
-    _emit_retrieval_progress(progress_callback, "正在排序候选片段。")
+    emit_retrieval_progress(progress_callback, "正在排序候选片段。")
     reranked, rerank_mode = _rerank_documents(query, filtered, limit=final_n_results)
-    _emit_retrieval_progress(progress_callback, _build_rerank_status(rerank_mode))
+    emit_retrieval_progress(progress_callback, _build_rerank_status(rerank_mode))
     if not _has_sufficient_evidence(query, reranked):
-        _emit_retrieval_progress(progress_callback, "候选内容证据不足，无法直接生成答案。")
+        emit_retrieval_progress(progress_callback, "候选内容证据不足，无法直接生成答案。")
         trace = {
             "documents": [],
             "rerank_mode": rerank_mode,
@@ -1387,10 +571,10 @@ def retrieve_relevant_documents_trace(
             "query_variants_cache_hit": query_variants_cache_hit,
             "retrieval_cache_hit": False,
         }
-        _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
+        write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
 
-    _emit_retrieval_progress(progress_callback, f"已选取 {len(reranked)} 个片段用于生成答案。")
+    emit_retrieval_progress(progress_callback, f"已选取 {len(reranked)} 个片段用于生成答案。")
 
     trace = {
         "documents": reranked,
@@ -1410,7 +594,7 @@ def retrieve_relevant_documents_trace(
         "query_variants_cache_hit": query_variants_cache_hit,
         "retrieval_cache_hit": False,
     }
-    _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
+    write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
     return trace
 
 
@@ -1421,7 +605,6 @@ def retrieve_relevant_documents_with_mode(
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> tuple[list[dict], str]:
-    """返回最终可用文档，以及 rerank 采用的模式。"""
     trace = retrieve_relevant_documents_trace(
         query,
         initial_n_results=initial_n_results,
@@ -1439,7 +622,6 @@ def retrieve_relevant_documents(
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> list[dict]:
-    """兼容型包装函数，只关心最终文档列表时使用。"""
     relevant, _ = retrieve_relevant_documents_with_mode(
         query,
         initial_n_results=initial_n_results,
@@ -1457,12 +639,11 @@ def build_source_payload(
     session_id: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[list[dict], str]:
-    """把检索结果转成前端来源卡片需要的轻量结构。"""
-    source_limit = n_results or _get_final_source_limit()
+    source_limit = n_results or get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
-        initial_n_results=_get_initial_retrieval_limit(),
-        final_n_results=_get_final_context_limit(),
+        initial_n_results=get_initial_retrieval_limit(),
+        final_n_results=get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
         progress_callback=progress_callback,
@@ -1488,7 +669,7 @@ def build_source_payload(
                 "section_title": metadata.get("section_title", ""),
                 "heading_path": metadata.get("heading_path", ""),
                 "image_count": int(metadata.get("image_count", 0) or 0),
-                "summary": _summarize_excerpt(content),
+                "summary": summarize_excerpt(content),
             }
         )
 
@@ -1502,12 +683,11 @@ def build_source_payload_with_trace(
     session_id: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
-    """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
-    source_limit = n_results or _get_final_source_limit()
+    source_limit = n_results or get_final_source_limit()
     trace = retrieve_relevant_documents_trace(
         query,
-        initial_n_results=_get_initial_retrieval_limit(),
-        final_n_results=_get_final_context_limit(),
+        initial_n_results=get_initial_retrieval_limit(),
+        final_n_results=get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
         progress_callback=progress_callback,
@@ -1531,7 +711,7 @@ def build_source_payload_with_trace(
                 "section_title": metadata.get("section_title", ""),
                 "heading_path": metadata.get("heading_path", ""),
                 "image_count": int(metadata.get("image_count", 0) or 0),
-                "summary": _summarize_excerpt(content),
+                "summary": summarize_excerpt(content),
             }
         )
 
@@ -1544,7 +724,6 @@ def build_source_summaries(
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> list[dict]:
-    """仅返回来源摘要列表的简化入口。"""
     summaries, _ = build_source_payload(
         query,
         n_results=n_results,
@@ -1554,23 +733,35 @@ def build_source_summaries(
     return summaries
 
 
+def build_context_from_documents(documents: list[dict]) -> str:
+    if not documents:
+        return NO_KNOWLEDGE_BASE_CONTEXT
+
+    context_parts = []
+    for index, doc in enumerate(documents, 1):
+        metadata = doc["metadata"]
+        filename = metadata.get("filename", "未知文档")
+        header = format_context_header(metadata)
+        if header:
+            context_parts.append(f"[来源 {index}: {filename}]\n{header}\n[内容]\n{doc['content']}")
+        else:
+            context_parts.append(f"[来源 {index}: {filename}]\n[内容]\n{doc['content']}")
+
+    return "\n\n---\n\n".join(context_parts)
+
+
 def retrieve_from_knowledge_base(
     query: str,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
 ) -> str:
-    """供 Agent 调用的知识库工具。
-
-    它返回的不是结构化 JSON，而是一段适合直接放进提示词上下文的文本：
-    每个来源都带有来源头和正文内容，便于模型在回答时引用具体文档。
-    """
     if vector_store.collection_count() == 0:
         return "【知识库为空，尚未上传任何文档。】"
 
     relevant, _ = retrieve_relevant_documents_with_mode(
         query,
-        initial_n_results=_get_initial_retrieval_limit(),
-        final_n_results=_get_final_context_limit(),
+        initial_n_results=get_initial_retrieval_limit(),
+        final_n_results=get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
     )
@@ -1581,37 +772,13 @@ def retrieve_from_knowledge_base(
     return build_context_from_documents(relevant)
 
 
-def build_context_from_documents(documents: list[dict]) -> str:
-    """把最终检索片段拼成给生成模型使用的上下文文本。"""
-    if not documents:
-        return NO_KNOWLEDGE_BASE_CONTEXT
-
-    # 这里按“来源头 + 正文”的格式拼接上下文，既保留来源可解释性，也尽量减少提示词噪声。
-    context_parts = []
-    for i, doc in enumerate(documents, 1):
-        metadata = doc["metadata"]
-        filename = metadata.get("filename", "未知文档")
-        header = _format_context_header(metadata)
-        if header:
-            context_parts.append(f"[来源 {i}: {filename}]\n{header}\n[内容]\n{doc['content']}")
-        else:
-            context_parts.append(f"[来源 {i}: {filename}]\n[内容]\n{doc['content']}")
-
-    return "\n\n---\n\n".join(context_parts)
-
-
 def create_rag_agent(
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
     original_query: str | None = None,
     retrieval_documents: list[dict] | None = None,
 ) -> Agent:
-    """创建 ADK RAG Agent。
-
-    Agent 本身只做一件事：
-    调用 retrieve_from_knowledge_base 拿上下文，再按照新的回答提示词输出最终答案。
-    """
-    normalized_filters = _normalize_explicit_metadata_filters(explicit_metadata_filters)
+    normalized_filters = normalize_explicit_metadata_filters(explicit_metadata_filters)
     normalized_original_query = str(original_query or "").strip()
     retrieval_context = build_context_from_documents(list(retrieval_documents or [])) if retrieval_documents else ""
 
@@ -1626,7 +793,7 @@ def create_rag_agent(
         if (
             retrieval_result == NO_KNOWLEDGE_BASE_CONTEXT
             and normalized_original_query
-            and _normalize_text(requested_query) != _normalize_text(normalized_original_query)
+            and normalize_text(requested_query) != normalize_text(normalized_original_query)
         ):
             return retrieve_from_knowledge_base(
                 normalized_original_query,
@@ -1636,12 +803,13 @@ def create_rag_agent(
 
         return retrieval_result
 
-    agent_instruction = ANSWER_SYSTEM_INSTRUCTION
+    answer_system_instruction = get_answer_system_instruction()
+    agent_instruction = answer_system_instruction
     tools = [retrieval_tool]
 
     if retrieval_context:
         agent_instruction = (
-            f"{ANSWER_SYSTEM_INSTRUCTION}\n\n"
+            f"{answer_system_instruction}\n\n"
             + CONTEXT_ONLY_INSTRUCTION_TEMPLATE.format(
                 no_answer=NO_KNOWLEDGE_BASE_ANSWER,
                 retrieval_context=retrieval_context,
@@ -1651,7 +819,7 @@ def create_rag_agent(
 
     return Agent(
         name="rag_agent",
-        model=_build_llm(),
+        model=build_llm(),
         description="Knowledge base Q&A agent that only answers based on uploaded documents.",
         instruction=agent_instruction,
         tools=tools,

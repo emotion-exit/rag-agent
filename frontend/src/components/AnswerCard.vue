@@ -222,23 +222,25 @@ function toggleProgress() {
           class="rounded-2xl border border-black/5 bg-white/60 px-5 py-4 shadow-sm transition-all duration-200 hover:bg-white/85 hover:shadow-md">
           <button
             type="button"
-            class="flex w-full items-center gap-3 text-left"
+            class="flex w-full justify-between items-center gap-3 text-left"
             @click="toggleProgress">
             <div
-              class="text-xs font-bold uppercase tracking-wide text-zinc-500">
+              class="flex items-center text-xs font-bold uppercase tracking-wide text-zinc-500">
               执行进度
+              <LoadingOutlined
+                v-if="isLoading && !hasAnswerSection"
+                class="text-xs text-zinc-400" />
             </div>
-            <LoadingOutlined
-              v-if="isLoading && !hasAnswerSection"
-              class="text-xs text-zinc-400" />
-            <span class="ml-auto text-xs font-semibold text-zinc-500">
+
+            <span
+              class="flex items-center ml-auto text-xs font-semibold text-zinc-500">
               {{ progressExpanded ? '收起' : '展开' }}
+              <DownOutlined
+                :class="[
+                  'text-xs transition-transform duration-200',
+                  progressExpanded ? 'rotate-180' : ''
+                ]" />
             </span>
-            <DownOutlined
-              :class="[
-                'text-xs transition-transform duration-200',
-                progressExpanded ? 'rotate-180' : ''
-              ]" />
           </button>
           <div v-if="progressExpanded" class="mt-4 flex flex-col gap-0">
             <div
@@ -353,15 +355,18 @@ function toggleProgress() {
               isError && 'border-red-200 bg-red-50'
             )
           ">
-          <div
-            class="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-400">
-            答案
+          <div class="flex justify-between items-center w-full">
+            <div
+              class="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-400">
+              回答
+            </div>
+            <div
+              v-if="hasKnowledgeSpaceLabel"
+              class="mb-4 inline-flex items-center rounded-full border border-black/8 bg-zinc-50 px-3 py-1 text-[11px] font-semibold tracking-[0.02em] text-zinc-700">
+              所属知识空间：{{ knowledgeSpaceLabel }}
+            </div>
           </div>
-          <div
-            v-if="hasKnowledgeSpaceLabel"
-            class="mb-4 inline-flex items-center rounded-full border border-black/8 bg-zinc-50 px-3 py-1 text-[11px] font-semibold tracking-[0.02em] text-zinc-700">
-            所属知识空间：{{ knowledgeSpaceLabel }}
-          </div>
+
           <div class="o-markdown answer-body" v-html="renderedAnswer" />
           <div
             v-if="hasSources"

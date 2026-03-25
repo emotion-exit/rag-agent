@@ -1,8 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { hasAuthSession } from '@/services/auth';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
+      meta: {
+        public: true
+      }
+    },
     {
       path: '/',
       name: 'chat',
@@ -27,6 +36,26 @@ const router = createRouter({
       component: () => import('../views/SettingsView.vue')
     }
   ]
+});
+
+router.beforeEach((to) => {
+  const isPublicRoute = Boolean(to.meta.public);
+  const authenticated = hasAuthSession();
+
+  if (!isPublicRoute && !authenticated) {
+    return {
+      name: 'login',
+      query: {
+        redirect: to.fullPath
+      }
+    };
+  }
+
+  if (isPublicRoute && authenticated && to.name === 'login') {
+    return { name: 'chat' };
+  }
+
+  return true;
 });
 
 export default router;

@@ -1,3 +1,5 @@
+import { buildAuthHeaders } from '@/services/auth';
+
 export const PUBLIC_FRONTEND_CONFIG_STORAGE_KEY = 'rag-agent.public-config.v1';
 
 export interface PublicFrontendConfig {
@@ -12,6 +14,7 @@ export interface PublicFrontendConfig {
   RETRIEVAL_FINAL_CONTEXT_LIMIT: number;
   RETRIEVAL_SOURCE_LIMIT: number;
   RETRIEVAL_QUERY_EXPANSION_COUNT: number;
+  REFLECTION_TOKENS: number;
   CHAT_TEMPERATURE: number;
   OPENROUTER_SITE_URL: string;
   OPENROUTER_APP_TITLE: string;
@@ -33,6 +36,7 @@ export const PUBLIC_FRONTEND_CONFIG_KEYS = [
   'RETRIEVAL_FINAL_CONTEXT_LIMIT',
   'RETRIEVAL_SOURCE_LIMIT',
   'RETRIEVAL_QUERY_EXPANSION_COUNT',
+  'REFLECTION_TOKENS',
   'CHAT_TEMPERATURE',
   'OPENROUTER_SITE_URL',
   'OPENROUTER_APP_TITLE',
@@ -54,6 +58,7 @@ const numericPublicKeys = new Set<PublicFrontendConfigKey>([
   'RETRIEVAL_FINAL_CONTEXT_LIMIT',
   'RETRIEVAL_SOURCE_LIMIT',
   'RETRIEVAL_QUERY_EXPANSION_COUNT',
+  'REFLECTION_TOKENS',
   'CHAT_TEMPERATURE'
 ]);
 
@@ -69,6 +74,7 @@ export const DEFAULT_PUBLIC_FRONTEND_CONFIG: PublicFrontendConfig = {
   RETRIEVAL_FINAL_CONTEXT_LIMIT: 3,
   RETRIEVAL_SOURCE_LIMIT: 3,
   RETRIEVAL_QUERY_EXPANSION_COUNT: 2,
+  REFLECTION_TOKENS: 256,
   CHAT_TEMPERATURE: 0,
   OPENROUTER_SITE_URL: 'https://localhost.invalid',
   OPENROUTER_APP_TITLE: 'RAG.Agent Web',
@@ -158,6 +164,7 @@ export function buildPublicConfigHeaders(
     : loadPublicFrontendConfig();
 
   return {
+    ...buildAuthHeaders(),
     'X-Rag-Public-Config': JSON.stringify(normalized)
   };
 }

@@ -443,7 +443,7 @@ function highlightKeywords(text: string, keywords: string[]) {
           <span
             v-for="item in sourceMetaLines"
             :key="item.label"
-            class="inline-flex min-h-7 items-center rounded-full border border-(--color-success-border) bg-(--color-success-soft) px-2.5 py-1 text-xs font-semibold text-(--color-success-strong)">
+            class="inline-flex min-h-7 items-center rounded-full border border-success-border bg-success-soft px-2.5 py-1 text-xs font-semibold text-(--color-success-strong)">
             {{ item.label }}：{{ item.value }}
           </span>
         </div>
@@ -488,7 +488,7 @@ function highlightKeywords(text: string, keywords: string[]) {
                   v-for="image in group.items"
                   :key="image.image_id"
                   type="button"
-                  class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-(--color-success-border) hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                  class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-success-border hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
                   @click="openImagePreview(image.image_id)">
                   <img
                     :src="image.url"

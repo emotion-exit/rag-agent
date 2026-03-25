@@ -6,6 +6,7 @@ import {
   OFormSection,
   OInput,
   OModal,
+  OSelect,
   OTagInput,
   OTextarea
 } from '@/orange-ui';
@@ -19,6 +20,8 @@ const props = defineProps<{
   submitting: boolean;
   mode: 'create' | 'edit';
   initialForm: KnowledgeSpaceCreateForm;
+  visibilityOptions: Array<{ label: string; value: 'public' | 'private' }>;
+  visibilityDisabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -81,6 +84,13 @@ function submitForm() {
               v-model="localForm.name"
               :disabled="submitting"
               placeholder="例如：人事制度、合同管理" />
+          </OFormItem>
+
+          <OFormItem label="可见性" :required="true">
+            <OSelect
+              v-model="localForm.visibility"
+              :disabled="submitting || visibilityDisabled"
+              :options="visibilityOptions" />
           </OFormItem>
         </div>
       </OFormSection>

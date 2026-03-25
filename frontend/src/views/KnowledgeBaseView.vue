@@ -28,6 +28,7 @@ import {
   OPanelRow,
   useOToast
 } from '@/orange-ui';
+import { isAdminUser, useAuthState } from '@/services/auth';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
 import { getApiBase } from '@/services/runtime';
 import type {
@@ -95,7 +96,8 @@ const currentTask = ref<KnowledgeBaseJobStatus | null>(null);
 const createSpaceForm = ref<KnowledgeSpaceCreateForm>({
   name: '',
   tags: '',
-  description: ''
+  description: '',
+  visibility: 'private'
 });
 const uploadForm = ref<UploadForm>({
   tags: ''
@@ -111,6 +113,7 @@ const dangerConfirm = ref<DangerConfirmState>({
   impactItems: []
 });
 const oToast = useOToast();
+const authState = useAuthState();
 let taskPollingTimer: number | null = null;
 
 const selectedSpace = computed(
@@ -128,6 +131,32 @@ const hasActiveTask = computed(
     currentTask.value?.status === 'queued' ||
     currentTask.value?.status === 'running'
 );
+const privateKnowledgeBaseEnabled = computed(
+  () => authState.session?.features.private_knowledge_base_enabled !== false
+);
+const canCreateSpace = computed(
+  () => isAdminUser() || privateKnowledgeBaseEnabled.value
+);
+const canManageSelectedSpace = computed(() => {
+  if (!selectedSpace.value) return false;
+  if (isAdminUser()) {
+    return true;
+  }
+  if (selectedSpace.value.visibility === 'public') {
+    return isAdminUser();
+  }
+  return selectedSpace.value.owner_id === authState.session?.user.user_id;
+});
+const visibilityOptions = computed(() => {
+  const options: Array<{ label: string; value: 'public' | 'private' }> = [];
+  if (privateKnowledgeBaseEnabled.value) {
+    options.push({ label: '私有知识库', value: 'private' });
+  }
+  if (isAdminUser()) {
+    options.push({ label: '公有知识库', value: 'public' });
+  }
+  return options;
+});
 const summaryItems = computed(() => [
   {
     label: '知识库',
@@ -156,7 +185,8 @@ function buildDefaultCreateSpaceForm(
   return {
     name: space?.name || '',
     tags: space?.tags || '',
-    description: space?.description || ''
+    description: space?.description || '',
+    visibility: space?.visibility || (isAdminUser() ? 'public' : 'private')
   };
 }
 
@@ -188,6 +218,10 @@ function formatChunkCount(value: number) {
 
 function formatImageCount(value: number) {
   return value > 0 ? `${value} 张附图` : '无附图';
+}
+
+function formatVisibilityLabel(value: 'public' | 'private') {
+  return value === 'public' ? '公有' : '私有';
 }
 
 function getFileIcon(filename: string) {
@@ -331,17 +365,26 @@ function validateSpaceForm(payload: KnowledgeSpaceCreateForm) {
     return false;
   }
 
+  if (!payload.visibility) {
+    showToast('请先选择知识库可见性', 'error');
+    return false;
+  }
+
   return true;
 }
 
 function openCreateSpaceModal() {
+  if (!canCreateSpace.value) {
+    showToast('当前账号不能创建知识库', 'error');
+    return;
+  }
   createModalMode.value = 'create';
   createSpaceForm.value = buildDefaultCreateSpaceForm();
   createModalVisible.value = true;
 }
 
 function openEditSpaceModal() {
-  if (!selectedSpace.value) return;
+  if (!selectedSpace.value || !canManageSelectedSpace.value) return;
   createModalMode.value = 'edit';
   createSpaceForm.value = buildDefaultCreateSpaceForm(selectedSpace.value);
   createModalVisible.value = true;
@@ -361,6 +404,10 @@ function openUploadModal() {
 
   if (!selectedSpace.value) {
     showToast('请先选择一个知识库，再上传文档', 'error');
+    return;
+  }
+  if (!canManageSelectedSpace.value) {
+    showToast('当前账号不能向该知识库上传文档', 'error');
     return;
   }
 
@@ -447,6 +494,7 @@ function buildDocumentDeleteImpactStats(doc: DocumentInfo): DangerImpactStat[] {
 function openDeleteSpaceConfirm() {
   const space = selectedSpace.value;
   if (!space || deletingSpace.value || hasActiveTask.value) return;
+  if (!canManageSelectedSpace.value) return;
 
   dangerConfirm.value = {
     visible: true,
@@ -503,7 +551,8 @@ async function submitSpaceForm(payload: KnowledgeSpaceCreateForm) {
         body: JSON.stringify({
           name: payload.name.trim(),
           tags: payload.tags.trim(),
-          description: payload.description.trim()
+          description: payload.description.trim(),
+          visibility: payload.visibility
         })
       }
     );
@@ -801,13 +850,16 @@ onBeforeUnmount(() => {
             <ReloadOutlined :class="loading ? 'spin' : ''" />
             刷新
           </OButton>
-          <OButton variant="secondary" @click="openCreateSpaceModal">
+          <OButton
+            variant="secondary"
+            :disabled="!canCreateSpace"
+            @click="openCreateSpaceModal">
             <PlusOutlined />
             新建知识库
           </OButton>
           <OButton
             variant="primary"
-            :disabled="!selectedSpace"
+            :disabled="!selectedSpace || !canManageSelectedSpace"
             @click="openUploadModal">
             <UploadOutlined />
             上传文档
@@ -876,7 +928,12 @@ onBeforeUnmount(() => {
                   {{ space.description || '暂无说明' }}
                 </div>
               </div>
-              <OBadge tone="neutral">{{ space.document_count || 0 }}</OBadge>
+              <div class="flex flex-col items-end gap-1">
+                <OBadge tone="neutral">{{ space.document_count || 0 }}</OBadge>
+                <span class="text-[11px] font-semibold text-[#9a5414]">
+                  {{ formatVisibilityLabel(space.visibility) }}
+                </span>
+              </div>
             </div>
 
             <div
@@ -914,6 +971,14 @@ onBeforeUnmount(() => {
                 <OBadge tone="neutral">
                   {{ visibleDocuments.length }} 篇文档
                 </OBadge>
+                <OBadge
+                  :tone="
+                    selectedSpace.visibility === 'public'
+                      ? 'warning'
+                      : 'neutral'
+                  ">
+                  {{ formatVisibilityLabel(selectedSpace.visibility) }}
+                </OBadge>
               </div>
               <div
                 class="max-w-2xl text-sm leading-5.5 text-(--oui-color-text-secondary)">
@@ -939,15 +1004,24 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="flex flex-wrap gap-2 sm:justify-end sm:self-start">
-              <OButton variant="ghost" @click="openEditSpaceModal">
+              <OButton
+                variant="ghost"
+                :disabled="!canManageSelectedSpace"
+                @click="openEditSpaceModal">
                 <EditOutlined />
                 编辑
               </OButton>
-              <OButton variant="ghost" @click="openUploadModal">
+              <OButton
+                variant="ghost"
+                :disabled="!canManageSelectedSpace"
+                @click="openUploadModal">
                 <UploadOutlined />
                 上传文档
               </OButton>
-              <OButton variant="danger" @click="openDeleteSpaceConfirm">
+              <OButton
+                variant="danger"
+                :disabled="!canManageSelectedSpace"
+                @click="openDeleteSpaceConfirm">
                 <DeleteOutlined />
                 删除知识库
               </OButton>
@@ -1025,7 +1099,9 @@ onBeforeUnmount(() => {
 
               <OButton
                 variant="ghost"
-                :disabled="deletingDocumentId === doc.doc_id"
+                :disabled="
+                  deletingDocumentId === doc.doc_id || !canManageSelectedSpace
+                "
                 @click="openDeleteDocumentConfirm(doc)">
                 <DeleteOutlined />
                 删除
@@ -1041,6 +1117,8 @@ onBeforeUnmount(() => {
       :submitting="submittingSpace"
       :mode="createModalMode"
       :initial-form="createSpaceForm"
+      :visibility-options="visibilityOptions"
+      :visibility-disabled="createModalMode === 'edit'"
       @close="closeCreateSpaceModal"
       @submit="submitSpaceForm" />
 

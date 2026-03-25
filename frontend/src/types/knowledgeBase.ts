@@ -7,6 +7,8 @@ export interface DocumentInfo {
   tags: string;
   image_count: number;
   space_id: string;
+  visibility: 'public' | 'private';
+  owner_id: string;
 }
 
 export interface KnowledgeSpace {
@@ -14,6 +16,8 @@ export interface KnowledgeSpace {
   name: string;
   tags: string;
   description: string;
+  owner_id: string;
+  visibility: 'public' | 'private';
   created_at: string;
   updated_at: string;
   document_count: number;
@@ -34,6 +38,7 @@ export interface KnowledgeSpaceCreateForm {
   name: string;
   tags: string;
   description: string;
+  visibility: 'public' | 'private';
 }
 
 export interface UploadForm {

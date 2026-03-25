@@ -20,6 +20,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
+from app.config import settings
+from app.agent.reflection import REFLECTION_TAG_NAME, parse_reflection_verdict
 from app.agent.rag_agent import (
     NO_KNOWLEDGE_BASE_ANSWER,
     build_hitl_clarification,
@@ -27,8 +29,10 @@ from app.agent.rag_agent import (
     build_source_payload_with_trace,
     create_rag_agent,
 )
+from app.services.auth import get_current_user
+from app.services.knowledge_spaces import list_accessible_space_ids, list_knowledge_spaces
 from app.services.document_assets import get_document_image, list_document_images
-from app.services.vector_store import get_document_chunk
+from app.services.vector_store import get_document_chunk, list_documents
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -63,7 +67,7 @@ FINAL_ANSWER_CUE_PATTERNS = (
     r"只输出最终答案[：:]",
 )
 STRUCTURED_RESPONSE_TAGS = ("final_answer",)
-HIDDEN_REASONING_TAGS = ("think", "analysis", "analysis_summary", "reasoning")
+HIDDEN_REASONING_TAGS = ("think", "analysis", "analysis_summary", "reasoning", REFLECTION_TAG_NAME)
 PLACEHOLDER_ANSWER_PATTERNS = (
     r"^direct answer to the user",
     r"short and precise",
@@ -76,6 +80,10 @@ PLACEHOLDER_ANSWER_PATTERNS = (
 STREAM_CHUNK_MAX_LENGTH = 72
 # 即使上游模型一次性吐出整段文本，也通过轻微延迟制造更自然的流式观感。
 STREAM_CHUNK_DELAY_SECONDS = 0.035
+
+
+def _reflection_enabled() -> bool:
+    return max(int(getattr(settings, "reflection_tokens", 0) or 0), 0) > 0
 
 
 class ChatRequest(BaseModel):
@@ -163,6 +171,11 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
     source_page = int(metadata.get("source_page", 0) or 0)
     related_images = []
     public_config = request.headers.get("x-rag-public-config", "").strip()
+    auth_token = request.headers.get("authorization", "").strip()
+    if auth_token.lower().startswith("bearer "):
+        auth_token = auth_token[7:].strip()
+    if not auth_token:
+        auth_token = request.headers.get("x-auth-token", "").strip()
 
     for item in list_document_images(doc_id):
         image_id = str(item.get("image_id", "")).strip()
@@ -178,8 +191,13 @@ def _select_related_images(metadata: dict, request: Request, doc_id: str) -> lis
             continue
 
         image_url = str(request.url_for("get_document_image_file", doc_id=doc_id, image_id=image_id))
+        query_parts = []
         if public_config:
-            image_url = f"{image_url}?public_config={quote(public_config, safe='')}"
+            query_parts.append(f"public_config={quote(public_config, safe='')}")
+        if auth_token:
+            query_parts.append(f"auth_token={quote(auth_token, safe='')}")
+        if query_parts:
+            image_url = f"{image_url}?{'&'.join(query_parts)}"
 
         related_images.append(
             {
@@ -360,6 +378,26 @@ def _extract_visible_answer_text(text: str) -> str:
     return _sanitize_user_visible_text(candidate, strip_reasoning=True)
 
 
+def _resolve_final_answer(raw_text: str) -> tuple[str, bool]:
+    """基于 reflection verdict 决定是否放行最终答案。"""
+    reflection_enabled = _reflection_enabled()
+    verdict = parse_reflection_verdict(raw_text) if reflection_enabled else None
+    _, final_answer = _split_structured_response(raw_text)
+
+    if _looks_like_placeholder_answer(final_answer):
+        final_answer = _extract_visible_answer_text(raw_text)
+
+    resolved_answer = final_answer or _extract_visible_answer_text(raw_text)
+    if reflection_enabled and (verdict is None or verdict.blocks_answer()):
+        return NO_KNOWLEDGE_BASE_ANSWER, False
+
+    resolved_answer = _sanitize_user_visible_text(resolved_answer, strip_reasoning=True)
+    if not resolved_answer:
+        return NO_KNOWLEDGE_BASE_ANSWER, False
+
+    return resolved_answer, True
+
+
 def _split_visible_stream_sections(text: str) -> tuple[str, str]:
     """把流式增量文本拆成 thought 和 answer 两部分。
 
@@ -478,17 +516,44 @@ async def _ensure_session_exists(session_id: str) -> None:
     当前使用 InMemorySessionService，所以服务重启后会话会丢失；
     这里每次请求前都兜底创建一次。
     """
+    user = get_current_user(required=True)
+    user_id = str(user.get("user_id", "")).strip()
     session = await session_service.get_session(
         app_name=APP_NAME,
         session_id=session_id,
-        user_id="user",
+        user_id=user_id,
     )
     if session is None:
         await session_service.create_session(
             app_name=APP_NAME,
             session_id=session_id,
-            user_id="user",
+            user_id=user_id,
         )
+
+
+def _build_user_scoped_session_id(session_id: str) -> str:
+    user = get_current_user(required=True)
+    user_id = str(user.get("user_id", "")).strip()
+    normalized_session_id = str(session_id or "default").strip() or "default"
+    return f"{user_id}:{normalized_session_id}"
+
+
+def _normalize_and_validate_retrieval_filters(retrieval_filters: dict[str, str] | None) -> dict[str, str]:
+    normalized = {
+        key: str(value or "").strip()
+        for key, value in (retrieval_filters or {}).items()
+        if str(value or "").strip()
+    }
+    user = get_current_user(required=True)
+    allowed_names = {
+        str(item.get("name", "")).strip()
+        for item in list_knowledge_spaces(user)
+        if str(item.get("name", "")).strip()
+    }
+    knowledge_space = str(normalized.get("knowledge_space", "") or "").strip()
+    if knowledge_space and knowledge_space not in allowed_names:
+        raise HTTPException(status_code=403, detail="没有权限访问指定知识库")
+    return normalized
 
 
 async def _stream_agent_response(
@@ -520,7 +585,6 @@ async def _stream_agent_response(
             raw_response = ""
             answer_progress_emitted = False
             sources_emitted = False
-            emitted_thought_text = ""
             emitted_answer_text = ""
 
             async def emit_sources_if_needed() -> None:
@@ -533,29 +597,6 @@ async def _stream_agent_response(
                     f"data: {json.dumps({'type': 'sources', 'content': '', 'sources': source_summaries}, ensure_ascii=False)}\n\n"
                 )
                 sources_emitted = True
-
-            async def emit_thought_chunks(thought_text: str) -> None:
-                """增量发出 thought 事件，只推送尚未发过的新增部分。"""
-                nonlocal emitted_thought_text
-
-                visible_thought = _sanitize_user_visible_text(thought_text, strip_reasoning=False)
-                if not visible_thought:
-                    return
-
-                if visible_thought.startswith(emitted_thought_text):
-                    delta = visible_thought[len(emitted_thought_text):]
-                else:
-                    delta = visible_thought
-
-                if not delta:
-                    return
-
-                emitted_thought_text = visible_thought
-                for chunk in _split_stream_chunks(delta):
-                    await event_queue.put(
-                        f"data: {json.dumps({'type': 'thought', 'content': chunk}, ensure_ascii=False)}\n\n"
-                    )
-                    await asyncio.sleep(STREAM_CHUNK_DELAY_SECONDS)
 
             async def emit_answer_chunks(answer_text: str) -> None:
                 """增量发出 answer 事件，并在第一次真正输出答案时补一个 progress。"""
@@ -593,7 +634,7 @@ async def _stream_agent_response(
                     await asyncio.sleep(STREAM_CHUNK_DELAY_SECONDS)
 
             async for event in runner.run_async(
-                user_id="user",
+                user_id=str(get_current_user(required=True).get("user_id", "")),
                 session_id=session_id,
                 new_message=user_content,
             ):
@@ -603,16 +644,20 @@ async def _stream_agent_response(
                             # ADK 在不同模型下可能返回完整累积文本，也可能返回增量片段；
                             # 这里统一合并为一份 raw_response，再从中拆 thought / answer。
                             raw_response = _merge_stream_text(raw_response, part.text)
-
-                            thought_content, streamed_answer = _split_visible_stream_sections(raw_response)
-                            await emit_thought_chunks(thought_content)
-                            await emit_answer_chunks(streamed_answer)
-
+                            reflection_enabled = _reflection_enabled()
+                            verdict = (
+                                parse_reflection_verdict(raw_response)
+                                if reflection_enabled
+                                else None
+                            )
                             answer_content, answer_started, _ = _extract_partial_tag_content(
                                 raw_response,
                                 "final_answer",
                             )
-                            if answer_started:
+                            if answer_started and (
+                                not reflection_enabled
+                                or (verdict is not None and not verdict.blocks_answer())
+                            ):
                                 await emit_answer_chunks(answer_content)
 
                 if event.is_final_response():
@@ -620,16 +665,10 @@ async def _stream_agent_response(
 
             # 最终再对整段输出做一次收尾，防止中途启发式拆分漏掉末尾内容。
             raw_response = raw_response.strip()
-            final_thought, final_answer_candidate = _split_visible_stream_sections(raw_response)
-            await emit_thought_chunks(final_thought)
-            _, final_answer = _split_structured_response(raw_response)
-            final_answer = final_answer or final_answer_candidate
-
-            if _looks_like_placeholder_answer(final_answer):
-                final_answer = _extract_visible_answer_text(raw_response)
-
-            await emit_answer_chunks(final_answer or raw_response)
-            await emit_sources_if_needed()
+            final_answer, allow_sources = _resolve_final_answer(raw_response)
+            await emit_answer_chunks(final_answer)
+            if allow_sources:
+                await emit_sources_if_needed()
 
             await event_queue.put(f"data: {json.dumps({'type': 'done', 'content': ''})}\n\n")
         except Exception as exc:
@@ -790,11 +829,14 @@ async def chat_stream(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    scoped_session_id = _build_user_scoped_session_id(request.session_id)
+    retrieval_filters = _normalize_and_validate_retrieval_filters(request.retrieval_filters)
+
     return StreamingResponse(
         _stream_agent_response(
             request.message,
-            request.session_id,
-            request.retrieval_filters,
+            scoped_session_id,
+            retrieval_filters,
         ),
         media_type="text/event-stream",
         headers={
@@ -811,10 +853,13 @@ async def chat(request: ChatRequest):
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    scoped_session_id = _build_user_scoped_session_id(request.session_id)
+    retrieval_filters = _normalize_and_validate_retrieval_filters(request.retrieval_filters)
+
     source_summaries, retrieval_trace = build_source_payload_with_trace(
         request.message,
-        explicit_metadata_filters=request.retrieval_filters,
-        session_id=request.session_id,
+        explicit_metadata_filters=retrieval_filters,
+        session_id=scoped_session_id,
     )
     clarification = build_hitl_clarification(retrieval_trace)
     if clarification:
@@ -824,8 +869,8 @@ async def chat(request: ChatRequest):
         return ChatResponse(reply=NO_KNOWLEDGE_BASE_ANSWER, sources=[])
 
     agent = create_rag_agent(
-        request.retrieval_filters,
-        session_id=request.session_id,
+        retrieval_filters,
+        session_id=scoped_session_id,
         original_query=request.message,
         retrieval_documents=list(retrieval_trace.get("documents", [])),
     )
@@ -835,7 +880,7 @@ async def chat(request: ChatRequest):
         session_service=session_service,
     )
 
-    await _ensure_session_exists(request.session_id)
+    await _ensure_session_exists(scoped_session_id)
 
     user_content = genai_types.Content(
         role="user",
@@ -845,8 +890,8 @@ async def chat(request: ChatRequest):
     # 非流式模式下只取最终响应，再走和流式同一套清洗逻辑，保证表现一致。
     reply_parts = []
     async for event in runner.run_async(
-        user_id="user",
-        session_id=request.session_id,
+        user_id=str(get_current_user(required=True).get("user_id", "")),
+        session_id=scoped_session_id,
         new_message=user_content,
     ):
         if event.is_final_response() and event.content and event.content.parts:
@@ -856,17 +901,19 @@ async def chat(request: ChatRequest):
             break
 
     raw_reply = "".join(reply_parts)
-    _, final_reply = _split_structured_response(raw_reply)
-    if _looks_like_placeholder_answer(final_reply):
-        final_reply = _extract_visible_answer_text(raw_reply)
-    reply = final_reply or _extract_visible_answer_text(raw_reply)
-    return ChatResponse(reply=reply, sources=source_summaries)
+    reply, allow_sources = _resolve_final_answer(raw_reply)
+    return ChatResponse(reply=reply, sources=source_summaries if allow_sources else [])
 
 
 @router.get("/sources/{doc_id}/{chunk_index}", response_model=SourceDetailResponse)
 async def get_chat_source_detail(doc_id: str, chunk_index: int, request: Request):
     """按需返回某个来源的完整片段，用于前端来源弹窗。"""
-    chunk = get_document_chunk(doc_id, chunk_index)
+    user = get_current_user(required=True)
+    chunk = get_document_chunk(
+        doc_id,
+        chunk_index,
+        accessible_space_ids=list_accessible_space_ids(user),
+    )
     if chunk is None:
         raise HTTPException(status_code=404, detail="Source chunk not found")
 
@@ -892,6 +939,18 @@ async def get_chat_source_detail(doc_id: str, chunk_index: int, request: Request
 @router.get("/documents/{doc_id}/images/{image_id}", name="get_document_image_file")
 async def get_document_image_file(doc_id: str, image_id: str):
     """返回来源关联图片文件。"""
+    user = get_current_user(required=True)
+    accessible_doc = next(
+        (
+            item
+            for item in list_documents(accessible_space_ids=list_accessible_space_ids(user))
+            if str(item.get("doc_id", "")) == doc_id
+        ),
+        None,
+    )
+    if accessible_doc is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+
     image = get_document_image(doc_id, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="Image not found")

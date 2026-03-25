@@ -28,12 +28,22 @@ def _get_chroma_max_batch_size(collection: chromadb.Collection) -> int:
     return 5000
 
 
-def _build_where_clause(metadata_filters: dict[str, Any] | None) -> dict | None:
-    if not metadata_filters:
-        return None
-
+def _build_where_clause(
+    metadata_filters: dict[str, Any] | None,
+    accessible_space_ids: list[str] | None = None,
+) -> dict | None:
     clauses = []
-    for key, value in metadata_filters.items():
+
+    normalized_space_ids = [
+        str(item).strip() for item in (accessible_space_ids or []) if str(item).strip()
+    ]
+    if normalized_space_ids:
+        if len(normalized_space_ids) == 1:
+            clauses.append({"space_id": {"$eq": normalized_space_ids[0]}})
+        else:
+            clauses.append({"$or": [{"space_id": {"$eq": item}} for item in normalized_space_ids]})
+
+    for key, value in (metadata_filters or {}).items():
         if isinstance(value, (list, tuple, set)):
             normalized_values = [str(item).strip() for item in value if str(item).strip()]
             if not normalized_values:
@@ -106,13 +116,18 @@ def query_documents(
     query: str,
     n_results: int = 5,
     metadata_filters: dict[str, str] | None = None,
+    accessible_space_ids: list[str] | None = None,
 ) -> list[dict]:
     """Search for relevant documents using semantic similarity."""
     collection = _get_collection()
     if collection.count() == 0:
         return []
+    if accessible_space_ids is not None and not [
+        str(item).strip() for item in accessible_space_ids if str(item).strip()
+    ]:
+        return []
     query_embedding = get_embedding(query)
-    where = _build_where_clause(metadata_filters)
+    where = _build_where_clause(metadata_filters, accessible_space_ids=accessible_space_ids)
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=min(n_results, collection.count()),
@@ -129,16 +144,30 @@ def query_documents(
     return docs
 
 
-def get_document_chunk(doc_id: str, chunk_index: int) -> dict | None:
+def get_document_chunk(
+    doc_id: str,
+    chunk_index: int,
+    accessible_space_ids: list[str] | None = None,
+) -> dict | None:
     """Return a single stored chunk by document id and chunk index."""
     collection = _get_collection()
+    where_clauses: list[dict[str, Any]] = [
+        {"doc_id": {"$eq": doc_id}},
+        {"chunk_index": {"$eq": chunk_index}},
+    ]
+    normalized_space_ids = [
+        str(item).strip() for item in (accessible_space_ids or []) if str(item).strip()
+    ]
+    if accessible_space_ids is not None and not normalized_space_ids:
+        return None
+    if normalized_space_ids:
+        if len(normalized_space_ids) == 1:
+            where_clauses.append({"space_id": {"$eq": normalized_space_ids[0]}})
+        else:
+            where_clauses.append({"$or": [{"space_id": {"$eq": item}} for item in normalized_space_ids]})
+
     result = collection.get(
-        where={
-            "$and": [
-                {"doc_id": {"$eq": doc_id}},
-                {"chunk_index": {"$eq": chunk_index}},
-            ]
-        },
+        where={"$and": where_clauses},
         include=["documents", "metadatas"],
     )
 
@@ -189,10 +218,13 @@ def delete_document(doc_id: str) -> int:
     return 0
 
 
-def list_documents() -> list[dict]:
+def list_documents(accessible_space_ids: list[str] | None = None) -> list[dict]:
     """Return a deduplicated list of documents stored in the vector store."""
     collection = _get_collection()
-    all_items = collection.get(include=["metadatas"])
+    where = _build_where_clause(None, accessible_space_ids=accessible_space_ids)
+    if accessible_space_ids is not None and where is None:
+        return []
+    all_items = collection.get(include=["metadatas"], where=where)
     seen: dict[str, dict] = {}
     for meta in all_items["metadatas"]:
         doc_id = meta.get("doc_id", "")
