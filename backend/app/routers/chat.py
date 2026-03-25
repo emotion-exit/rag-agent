@@ -500,6 +500,19 @@ async def _stream_agent_response(
     # producer 在后台消费 ADK 事件；主协程则不断从 event_queue 取出并 yield 给浏览器。
     event_queue: asyncio.Queue[str | None] = asyncio.Queue()
     producer: asyncio.Task[None] | None = None
+    emitted_progress_steps: set[str] = set()
+
+    def _build_progress_event(content: str) -> str | None:
+        normalized = str(content or "").strip()
+        if not normalized or normalized in emitted_progress_steps:
+            return None
+
+        emitted_progress_steps.add(normalized)
+        return (
+            "data: "
+            f"{json.dumps({'type': 'progress', 'content': normalized}, ensure_ascii=False)}"
+            "\n\n"
+        )
 
     async def produce_events() -> None:
         """后台生产 thought / answer / done / error 等 SSE 事件。"""
@@ -633,18 +646,51 @@ async def _stream_agent_response(
             f"{json.dumps({'type': 'start', 'content': '已接收问题，正在准备检索。'}, ensure_ascii=False)}"
             "\n\n"
         )
-        yield (
-            "data: "
-            f"{json.dumps({'type': 'progress', 'content': RETRIEVAL_PREPARING_PROGRESS}, ensure_ascii=False)}"
-            "\n\n"
-        )
+        preparing_event = _build_progress_event(RETRIEVAL_PREPARING_PROGRESS)
+        if preparing_event:
+            yield preparing_event
 
-        # 先完成检索并判断是否需要用户进一步澄清，再决定是否继续生成答案。
-        source_summaries, retrieval_trace = build_source_payload_with_trace(
-            message,
-            explicit_metadata_filters=retrieval_filters,
-            session_id=session_id,
-        )
+        loop = asyncio.get_running_loop()
+
+        def emit_retrieval_progress(progress_text: str) -> None:
+            def enqueue_progress() -> None:
+                payload = _build_progress_event(progress_text)
+                if payload:
+                    event_queue.put_nowait(payload)
+
+            loop.call_soon_threadsafe(enqueue_progress)
+
+        def run_retrieval() -> tuple[list[dict], dict]:
+            return build_source_payload_with_trace(
+                message,
+                explicit_metadata_filters=retrieval_filters,
+                session_id=session_id,
+                progress_callback=emit_retrieval_progress,
+            )
+
+        retrieval_task = asyncio.create_task(asyncio.to_thread(run_retrieval))
+
+        while True:
+            if retrieval_task.done() and event_queue.empty():
+                break
+
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=0.08)
+            except asyncio.TimeoutError:
+                continue
+
+            if event is None:
+                break
+
+            yield event
+
+        source_summaries, retrieval_trace = await retrieval_task
+
+        while not event_queue.empty():
+            event = await event_queue.get()
+            if event is None:
+                break
+            yield event
 
         knowledge_space_resolution = retrieval_trace.get("knowledge_space_resolution", {}) or {}
         metadata_filters = retrieval_trace.get("metadata_filters", {}) or {}
@@ -682,19 +728,16 @@ async def _stream_agent_response(
                 "\n\n"
             )
 
-        for step in build_retrieval_progress_steps(retrieval_trace):
-            yield (
-                "data: "
-                f"{json.dumps({'type': 'progress', 'content': step}, ensure_ascii=False)}"
-                "\n\n"
-            )
+        if retrieval_trace.get("retrieval_cache_hit"):
+            for step in build_retrieval_progress_steps(retrieval_trace):
+                progress_event = _build_progress_event(step)
+                if progress_event:
+                    yield progress_event
 
         if int(retrieval_trace.get("final_hit_count", 0) or 0) <= 0:
-            yield (
-                "data: "
-                f"{json.dumps({'type': 'progress', 'content': '未找到可用知识库内容，停止生成答案。'}, ensure_ascii=False)}"
-                "\n\n"
-            )
+            no_result_event = _build_progress_event('未找到可用知识库内容，停止生成答案。')
+            if no_result_event:
+                yield no_result_event
             yield (
                 "data: "
                 f"{json.dumps({'type': 'answer', 'content': NO_KNOWLEDGE_BASE_ANSWER}, ensure_ascii=False)}"

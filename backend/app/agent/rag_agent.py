@@ -10,6 +10,7 @@ import copy
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from typing import Any
 
 import openai
@@ -1172,12 +1173,28 @@ def _rerank_documents(query: str, documents: list[dict], limit: int) -> tuple[li
     return reranked, rerank_mode
 
 
+def _emit_retrieval_progress(
+    progress_callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    """向外层推送检索阶段进度。"""
+    if progress_callback is None:
+        return
+
+    text = str(message or "").strip()
+    if not text:
+        return
+
+    progress_callback(text)
+
+
 def retrieve_relevant_documents_trace(
     query: str,
     initial_n_results: int | None = None,
     final_n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """执行完整检索流程，并返回可追踪的中间状态。
 
@@ -1204,8 +1221,10 @@ def retrieve_relevant_documents_trace(
     if isinstance(cached_trace, dict):
         reused_trace = copy.deepcopy(cached_trace)
         reused_trace["retrieval_cache_hit"] = True
+        _emit_retrieval_progress(progress_callback, "已复用当前会话中的检索结果。")
         return reused_trace
 
+    _emit_retrieval_progress(progress_callback, "正在确认问题所属的知识空间。")
     inferred_metadata_filters = _infer_metadata_filters(query)
     explicit_filters = normalized_explicit_filters
     knowledge_space_resolution = _resolve_knowledge_space(
@@ -1214,6 +1233,15 @@ def retrieve_relevant_documents_trace(
         explicit_filters,
         session_id=session_id,
     )
+
+    if knowledge_space_resolution.get("cache_hit"):
+        _emit_retrieval_progress(progress_callback, "已复用当前会话中的知识空间判定结果。")
+    elif knowledge_space_resolution.get("status") == KNOWLEDGE_SPACE_RESOLVED:
+        resolved_space = str(knowledge_space_resolution.get("knowledge_space", "") or "").strip()
+        if resolved_space:
+            _emit_retrieval_progress(progress_callback, f"已确认问题归属到知识空间“{resolved_space}”。")
+    else:
+        _emit_retrieval_progress(progress_callback, "知识空间仍需进一步确认。")
 
     if (
         knowledge_space_resolution.get("status") != KNOWLEDGE_SPACE_RESOLVED
@@ -1253,11 +1281,20 @@ def retrieve_relevant_documents_trace(
     elif str(effective_knowledge_space_filter or "").strip():
         expanded_knowledge_space_count = 1
 
+    _emit_retrieval_progress(progress_callback, "正在生成检索问法。")
     query_variants, query_variants_cache_hit = _generate_query_variants(
         query,
         str(metadata_filters.get("knowledge_space", "") or ""),
         session_id=session_id,
     )
+    if query_variants_cache_hit:
+        _emit_retrieval_progress(progress_callback, "已复用当前会话中的问题扩写结果。")
+    elif len(query_variants) > 1:
+        _emit_retrieval_progress(progress_callback, f"已生成 {len(query_variants) - 1} 个扩写问法用于辅助检索。")
+    else:
+        _emit_retrieval_progress(progress_callback, "当前问题将直接用于检索。")
+
+    _emit_retrieval_progress(progress_callback, "正在向量检索相关片段。")
     results = _query_documents_with_variants(
         query_variants,
         n_results=initial_n_results,
@@ -1268,7 +1305,13 @@ def retrieve_relevant_documents_trace(
     # 如果基于元数据过滤没有召回结果，就自动回退到无过滤检索，避免误过滤导致完全答不出来。
     if not results and metadata_filters and not explicit_filters:
         fallback_without_filters = True
+        _emit_retrieval_progress(progress_callback, "限定范围内未命中内容，正在放宽检索范围重试。")
         results = _query_documents_with_variants(query_variants, n_results=initial_n_results)
+
+    if results:
+        _emit_retrieval_progress(progress_callback, f"已完成初步召回，找到 {len(results)} 个候选片段。")
+    else:
+        _emit_retrieval_progress(progress_callback, "初步召回未找到相关片段。")
 
     if not results:
         trace = {
@@ -1294,6 +1337,11 @@ def retrieve_relevant_documents_trace(
 
     filtered = [result for result in results if result["distance"] < RETRIEVAL_THRESHOLD]
 
+    if filtered:
+        _emit_retrieval_progress(progress_callback, f"已完成相关度过滤，保留 {len(filtered)} 个候选片段。")
+    else:
+        _emit_retrieval_progress(progress_callback, "候选片段相关度不足，未保留可用内容。")
+
     if not filtered:
         trace = {
             "documents": [],
@@ -1316,8 +1364,11 @@ def retrieve_relevant_documents_trace(
         _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
 
+    _emit_retrieval_progress(progress_callback, "正在排序候选片段。")
     reranked, rerank_mode = _rerank_documents(query, filtered, limit=final_n_results)
+    _emit_retrieval_progress(progress_callback, _build_rerank_status(rerank_mode))
     if not _has_sufficient_evidence(query, reranked):
+        _emit_retrieval_progress(progress_callback, "候选内容证据不足，无法直接生成答案。")
         trace = {
             "documents": [],
             "rerank_mode": rerank_mode,
@@ -1338,6 +1389,8 @@ def retrieve_relevant_documents_trace(
         }
         _write_session_cache(session_id, "retrieval_trace", trace_cache_key, copy.deepcopy(trace))
         return trace
+
+    _emit_retrieval_progress(progress_callback, f"已选取 {len(reranked)} 个片段用于生成答案。")
 
     trace = {
         "documents": reranked,
@@ -1402,6 +1455,7 @@ def build_source_payload(
     n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[list[dict], str]:
     """把检索结果转成前端来源卡片需要的轻量结构。"""
     source_limit = n_results or _get_final_source_limit()
@@ -1411,6 +1465,7 @@ def build_source_payload(
         final_n_results=_get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
+        progress_callback=progress_callback,
     )
     relevant = list(trace["documents"])[:source_limit]
     rerank_mode = str(trace["rerank_mode"])
@@ -1445,6 +1500,7 @@ def build_source_payload_with_trace(
     n_results: int | None = None,
     explicit_metadata_filters: dict[str, str] | None = None,
     session_id: str | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> tuple[list[dict], dict[str, Any]]:
     """同时返回来源摘要和完整 trace，供流式接口展示检索进度。"""
     source_limit = n_results or _get_final_source_limit()
@@ -1454,6 +1510,7 @@ def build_source_payload_with_trace(
         final_n_results=_get_final_context_limit(),
         explicit_metadata_filters=explicit_metadata_filters,
         session_id=session_id,
+        progress_callback=progress_callback,
     )
 
     summaries = []
