@@ -54,7 +54,7 @@ const renderedRevisionDraftAnswer = computed(() => {
 
 <template>
   <section
-    class="min-h-130 rounded-3xl border border-black/6 bg-white px-6 py-5 shadow-sm">
+    class="flex h-full min-h-0 flex-col rounded-2xl border border-zinc-200/60 bg-white px-6 py-5">
     <template v-if="noteDetailLoading">
       <div class="space-y-4">
         <div class="h-5 w-1/3 animate-pulse rounded-full bg-zinc-200"></div>
@@ -99,24 +99,19 @@ const renderedRevisionDraftAnswer = computed(() => {
     </template>
 
     <template v-else-if="selectedNoteDetail?.current_revision">
-      <div class="flex h-full flex-col">
-        <div class="border-b border-black/6 pb-4">
+      <div class="flex h-full min-h-0 flex-col">
+        <div class="shrink-0 border-b border-zinc-100 pb-4">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div
-                class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-                笔记详情
-              </div>
-              <h3
-                class="mt-3 text-2xl font-semibold tracking-tight text-zinc-950">
+              <h3 class="text-2xl font-semibold tracking-tight text-zinc-950">
                 {{ selectedNoteDetail.current_revision.title }}
               </h3>
               <div
                 class="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                 <span
                   v-if="selectedNoteDetail.note.knowledge_space"
-                  class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1 font-medium text-zinc-700">
-                  所属知识空间：{{ selectedNoteDetail.note.knowledge_space }}
+                  class="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 font-medium text-zinc-700">
+                  {{ selectedNoteDetail.note.knowledge_space }}
                 </span>
                 <span>保存时间：{{ selectedNoteDetail.note.updated_at }}</span>
               </div>
@@ -146,108 +141,92 @@ const renderedRevisionDraftAnswer = computed(() => {
           </div>
         </div>
 
-        <div
-          class="mt-5 rounded-3xl border border-black/6 bg-zinc-50/80 px-5 py-4">
+        <div class="mt-5 min-h-0 flex-1 overflow-y-auto pr-1 pb-6">
           <div
-            class="text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">
-            原始问题
-          </div>
-          <div class="mt-3 whitespace-pre-wrap text-sm leading-7 text-zinc-800">
-            {{ selectedNoteDetail.current_revision.query }}
-          </div>
-        </div>
-
-        <div
-          class="mt-5 rounded-3xl border border-dashed border-black/10 bg-amber-50/70 px-5 py-4">
-          <div class="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div
-                class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">
-                候选更新
-              </div>
-              <div class="mt-2 text-sm leading-7 text-amber-900/80">
-                候选答案会按当前最新公开设置重新生成。只有点击“确认覆盖笔记”后，当前笔记内容才会被替换。
-              </div>
+            v-if="revisionDraftLoading"
+            class="space-y-3 rounded-2xl bg-zinc-50 px-5 py-4">
+            <div class="text-sm font-medium text-zinc-700">
+              正在生成新的候选内容
             </div>
-            <OButton
-              v-if="revisionDraft"
-              variant="ghost"
-              size="sm"
-              class="rounded-full px-3"
-              :disabled="revisionSaving"
-              @click="$emit('discardRevisionDraft')">
-              丢弃候选
-            </OButton>
-          </div>
-
-          <div v-if="revisionDraftLoading" class="mt-4 space-y-3">
-            <div
-              class="h-4 w-1/3 animate-pulse rounded-full bg-amber-200/80"></div>
-            <div class="h-24 animate-pulse rounded-3xl bg-white/80"></div>
+            <div class="h-4 w-1/3 animate-pulse rounded-full bg-zinc-200"></div>
+            <div class="h-24 animate-pulse rounded-2xl bg-white"></div>
           </div>
 
           <template v-else-if="revisionDraft">
             <div
-              class="mt-4 flex flex-wrap items-center gap-2 text-xs text-amber-800/70">
-              <span>生成时间：{{ revisionDraft.generated_at }}</span>
-              <span v-if="revisionSaving">正在异步覆盖当前笔记…</span>
-            </div>
-            <div
-              class="o-markdown mt-4 rounded-3xl border border-amber-200/80 bg-white px-5 py-5 shadow-sm"
-              v-html="renderedRevisionDraftAnswer"></div>
-
-            <div class="mt-5">
-              <div
-                class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">
-                候选引用来源
+              class="rounded-2xl border border-amber-200/60 bg-amber-50/45 px-5 py-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div class="text-sm font-medium text-amber-900">
+                    已生成新的候选内容
+                  </div>
+                  <div class="mt-1 text-xs text-amber-800/80">
+                    生成时间：{{ revisionDraft.generated_at }}
+                    <span v-if="revisionSaving">，正在异步覆盖当前笔记…</span>
+                  </div>
+                </div>
+                <OButton
+                  variant="ghost"
+                  size="sm"
+                  class="rounded-full px-3"
+                  :disabled="revisionSaving"
+                  @click="$emit('discardRevisionDraft')">
+                  丢弃候选
+                </OButton>
               </div>
+
               <div
-                v-if="revisionDraft.sources.length > 0"
-                class="mt-3 flex flex-wrap gap-2.5">
-                <button
-                  v-for="source in revisionDraft.sources"
-                  :key="`revision-source-${selectedNoteDetail.note.note_id}-${source.doc_id}-${source.chunk_index}`"
-                  type="button"
-                  class="flex w-52 max-w-full items-start gap-2 rounded-2xl border border-amber-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-amber-300 hover:bg-amber-50 hover:shadow-sm"
-                  @click="$emit('openSource', source)">
-                  <span
-                    class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-50 text-[10px] font-bold text-amber-900 shadow-sm ring-1 ring-amber-100">
-                    {{ source.index }}
-                  </span>
-                  <span
-                    class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                    <span class="block max-w-35 truncate">
-                      {{ source.filename }}
+                class="o-markdown mt-4 rounded-2xl border border-amber-200/60 bg-white px-5 py-5"
+                v-html="renderedRevisionDraftAnswer"></div>
+
+              <div class="mt-5">
+                <div
+                  class="text-xs font-bold uppercase tracking-[0.14em] text-amber-700">
+                  候选来源
+                </div>
+                <div
+                  v-if="revisionDraft.sources.length > 0"
+                  class="mt-3 flex flex-wrap gap-2.5">
+                  <button
+                    v-for="source in revisionDraft.sources"
+                    :key="`revision-source-${selectedNoteDetail.note.note_id}-${source.doc_id}-${source.chunk_index}`"
+                    type="button"
+                    class="flex w-52 max-w-full items-start gap-2 rounded-xl border border-amber-200 bg-white px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-amber-300 hover:bg-amber-50"
+                    @click="$emit('openSource', source)">
+                    <span
+                      class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-50 text-[10px] font-bold text-amber-900 ring-1 ring-amber-100">
+                      {{ source.index }}
                     </span>
                     <span
-                      class="o-source-summary text-left text-[11px] text-zinc-500">
-                      {{ source.summary }}
+                      class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                      <span class="block max-w-35 truncate">
+                        {{ source.filename }}
+                      </span>
+                      <span
+                        class="o-source-summary text-left text-[11px] text-zinc-500">
+                        {{ source.summary }}
+                      </span>
                     </span>
-                  </span>
-                </button>
-              </div>
-              <div
-                v-else
-                class="mt-3 rounded-2xl border border-dashed border-amber-200 bg-white px-4 py-4 text-sm text-zinc-500">
-                这次候选更新没有返回可展示的来源摘要。
+                  </button>
+                </div>
+                <div
+                  v-else
+                  class="mt-3 rounded-xl border border-dashed border-amber-200 bg-white px-4 py-4 text-sm text-zinc-500">
+                  这次候选内容没有返回可展示的来源摘要。
+                </div>
               </div>
             </div>
           </template>
-        </div>
 
-        <div class="mt-5 flex-1 overflow-y-auto">
           <div
-            class="text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">
-            笔记正文
-          </div>
-          <div
-            class="o-markdown mt-3 rounded-3xl border border-black/6 bg-white px-5 py-5 shadow-sm"
+            :class="revisionDraftLoading || revisionDraft ? 'mt-5' : ''"
+            class="o-markdown rounded-2xl bg-zinc-50 px-5 py-5"
             v-html="renderedSelectedNoteAnswer"></div>
 
-          <div class="mt-5">
+          <div class="mt-5 border-t border-zinc-100 pt-5 pb-1">
             <div
               class="text-xs font-bold uppercase tracking-[0.14em] text-zinc-500">
-              保存时引用来源
+              引用来源
             </div>
             <div
               v-if="selectedNoteDetail.sources.length > 0"
@@ -256,10 +235,10 @@ const renderedRevisionDraftAnswer = computed(() => {
                 v-for="source in selectedNoteDetail.sources"
                 :key="`note-source-${selectedNoteDetail.note.note_id}-${source.doc_id}-${source.chunk_index}`"
                 type="button"
-                class="flex w-52 max-w-full items-start gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-zinc-300 hover:bg-zinc-100 hover:shadow-sm"
+                class="flex w-52 max-w-full items-start gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-xs text-zinc-700 transition-all duration-200 hover:border-zinc-300 hover:bg-zinc-100"
                 @click="$emit('openSource', source)">
                 <span
-                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-zinc-950 shadow-sm ring-1 ring-black/5">
+                  class="flex h-5 min-w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-zinc-950 ring-1 ring-zinc-200">
                   {{ source.index }}
                 </span>
                 <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
@@ -275,7 +254,7 @@ const renderedRevisionDraftAnswer = computed(() => {
             </div>
             <div
               v-else
-              class="mt-3 rounded-2xl border border-dashed border-black/8 bg-zinc-50 px-4 py-4 text-sm text-zinc-500">
+              class="mt-3 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-4 text-sm text-zinc-500">
               当前笔记没有保存可展示的来源摘要。
             </div>
           </div>

@@ -16,6 +16,7 @@ const props = withDefaults(
     title?: string;
     subtitle?: string;
     width?: string;
+    bodyScrollable?: boolean;
     closable?: boolean;
     closeOnMask?: boolean;
     cancelText?: string;
@@ -30,6 +31,7 @@ const props = withDefaults(
     title: '',
     subtitle: '',
     width: 'min(760px, 100%)',
+    bodyScrollable: true,
     closable: true,
     closeOnMask: false,
     cancelText: '',
@@ -125,7 +127,8 @@ function requestConfirm() {
 
             <div
               :class="[
-                'min-h-0 flex-1 overflow-y-auto px-8',
+                'min-h-0 flex-1 px-8',
+                props.bodyScrollable ? 'overflow-y-auto' : 'overflow-hidden',
                 props.title || props.subtitle || $slots.header
                   ? 'pt-5'
                   : 'pt-8',

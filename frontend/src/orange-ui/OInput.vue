@@ -39,17 +39,17 @@ const emit = defineEmits<{
 }>();
 
 const inputVariants = cva(
-  'group relative flex min-h-12 items-center gap-2 rounded-2xl border bg-white px-4 text-[14px] font-medium leading-6 transition-all duration-300',
+  'group relative flex min-h-10 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-medium transition-all duration-200 outline-none',
   {
     variants: {
       status: {
         default:
-          'border-black/8 text-body shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_4px_12px_rgba(24,24,27,0.03)] hover:border-black/15 hover:shadow-[0_6px_16px_rgba(24,24,27,0.05)] focus-within:border-brand-soft focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.04),inset_0_1px_0_rgba(255,255,255,0.92),0_8px_20px_rgba(24,24,27,0.08)]',
+          'border-border text-text placeholder:text-subtle shadow-sm hover:border-border-strong focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20',
         error:
-          'border-danger-border text-danger shadow-sm focus-within:border-danger focus-within:ring-4 focus-within:ring-danger/20'
+          'border-danger-border text-danger shadow-sm focus-within:border-danger focus-within:ring-2 focus-within:ring-danger/20'
       },
       disabled: {
-        true: 'cursor-not-allowed bg-surface-muted border-black/5 text-subtle shadow-none hover:border-black/5 hover:shadow-none opacity-80',
+        true: 'cursor-not-allowed bg-surface-muted border-border-soft text-subtle shadow-none hover:border-border-soft opacity-70',
         false: ''
       }
     },

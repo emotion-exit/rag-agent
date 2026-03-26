@@ -826,18 +826,18 @@ onBeforeUnmount(() => {
 <template>
   <div class="o-page-stack">
     <section
-      class="overflow-hidden rounded-[28px] border border-[rgba(199,118,34,0.16)] bg-[radial-gradient(circle_at_top_left,rgba(255,236,208,0.96),rgba(255,248,238,0.92)_42%,rgba(255,255,255,0.98)_100%)] px-5 py-4 shadow-[0_16px_40px_rgba(148,93,37,0.1)]">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div class="max-w-2xl space-y-1.5">
+      class="overflow-hidden rounded-xl border border-border bg-white px-6 py-5 shadow-sm">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="max-w-2xl space-y-2">
           <div
-            class="inline-flex items-center gap-2 rounded-full bg-white/85 px-3 py-1 text-xs font-semibold text-[#9a5414] shadow-[0_8px_18px_rgba(154,84,20,0.08)]">
+            class="inline-flex items-center gap-2 rounded-full border border-border-soft bg-surface-muted px-3 py-1 text-xs font-medium text-text-secondary">
             <DatabaseOutlined />
             知识库
           </div>
-          <h1 class="text-2xl font-semibold tracking-[0.01em] text-[#48230a]">
+          <h1 class="text-2xl font-bold tracking-tight text-heading">
             知识库管理
           </h1>
-          <p class="max-w-xl text-sm leading-6 text-[rgba(72,35,10,0.72)]">
+          <p class="max-w-xl text-sm text-text-secondary">
             创建知识库并上传文档以构建问答检索源。
           </p>
         </div>
@@ -911,10 +911,10 @@ onBeforeUnmount(() => {
             :key="space.space_id"
             type="button"
             :class="[
-              'w-full rounded-[18px] border px-3.5 py-3 text-left transition-all duration-200',
+              'w-full rounded-xl border px-3.5 py-3 text-left transition-all duration-200 outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20',
               selectedSpaceId === space.space_id
-                ? 'border-[rgba(199,118,34,0.28)] bg-[rgba(255,240,219,0.78)] shadow-[0_12px_28px_rgba(148,93,37,0.1)]'
-                : 'border-(--oui-color-border) bg-white hover:border-(--oui-color-border-strong) hover:bg-(--oui-color-surface-soft)'
+                ? 'border-zinc-900 ring-1 ring-zinc-900 bg-zinc-50 shadow-sm'
+                : 'border-border bg-white hover:border-border-strong hover:bg-surface-soft'
             ]"
             @click="selectSpace(space.space_id)">
             <div class="flex items-start justify-between gap-3">
@@ -930,7 +930,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="flex flex-col items-end gap-1">
                 <OBadge tone="neutral">{{ space.document_count || 0 }}</OBadge>
-                <span class="text-[11px] font-semibold text-[#9a5414]">
+                <span class="text-[11px] font-semibold text-text-muted">
                   {{ formatVisibilityLabel(space.visibility) }}
                 </span>
               </div>
@@ -942,7 +942,7 @@ onBeforeUnmount(() => {
               <span
                 v-for="tag in buildTagList(space.tags)"
                 :key="tag"
-                class="rounded-full bg-white/88 px-2.5 py-1 text-[11px] font-medium text-[#8a4b12] border border-[rgba(199,118,34,0.12)]">
+                class="rounded-full bg-surface-muted px-2.5 py-1 text-[11px] font-medium text-text-secondary border border-border-soft">
                 {{ tag }}
               </span>
             </div>

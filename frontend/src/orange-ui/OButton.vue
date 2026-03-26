@@ -11,25 +11,23 @@ import { cn } from '@/utils/cn';
 const attrs = useAttrs();
 
 const buttonVariants = cva(
-  'o-focus-ring inline-flex items-center justify-center gap-2 rounded-full border border-transparent font-medium transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.97] will-change-transform outline-none focus-visible:ring-4 focus-visible:ring-black/8',
+  'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-black',
   {
     variants: {
       variant: {
-        primary:
-          'bg-brand text-brand-foreground shadow-[0_1px_0_rgba(255,255,255,0.4)_inset,0_8px_20px_rgba(24,24,27,0.08)] hover:bg-brand-strong hover:shadow-[0_1px_0_rgba(255,255,255,0.4)_inset,0_12px_30px_rgba(24,24,27,0.12)] hover:-translate-y-0.5',
+        primary: 'bg-primary text-on-primary shadow-sm hover:bg-primary-strong',
         secondary:
-          'border-border bg-white text-heading shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_8px_20px_rgba(24,24,27,0.06)] hover:bg-surface-soft hover:shadow-[0_1px_0_rgba(255,255,255,0.9)_inset,0_12px_24px_rgba(24,24,27,0.08)] hover:-translate-y-0.5 relative after:absolute after:inset-0 after:rounded-full after:shadow-[0_0_0_1px_rgba(0,0,0,0.05)] after:pointer-events-none',
-        danger:
-          'bg-danger text-white shadow-[0_1px_0_rgba(255,255,255,0.3)_inset,0_8px_20px_rgba(177,55,42,0.18)] hover:brightness-95 hover:shadow-[0_1px_0_rgba(255,255,255,0.3)_inset,0_12px_24px_rgba(177,55,42,0.25)] hover:-translate-y-0.5',
+          'border border-border bg-white text-heading shadow-sm hover:bg-surface-soft hover:border-border-strong',
+        danger: 'bg-danger text-white shadow-sm hover:brightness-90',
         warning:
-          'border-warning-border bg-warning-soft text-warning shadow-[0_8px_20px_rgba(217,119,6,0.08)] hover:bg-[rgba(255,237,213,0.95)] hover:shadow-[0_12px_24px_rgba(217,119,6,0.12)] hover:-translate-y-0.5',
+          'border border-warning-border bg-warning text-white shadow-sm hover:brightness-90',
         ghost:
-          'bg-transparent text-secondary hover:bg-black/4 hover:text-heading shadow-none active:bg-black/5'
+          'bg-transparent text-secondary hover:bg-surface-muted hover:text-heading active:bg-black/5'
       },
       size: {
-        sm: 'min-h-9 px-3.5 text-sm',
-        md: 'min-h-10 px-4 text-[14px]',
-        lg: 'min-h-11 px-5 text-[15px]'
+        sm: 'min-h-8 px-3 text-xs',
+        md: 'min-h-10 px-4 text-sm',
+        lg: 'min-h-12 px-6 text-base'
       },
       block: {
         true: 'w-full',

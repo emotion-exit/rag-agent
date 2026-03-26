@@ -123,7 +123,7 @@ onMounted(() => {
     <div class="grid w-full max-w-5xl gap-6 lg:grid-cols-[1.2fr_0.9fr]">
       <OCard
         padding="lg"
-        class="relative overflow-hidden border-black/8 bg-[radial-gradient(circle_at_top_left,rgba(240,181,77,0.18),transparent_32%),linear-gradient(135deg,rgba(255,252,246,0.98),rgba(247,245,240,0.95))]">
+        class="relative overflow-hidden border-black/8 bg-white">
         <div class="space-y-5">
           <div
             class="inline-flex rounded-full border border-black/8 bg-white/80 px-3 py-1 text-xs font-semibold tracking-[0.18em] text-zinc-500 uppercase">

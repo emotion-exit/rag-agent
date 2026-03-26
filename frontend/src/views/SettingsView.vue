@@ -41,6 +41,8 @@ import {
 import { cn } from '@/utils/cn';
 
 const apiBase = getApiBase();
+const activeTab = ref('settings');
+
 const authState = useAuthState();
 const form = reactive<PublicFrontendConfig>(cloneDefaultPublicFrontendConfig());
 const loading = ref(false);
@@ -188,11 +190,11 @@ watch(notice, (nextNotice) => {
 
 function getEffectRuleToneClass(tone: EffectRuleItem['tone']) {
   if (tone === 'success') {
-    return 'border-[rgba(37,99,65,0.18)] bg-[rgba(37,99,65,0.08)] text-[#1f6b42]';
+    return 'border-success-border bg-success-soft text-success';
   }
 
   if (tone === 'warning') {
-    return 'border-[rgba(180,125,29,0.22)] bg-[rgba(180,125,29,0.1)] text-[#9f670f]';
+    return 'border-warning-border bg-warning-soft text-warning';
   }
 
   return 'border-black/8 bg-black/3 text-zinc-700';
@@ -227,7 +229,7 @@ function getProviderCardTone(
 
 function getProviderStateChipClass(status: string) {
   if (status === 'ok') {
-    return 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]';
+    return 'bg-success-soft text-success';
   }
 
   if (
@@ -236,14 +238,14 @@ function getProviderStateChipClass(status: string) {
     status === 'network_error' ||
     status === 'upstream_error'
   ) {
-    return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+    return 'bg-warning-soft text-warning';
   }
 
   if (status === 'auth_error') {
-    return 'bg-[rgba(177,55,42,0.12)] text-[#9e3328]';
+    return 'bg-danger-soft text-danger';
   }
 
-  return 'bg-[rgba(180,125,29,0.12)] text-[#9f670f]';
+  return 'bg-warning-soft text-warning';
 }
 
 function formatProviderLabel(provider?: string) {
@@ -613,7 +615,7 @@ watch(isAdminMode, (nextValue) => {
     </OCard>
 
     <OCard tone="warning" class="flex items-center gap-4">
-      <WarningOutlined class="text-[26px] text-[#9e3328]" />
+      <WarningOutlined class="text-[26px] text-danger" />
       <div>
         <h2>当前为纯 Web 模式</h2>
         <p>
@@ -622,7 +624,48 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard v-if="isAdminMode" padding="lg" class="flex flex-col gap-4">
+    <div
+      class="mb-4 mt-2 flex flex-wrap items-center gap-1 border-b border-border/60">
+      <button
+        type="button"
+        @click="activeTab = 'settings'"
+        :class="[
+          'px-5 py-3 border-b-2 text-[15px] font-medium transition-colors outline-none',
+          activeTab === 'settings'
+            ? 'border-zinc-900 text-zinc-900'
+            : 'border-transparent text-text-secondary hover:text-text hover:border-border-soft'
+        ]">
+        功能设置
+      </button>
+      <button
+        type="button"
+        @click="activeTab = 'status'"
+        :class="[
+          'px-5 py-3 border-b-2 text-[15px] font-medium transition-colors outline-none',
+          activeTab === 'status'
+            ? 'border-zinc-900 text-zinc-900'
+            : 'border-transparent text-text-secondary hover:text-text hover:border-border-soft'
+        ]">
+        运行状态
+      </button>
+      <button
+        v-if="isAdminMode"
+        type="button"
+        @click="activeTab = 'users'"
+        :class="[
+          'px-5 py-3 border-b-2 text-[15px] font-medium transition-colors outline-none',
+          activeTab === 'users'
+            ? 'border-zinc-900 text-zinc-900'
+            : 'border-transparent text-text-secondary hover:text-text hover:border-border-soft'
+        ]">
+        用户管理
+      </button>
+    </div>
+
+    <OCard
+      v-show="activeTab === 'users' && isAdminMode"
+      padding="lg"
+      class="flex flex-col gap-4">
       <div
         class="flex items-start justify-between gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
         <div>
@@ -705,8 +748,8 @@ watch(isAdminMode, (nextValue) => {
                   :class="[
                     'rounded-full px-2.5 py-1 text-[11px] font-semibold',
                     user.is_active
-                      ? 'bg-[rgba(37,99,65,0.12)] text-[#1f6b42]'
-                      : 'bg-black/6 text-zinc-600'
+                      ? 'bg-success-soft text-success'
+                      : 'bg-surface-muted text-text-secondary'
                   ]">
                   {{ formatUserStatus(user.is_active) }}
                 </span>
@@ -757,7 +800,10 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard padding="lg" class="flex flex-col gap-4">
+    <OCard
+      v-show="activeTab === 'status'"
+      padding="lg"
+      class="flex flex-col gap-4">
       <div
         class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
         <div>
@@ -793,7 +839,10 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard padding="lg" class="flex flex-col gap-3.5">
+    <OCard
+      v-show="activeTab === 'settings'"
+      padding="lg"
+      class="flex flex-col gap-3.5">
       <div
         class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
         @click="toggleAdvanced">
@@ -1013,7 +1062,10 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard padding="lg" class="flex flex-col gap-4">
+    <OCard
+      v-show="activeTab === 'settings'"
+      padding="lg"
+      class="flex flex-col gap-4">
       <div>
         <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
           反思策略
@@ -1046,7 +1098,7 @@ watch(isAdminMode, (nextValue) => {
             :class="[
               'rounded-2xl border px-4 py-3 text-left transition-all duration-200',
               isReflectionPresetActive(preset.value)
-                ? 'border-[rgba(37,99,65,0.28)] bg-[rgba(37,99,65,0.09)] shadow-[0_8px_20px_rgba(37,99,65,0.08)]'
+                ? 'border-success-border bg-success-soft shadow-sm'
                 : 'border-black/8 bg-zinc-50 hover:border-black/14 hover:bg-white'
             ]"
             @click="applyReflectionPreset(preset.value)">
@@ -1058,7 +1110,7 @@ watch(isAdminMode, (nextValue) => {
                 :class="[
                   'rounded-full px-2.5 py-1 text-[11px] font-semibold',
                   isReflectionPresetActive(preset.value)
-                    ? 'bg-[rgba(37,99,65,0.14)] text-[#1f6b42]'
+                    ? 'bg-success-soft text-success'
                     : 'bg-black/6 text-zinc-600'
                 ]">
                 {{ preset.value }}
@@ -1072,7 +1124,10 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard padding="lg" class="flex flex-col gap-4">
+    <OCard
+      v-show="activeTab === 'status'"
+      padding="lg"
+      class="flex flex-col gap-4">
       <section class="flex flex-col gap-3">
         <div
           class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">

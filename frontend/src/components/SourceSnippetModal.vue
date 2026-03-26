@@ -429,7 +429,7 @@ function highlightKeywords(text: string, keywords: string[]) {
     :title="source.filename"
     :subtitle="`片段 ${source.chunk_index + 1}`"
     width="min(760px, 100%)"
-    class="border border-black/5 bg-white/95 p-0 shadow-[0_24px_60px_rgba(24,24,27,0.22)]"
+    class="border border-black/5 bg-white/95 p-0 shadow-floating"
     @close="closeModal">
     <template #header>
       <div class="flex min-w-0 flex-1 flex-col gap-2 pr-4">
@@ -488,7 +488,7 @@ function highlightKeywords(text: string, keywords: string[]) {
                   v-for="image in group.items"
                   :key="image.image_id"
                   type="button"
-                  class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-success-border hover:shadow-[0_12px_28px_rgba(24,24,27,0.08)]"
+                  class="flex w-full flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 p-2.5 text-left transition duration-200 hover:-translate-y-0.5 hover:border-success-border hover:shadow-md"
                   @click="openImagePreview(image.image_id)">
                   <img
                     :src="image.url"
@@ -533,7 +533,7 @@ function highlightKeywords(text: string, keywords: string[]) {
             :alt="
               activePreviewImage.filename || activePreviewImage.source_label
             "
-            class="block max-h-[72vh] w-full rounded-[20px] bg-white/5 object-contain shadow-[0_24px_60px_rgba(0,0,0,0.35)]" />
+            class="block max-h-[72vh] w-full rounded-[20px] bg-white/5 object-contain shadow-floating" />
           <figcaption
             class="mt-3.5 flex flex-col gap-2 text-[13px] text-white/90 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <span class="font-semibold">

@@ -66,12 +66,15 @@ function requestOpenSource(source: NoteSourceSummary) {
 <template>
   <OModal
     :visible="visible"
+    :body-scrollable="false"
     title="已保存笔记"
     subtitle="笔记保存采用异步任务执行，列表刷新不会影响当前聊天生成。"
     width="min(1120px, 100%)"
+    class="h-[88vh]"
     cancel-text="关闭"
     @close="$emit('close')">
-    <div class="grid gap-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+    <div
+      class="grid h-full min-h-0 gap-5 overflow-hidden max-lg:grid-rows-[minmax(240px,0.82fr)_minmax(0,1.18fr)] lg:grid-cols-[300px_minmax(0,1fr)]">
       <NotesListPanel
         :key="`notes-list-${safeNoteGroups.length}`"
         :note-groups="safeNoteGroups"

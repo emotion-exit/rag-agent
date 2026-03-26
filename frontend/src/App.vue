@@ -77,7 +77,7 @@ onMounted(() => {
         v-if="!isLoginRoute"
         class="sticky top-6 z-100 w-full max-w-6xl px-6 max-md:top-4 max-md:px-4">
         <div
-          class="flex items-center justify-between rounded-full border border-white/30 bg-white/90 px-5 py-2.5 shadow-[0_4px_24px_rgba(24,24,27,0.08)] backdrop-blur-2xl backdrop-saturate-200 max-sm:flex-col max-sm:items-stretch max-sm:rounded-3xl max-sm:px-4">
+          class="flex items-center justify-between rounded-full border border-white/30 bg-white/90 px-5 py-2.5 shadow-md backdrop-blur-2xl backdrop-saturate-200 max-sm:flex-col max-sm:items-stretch max-sm:rounded-3xl max-sm:px-4">
           <div class="flex items-center gap-3">
             <div
               class="flex h-8 w-8 items-center justify-center rounded-full bg-heading text-surface text-sm shadow-sm">
@@ -92,21 +92,21 @@ onMounted(() => {
             <router-link
               to="/"
               class="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-(--color-text-muted) transition-all duration-200 hover:bg-white/50 hover:text-heading max-sm:flex-1 max-sm:justify-center"
-              active-class="bg-(--color-surface) text-heading shadow-[0_2px_8px_rgba(24,24,27,0.08)]">
+              active-class="bg-(--color-surface) text-heading shadow-sm">
               <MessageOutlined />
               智能问答
             </router-link>
             <router-link
               to="/knowledge-base"
               class="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-(--color-text-muted) transition-all duration-200 hover:bg-white/50 hover:text-heading max-sm:flex-1 max-sm:justify-center"
-              active-class="bg-(--color-surface) text-heading shadow-[0_2px_8px_rgba(24,24,27,0.08)]">
+              active-class="bg-(--color-surface) text-heading shadow-sm">
               <BookOutlined />
               知识库
             </router-link>
             <router-link
               to="/settings"
               class="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium text-(--color-text-muted) transition-all duration-200 hover:bg-white/50 hover:text-heading max-sm:flex-1 max-sm:justify-center"
-              active-class="bg-(--color-surface) text-heading shadow-[0_2px_8px_rgba(24,24,27,0.08)]">
+              active-class="bg-(--color-surface) text-heading shadow-sm">
               <SettingOutlined />
               设置
             </router-link>

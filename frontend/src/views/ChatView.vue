@@ -507,7 +507,7 @@ function handleKeyDown(e: KeyboardEvent) {
           icon-class="bg-transparent p-0 shadow-none">
           <template #icon>
             <div
-              class="flex h-20 w-20 items-center justify-center rounded-3xl border border-white/70 bg-white/90 shadow-[0_16px_40px_rgba(24,24,27,0.12)] backdrop-blur-sm max-sm:h-16 max-sm:w-16 max-sm:rounded-2xl">
+              class="flex h-20 w-20 items-center justify-center rounded-3xl border border-white/70 bg-white/90 shadow-floating backdrop-blur-sm max-sm:h-16 max-sm:w-16 max-sm:rounded-2xl">
               <img
                 :src="appLogo"
                 alt="RAG Agent logo"
@@ -555,7 +555,10 @@ function handleKeyDown(e: KeyboardEvent) {
         <template v-for="msg in messages" :key="msg.id">
           <AnswerCard
             :message="msg"
+            :show-quick-action="msg.id === latestSavableAssistantMessage?.id"
+            :quick-action-loading="isMessageNoteSaving(msg.id)"
             @apply-clarification="applyClarificationOption(msg, $event)"
+            @save-note="handleSaveNote(msg)"
             @select-source="openSourceModal" />
         </template>
       </div>
@@ -596,36 +599,7 @@ function handleKeyDown(e: KeyboardEvent) {
 
     <div class="bg-transparent pb-5">
       <div
-        v-if="latestSavableAssistantMessage"
-        class="mb-2 flex items-center justify-between gap-3 rounded-2xl border border-black/6 bg-white/72 px-3 py-2 backdrop-blur-sm max-sm:flex-col max-sm:items-stretch">
-        <div class="min-w-0 flex-1">
-          <div
-            class="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-400">
-            快捷动作
-          </div>
-          <div class="mt-1 truncate text-sm text-zinc-600">
-            {{ latestSavableAssistantMessage.queryText }}
-          </div>
-        </div>
-        <div class="flex items-center gap-2 self-end max-sm:self-stretch">
-          <OButton
-            variant="secondary"
-            size="sm"
-            class="h-9 rounded-full px-3.5 text-xs font-semibold"
-            :disabled="isMessageNoteSaving(latestSavableAssistantMessage.id)"
-            @click="handleSaveNote(latestSavableAssistantMessage)">
-            <BookOutlined />
-            {{
-              isMessageNoteSaving(latestSavableAssistantMessage.id)
-                ? '保存中'
-                : '保存笔记'
-            }}
-          </OButton>
-        </div>
-      </div>
-
-      <div
-        class="grid grid-cols-[auto_1fr_auto] items-end gap-2.5 rounded-3xl border border-black/8 bg-white/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(24,24,27,0.08)] backdrop-blur-xl transition-all duration-200 focus-within:border-black/20 focus-within:shadow-[0_12px_48px_rgba(24,24,27,0.12)]">
+        class="grid grid-cols-[auto_1fr_auto] items-end gap-2.5 rounded-3xl border border-black/8 bg-white/95 px-3 py-2.5 shadow-md backdrop-blur-xl transition-all duration-200 focus-within:border-black/20 focus-within:shadow-lg">
         <OButton
           variant="ghost"
           size="sm"

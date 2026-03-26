@@ -50,11 +50,14 @@ export interface Message {
 
 const props = defineProps<{
   message: Message;
+  showQuickAction?: boolean;
+  quickActionLoading?: boolean;
 }>();
 
 const emit = defineEmits<{
   applyClarification: [option: ClarificationOption];
   selectSource: [source: SourceSummary];
+  saveNote: [];
 }>();
 
 const markdown = new MarkdownIt({
@@ -179,6 +182,10 @@ function toggleThought() {
 function toggleProgress() {
   progressExpanded.value = !progressExpanded.value;
 }
+
+function handleSaveNote() {
+  emit('saveNote');
+}
 </script>
 
 <template>
@@ -194,7 +201,7 @@ function toggleProgress() {
           'flex-col',
           'gap-3',
           isUser
-            ? 'w-fit max-w-[min(78%,640px)] rounded-[24px_24px_8px_24px] bg-zinc-900 px-4 py-3.5 text-white shadow-[0_12px_32px_rgba(24,24,27,0.12)] max-sm:max-w-[88%]'
+            ? 'w-fit max-w-[min(78%,640px)] rounded-[24px_24px_8px_24px] bg-zinc-900 px-4 py-3.5 text-white shadow-floating max-sm:max-w-[88%]'
             : 'w-full max-w-[min(100%,760px)]',
           !isUser && isError && 'text-red-950',
           !isUser && isNoResult && 'text-amber-900'
@@ -259,7 +266,7 @@ function toggleProgress() {
                   :class="[
                     'h-2 w-2 shrink-0 rounded-full transition-all',
                     index === progressSteps.length - 1
-                      ? 'bg-zinc-700 shadow-[0_0_0_3px_rgba(24,24,27,0.1)]'
+                      ? 'bg-zinc-700 ring-4 ring-black/10'
                       : 'bg-zinc-300'
                   ]" />
                 <div
@@ -353,7 +360,7 @@ function toggleProgress() {
           v-if="!isUser && hasAnswerSection"
           :class="
             cn(
-              'mt-3 ml-2 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-[0_8px_24px_rgba(24,24,27,0.06)] max-sm:ml-0 max-sm:px-5',
+              'mt-3 ml-2 rounded-2xl border border-black/6 bg-white px-6 py-5 shadow-sm max-sm:ml-0 max-sm:px-5',
               isError && 'border-red-200 bg-red-50'
             )
           ">
@@ -413,10 +420,34 @@ function toggleProgress() {
               v-for="option in clarificationOptions"
               :key="`${message.id}-${option.field}-${option.value}`"
               type="button"
-              class="rounded-full border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition-all duration-200 hover:border-success-border hover:bg-[rgba(238,247,241,0.92)] hover:text-(--color-success-strong) hover:shadow"
+              class="rounded-full border border-black/8 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-900 shadow-sm transition-all duration-200 hover:border-success-border hover:bg-success-soft hover:text-(--color-success-strong) hover:shadow"
               @click="applyClarification(option)">
               {{ option.label }}
             </button>
+          </div>
+          <div
+            v-if="showQuickAction"
+            class="mt-4 flex items-center justify-between gap-3 border-t border-black/6 pt-4 max-sm:flex-col max-sm:items-stretch">
+            <div class="min-w-0 flex-1">
+              <div
+                class="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-400">
+                快捷动作
+              </div>
+              <div
+                v-if="message.queryText"
+                class="mt-1 truncate text-sm text-zinc-600 max-sm:whitespace-normal">
+                {{ message.queryText }}
+              </div>
+            </div>
+            <div class="flex items-center gap-2 max-sm:w-full">
+              <button
+                type="button"
+                class="inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3.5 text-xs font-semibold text-heading shadow-sm transition-all duration-200 hover:border-border-strong hover:bg-surface-soft disabled:cursor-not-allowed disabled:opacity-50 max-sm:w-full"
+                :disabled="quickActionLoading"
+                @click="handleSaveNote">
+                <span>{{ quickActionLoading ? '保存中' : '保存笔记' }}</span>
+              </button>
+            </div>
           </div>
         </section>
 

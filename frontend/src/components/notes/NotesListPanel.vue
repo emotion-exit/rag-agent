@@ -2,7 +2,6 @@
 import { computed } from 'vue';
 import {
   ReloadOutlined,
-  FileTextOutlined,
   LoadingOutlined,
   WarningOutlined
 } from '@ant-design/icons-vue';
@@ -30,25 +29,18 @@ const safeNoteGroups = computed(() =>
 
 <template>
   <section
-    class="flex min-h-130 flex-col rounded-3xl border border-black/6 bg-zinc-50/80 p-4">
-    <div class="mb-3 flex items-center justify-between gap-3">
-      <div>
-        <div
-          class="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">
-          笔记列表
-        </div>
-        <div class="mt-1 text-xs leading-5 text-zinc-500">
-          保存中的笔记会先以占位状态显示。
-        </div>
+    class="flex h-full min-h-0 flex-col rounded-2xl border border-zinc-200/60 bg-zinc-50/45 p-4">
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <div class="text-xs font-bold uppercase tracking-[0.16em] text-zinc-500">
+        笔记列表
       </div>
       <OButton
         variant="secondary"
         size="sm"
-        class="h-8 rounded-full px-3 text-xs"
+        class="h-8 w-8 rounded-full px-0 text-xs"
         :loading="notesLoading"
         @click="$emit('refresh')">
         <ReloadOutlined />
-        刷新
       </OButton>
     </div>
 
@@ -56,7 +48,7 @@ const safeNoteGroups = computed(() =>
       <div
         v-for="index in 4"
         :key="`note-skeleton-${index}`"
-        class="rounded-2xl border border-black/5 bg-white px-4 py-4 shadow-sm">
+        class="rounded-xl border border-zinc-200/60 bg-white/50 px-4 py-4">
         <div class="h-4 w-2/3 animate-pulse rounded-full bg-zinc-200"></div>
         <div
           class="mt-3 h-3 w-full animate-pulse rounded-full bg-zinc-100"></div>
@@ -73,18 +65,19 @@ const safeNoteGroups = computed(() =>
         description="从聊天框底部动作点击“保存笔记”后，这里会出现可长期回看的归档。" />
     </div>
 
-    <div v-else class="flex-1 overflow-y-auto pr-1 space-y-2">
+    <div v-else class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       <section
         v-for="group in safeNoteGroups"
         :key="group.knowledgeSpace"
-        class="space-y-2.5">
+        class="space-y-2">
         <div
-          class="sticky top-0 z-1 rounded-2xl bg-zinc-50/92 px-2 py-1 backdrop-blur-sm">
+          class="sticky top-0 z-1 rounded-xl border border-zinc-200/80 bg-white/92 px-3 py-2 backdrop-blur-sm">
           <div
-            class="text-[11px] font-bold uppercase tracking-[0.16em] text-zinc-400">
+            class="truncate text-sm font-semibold tracking-tight text-zinc-900">
             {{ group.knowledgeSpace }}
           </div>
-          <div class="mt-1 text-[11px] text-zinc-500">
+          <div
+            class="mt-1 text-[11px] uppercase tracking-[0.14em] text-zinc-500">
             {{ group.items.length }} 条笔记
           </div>
         </div>
@@ -94,31 +87,33 @@ const safeNoteGroups = computed(() =>
           :key="note.note_id"
           type="button"
           :class="[
-            'w-full rounded-2xl border px-4 py-3 text-left transition-all duration-200',
+            'w-full rounded-xl border px-3.5 py-3 text-left transition-all duration-200',
             selectedNoteId === note.note_id
-              ? 'border-zinc-900 bg-white shadow-[0_12px_24px_rgba(24,24,27,0.08)]'
-              : 'border-black/6 bg-white/90 hover:border-black/12 hover:bg-white'
+              ? 'border-zinc-300 bg-white shadow-sm'
+              : 'border-transparent bg-transparent hover:bg-white/70'
           ]"
           @click="$emit('selectNote', note.note_id)">
-          <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start justify-between gap-2.5">
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <span
                   v-if="note.status === 'pending'"
-                  class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-semibold text-zinc-600">
+                  class="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
                   <LoadingOutlined class="animate-spin" />
                   保存中
                 </span>
                 <span
                   v-else-if="note.status === 'failed'"
-                  class="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                  class="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700">
                   <WarningOutlined />
                   失败
                 </span>
                 <span
                   v-else
-                  class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                  <FileTextOutlined />
+                  class="inline-flex h-2 w-2 rounded-full bg-emerald-500/80"></span>
+                <span
+                  v-if="note.status !== 'pending' && note.status !== 'failed'"
+                  class="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
                   已保存
                 </span>
               </div>
@@ -128,16 +123,16 @@ const safeNoteGroups = computed(() =>
                 class="mt-3 h-4 w-2/3 animate-pulse rounded-full bg-zinc-200"></div>
               <div
                 v-else
-                class="mt-3 truncate text-sm font-semibold text-zinc-900">
+                class="mt-2 truncate text-sm font-semibold text-zinc-900">
                 {{ note.title || note.query || '未命名笔记' }}
               </div>
 
-              <div class="mt-2 text-xs leading-5 text-zinc-500 line-clamp-2">
+              <div class="mt-1.5 text-xs leading-5 text-zinc-500 line-clamp-1">
                 {{ note.answer_excerpt || note.query }}
               </div>
               <div
                 v-if="note.status === 'failed' && note.last_error"
-                class="mt-2 text-xs leading-5 text-red-600 line-clamp-2">
+                class="mt-1.5 text-xs leading-5 text-red-600 line-clamp-2">
                 {{ note.last_error }}
               </div>
             </div>

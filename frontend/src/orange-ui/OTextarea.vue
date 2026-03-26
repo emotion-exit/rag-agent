@@ -39,13 +39,13 @@ const textareaEl = ref<HTMLTextAreaElement | null>(null);
 
 const wrapperClass = computed(() =>
   cn(
-    'w-full text-[14px] font-medium leading-6 text-(--oui-color-text)',
+    'w-full text-sm font-medium leading-6 text-text',
     props.appearance === 'default' &&
-      'group rounded-[16px] border border-black/8 bg-linear-to-b from-white to-[rgba(248,248,249,0.96)] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),inset_0_-1px_0_rgba(24,24,27,0.02),0_6px_18px_rgba(24,24,27,0.04)] transition-all duration-300 hover:border-black/12 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.92),inset_0_-1px_0_rgba(24,24,27,0.03),0_10px_24px_rgba(24,24,27,0.06)] focus-within:-translate-y-[1px] focus-within:border-black/18 focus-within:shadow-[0_0_0_4px_rgba(24,24,27,0.06),inset_0_1px_0_rgba(255,255,255,0.92),0_12px_28px_rgba(24,24,27,0.08)]',
+      'group rounded-lg border border-border bg-white px-3 py-2 shadow-sm transition-all duration-200 hover:border-border-strong focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20',
     props.appearance === 'plain' && 'bg-transparent p-0 shadow-none',
     props.disabled &&
       (props.appearance === 'default'
-        ? 'cursor-not-allowed bg-(--oui-color-surface-soft) opacity-60 shadow-none hover:border-black/8 hover:shadow-none'
+        ? 'cursor-not-allowed bg-surface-muted border-border-soft opacity-70 shadow-none hover:border-border-soft focus-within:ring-0'
         : 'cursor-not-allowed opacity-60'),
     props.class
   )

@@ -114,7 +114,7 @@ function requestConfirm() {
           size="md"
           :loading="submitting"
           :disabled="submitting"
-          class="min-w-35 bg-[#b1372a]! text-white! border-[#b1372a]! shadow-[0_8px_20px_rgba(177,55,42,0.24),0_2px_6px_rgba(177,55,42,0.12)]! hover:bg-[#9c2f24]!"
+          class="min-w-35 bg-[#b1372a]! text-white! border-[#b1372a]! shadow-md hover:bg-[#9c2f24]!"
           @click="requestConfirm">
           {{ submitting ? '处理中...' : confirmText }}
         </OButton>
