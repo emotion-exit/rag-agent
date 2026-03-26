@@ -15,7 +15,7 @@ from app.config import (
     set_request_settings_overrides,
     settings,
 )
-from app.routers import auth_router, chat_router, knowledge_base_router
+from app.routers import auth_router, chat_router, knowledge_base_router, notes_router
 from app.services.auth import (
     extract_token_from_request,
     get_user_by_token,
@@ -24,6 +24,7 @@ from app.services.auth import (
     set_current_user,
 )
 from app.services.knowledge_spaces import initialize_knowledge_space_db
+from app.services.notes import initialize_notes_db
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ os.makedirs(_base_settings.chroma_persist_dir, exist_ok=True)
 os.makedirs(_base_settings.upload_dir, exist_ok=True)
 initialize_auth_db()
 initialize_knowledge_space_db()
+initialize_notes_db()
 
 app = FastAPI(
     title="RAG Agent API",
@@ -52,6 +54,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
+app.include_router(notes_router)
 
 
 @app.middleware("http")

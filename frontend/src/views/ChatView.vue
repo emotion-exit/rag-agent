@@ -3,17 +3,19 @@ defineOptions({
   name: 'ChatView'
 });
 
-import { nextTick, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
 import { v4 as uuidv4 } from 'uuid';
 import {
   SendOutlined,
   ClearOutlined,
-  VerticalAlignBottomOutlined
+  VerticalAlignBottomOutlined,
+  BookOutlined
 } from '@ant-design/icons-vue';
 import AnswerCard from '@/components/AnswerCard.vue';
+import NotesModal from '@/components/NotesModal.vue';
 import SourceSnippetModal from '@/components/SourceSnippetModal.vue';
 import appLogo from '@/assets/logo.png';
-import { OButton, OCard, OTextarea, OEmptyState } from '@/orange-ui';
+import { OButton, OCard, OTextarea, OEmptyState, useOToast } from '@/orange-ui';
 import type {
   ClarificationOption,
   Message,
@@ -21,6 +23,7 @@ import type {
 } from '@/components/AnswerCard.vue';
 import { getApiBase } from '@/services/runtime';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
+import { useNotesCenter } from '@/composables/useNotesCenter';
 
 const messages = ref<Message[]>([]);
 const inputText = ref('');
@@ -33,6 +36,52 @@ const showScrollBack = ref(false);
 const selectedSource = ref<SourceSummary | null>(null);
 const sourceModalVisible = ref(false);
 const sessionKnowledgeSpaceLabel = ref('');
+const toast = useOToast();
+
+const {
+  notesVisible,
+  notes,
+  notesByKnowledgeSpace,
+  notesLoading,
+  selectedNoteId,
+  selectedNoteDetail,
+  noteDetailLoading,
+  revisionDraft,
+  revisionDraftLoading,
+  isMessageNoteSaving,
+  isNoteRevisionSaving,
+  loadNotes,
+  loadNoteDetail,
+  openNotesModal,
+  closeNotesModal,
+  handleSaveNote,
+  discardRevisionDraft,
+  generateSelectedNoteRevisionDraft,
+  saveSelectedRevisionDraft
+} = useNotesCenter({
+  sessionId,
+  sessionKnowledgeSpaceLabel,
+  toast
+});
+
+const latestSavableAssistantMessage = computed(() => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const message = messages.value[index];
+    if (!message) {
+      continue;
+    }
+    if (
+      message.role === 'assistant' &&
+      message.status === 'done' &&
+      String(message.queryText || '').trim() &&
+      String(message.answerContent || message.content || '').trim()
+    ) {
+      return message;
+    }
+  }
+
+  return null;
+});
 
 const CONNECTING_HINT = '正在连接知识库助手...';
 const START_HINT = '已接收问题，正在准备检索。';
@@ -429,6 +478,14 @@ function handleKeyDown(e: KeyboardEvent) {
         </span>
       </div>
       <OButton
+        variant="secondary"
+        size="sm"
+        class="h-7 rounded-xl px-3 text-xs font-medium"
+        @click="openNotesModal">
+        <BookOutlined />
+        笔记
+      </OButton>
+      <OButton
         variant="ghost"
         size="sm"
         class="h-7 rounded-xl px-3 text-xs font-medium"
@@ -504,6 +561,25 @@ function handleKeyDown(e: KeyboardEvent) {
       </div>
     </div>
 
+    <NotesModal
+      :visible="notesVisible"
+      :notes-by-knowledge-space="notesByKnowledgeSpace"
+      :notes="notes"
+      :notes-loading="notesLoading"
+      :note-detail-loading="noteDetailLoading"
+      :selected-note-id="selectedNoteId"
+      :selected-note-detail="selectedNoteDetail"
+      :revision-draft="revisionDraft"
+      :revision-draft-loading="revisionDraftLoading"
+      :revision-saving="isNoteRevisionSaving(selectedNoteId)"
+      @close="closeNotesModal"
+      @refresh="loadNotes()"
+      @select-note="loadNoteDetail"
+      @generate-revision-draft="generateSelectedNoteRevisionDraft"
+      @discard-revision-draft="discardRevisionDraft"
+      @save-revision-draft="saveSelectedRevisionDraft"
+      @open-source="openSourceModal" />
+
     <SourceSnippetModal
       :visible="sourceModalVisible"
       :source="selectedSource"
@@ -519,6 +595,35 @@ function handleKeyDown(e: KeyboardEvent) {
     </OButton>
 
     <div class="bg-transparent pb-5">
+      <div
+        v-if="latestSavableAssistantMessage"
+        class="mb-2 flex items-center justify-between gap-3 rounded-2xl border border-black/6 bg-white/72 px-3 py-2 backdrop-blur-sm max-sm:flex-col max-sm:items-stretch">
+        <div class="min-w-0 flex-1">
+          <div
+            class="text-[11px] font-bold uppercase tracking-[0.14em] text-zinc-400">
+            快捷动作
+          </div>
+          <div class="mt-1 truncate text-sm text-zinc-600">
+            {{ latestSavableAssistantMessage.queryText }}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 self-end max-sm:self-stretch">
+          <OButton
+            variant="secondary"
+            size="sm"
+            class="h-9 rounded-full px-3.5 text-xs font-semibold"
+            :disabled="isMessageNoteSaving(latestSavableAssistantMessage.id)"
+            @click="handleSaveNote(latestSavableAssistantMessage)">
+            <BookOutlined />
+            {{
+              isMessageNoteSaving(latestSavableAssistantMessage.id)
+                ? '保存中'
+                : '保存笔记'
+            }}
+          </OButton>
+        </div>
+      </div>
+
       <div
         class="grid grid-cols-[auto_1fr_auto] items-end gap-2.5 rounded-3xl border border-black/8 bg-white/95 px-3 py-2.5 shadow-[0_8px_32px_rgba(24,24,27,0.08)] backdrop-blur-xl transition-all duration-200 focus-within:border-black/20 focus-within:shadow-[0_12px_48px_rgba(24,24,27,0.12)]">
         <OButton

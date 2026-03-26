@@ -25,6 +25,8 @@ export interface SourceSummary {
   source_type: string;
   source_label: string;
   source_page: number;
+  section_title?: string;
+  heading_path?: string;
   image_count?: number;
   summary: string;
 }
@@ -356,9 +358,11 @@ function toggleProgress() {
             )
           ">
           <div class="flex justify-between items-center w-full">
-            <div
-              class="mb-3 text-xs font-bold uppercase tracking-wider text-zinc-400">
-              回答
+            <div class="mb-3 flex items-center gap-3">
+              <div
+                class="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                回答
+              </div>
             </div>
             <div
               v-if="hasKnowledgeSpaceLabel"

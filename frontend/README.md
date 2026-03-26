@@ -1,28 +1,57 @@
 # Frontend
 
-Vue 3 + Vite web frontend for RAG.Agent.
+RAG.Agent 的 Vue 3 + TypeScript + Vite 前端，负责聊天、知识库管理、设置、鉴权与笔记交互。
 
-## Ports
+## 端口
 
-- Web frontend dev server: http://localhost:5173
-- Web backend API target: http://localhost:8000
+- 前端开发地址：http://localhost:5173
+- 后端 API 目标：http://localhost:8000
 
-In web development, Vite proxies `/api` to port 8000.
+开发态下 Vite 会将 `/api` 代理到 8000 端口。
 
-## Knowledge Base UI
+## 当前页面能力
 
-- 当前前端知识库页采用扁平列表，不再展示树形层级。
-- 每个知识库只维护名称、标签、说明。
-- 上传文档时只需要选择一个知识库并补充附加标签。
+### 聊天页
 
-## Development
+- 流式展示回答与检索进度
+- 展示来源摘要、来源详情和关联图片
+- 底部快捷操作支持将最近一条可保存回答归档为笔记
+- 笔记入口使用 modal 打开，不占用当前聊天区域
+
+### 笔记交互
+
+- 笔记列表按知识库分组
+- 保存笔记采用异步任务，不阻塞聊天
+- 笔记标题由后端 AI 生成
+- 可基于当前最新公开设置重新生成候选答案
+- 点击确认后覆盖当前笔记内容，而不是生成一条新的独立笔记
+
+### 知识库页
+
+- 采用扁平列表，不展示树形层级
+- 每个知识库维护名称、标签、说明、可见性
+- 上传文档时选择目标知识库并补充附加标签
+
+### 设置页
+
+- 查看公开健康状态与 Provider 连通性
+- 调整公开高级设置
+- 独立配置“反思策略”，通过 Reflection Tokens 控制二次审查预算
+
+### 登录与用户管理
+
+- 支持登录、退出、基础身份恢复
+- 开放注册默认关闭
+- 管理员可创建用户和执行管理动作
+
+## 开发
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-## Build
+## 构建
 
 ```sh
 pnpm build

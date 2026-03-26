@@ -1,36 +1,114 @@
 # RAG Agent Backend
 
-FastAPI backend for the RAG Agent system.
+RAG.Agent 的 FastAPI 后端，负责鉴权、知识库管理、RAG 检索链路、公开高级设置应用、笔记保存与健康检查。
 
-## Development Port
+## 运行端口
 
-- Default backend port: 8000
-- API docs: http://localhost:8000/docs
-- Health check: http://localhost:8000/health
+- 默认端口：8000
+- API 文档：http://localhost:8000/docs
+- 健康检查：http://localhost:8000/health
 
-In the current web workflow, the backend starts from port 8000 by default. If you need another port, override it with `BACKEND_PORT` or your uvicorn startup command.
+## 当前后端职责
 
-## 图片处理
+- 用户、角色、令牌鉴权
+- 公有知识库共享与私有知识库隔离
+- 文档解析、图片提取、向量入库
+- 流式和非流式问答
+- 请求级公开高级设置覆盖
+- 反思策略与答案拦截控制
+- 笔记异步保存、详情查询、候选更新覆盖
 
-- 当前上传 `.docx` 或 `.pdf` 时，会提取内嵌图片并保存到本地资源目录。
-- 这些图片主要用于聊天来源详情展示，不会直接参与文本检索。
-- 对较大的 `.pdf` 文件，后端会跳过图片提取以缩短同步上传耗时；正文文本检索不受影响。
-- 真正的 OCR 识别与 OCR 文本入库链路目前尚未接入。
+## 关键存储
 
-当前不接 OCR，主要有三个原因：
+- `APP_DB_PATH`：业务 SQLite，默认 `backend/data/app.db`
+- `CHROMA_PERSIST_DIR`：Chroma 持久化目录，默认 `backend/data/chroma`
+- `UPLOAD_DIR`：上传文件与来源图片目录，默认 `backend/data/uploads`
 
-- 这一版优先保证正文解析、向量入库和问答主链路稳定，正文已经是当前最主要的信息来源。
-- OCR 会额外引入模型或本地依赖、更多处理耗时，以及误识别带来的噪声，尤其会拉长多文件上传和大 PDF 的处理时间。
-- 在还没有针对 OCR 结果做单独评估、清洗和去噪策略之前，先把图片链路收敛在“提取与来源展示”这一层会更稳妥。
+SQLite 当前保存：
 
-## Knowledge Base Tasks
+- `users`
+- `auth_tokens`
+- `knowledge_spaces`
+- `notes`
+- `note_revisions`
+- `note_sources`
+- `note_save_jobs`
 
-- 知识库上传会以后台任务形式执行。
-- `KNOWLEDGE_BASE_JOB_RETENTION_HOURS` 用于控制已完成/失败任务在内存中保留多久，默认 `2` 小时。
-- `KNOWLEDGE_BASE_JOB_HISTORY_LIMIT` 用于控制最多保留多少条任务快照，默认 `200`。
+## 鉴权与用户管理
 
-## Knowledge Base Model
+- 默认关闭开放注册，`OPEN_REGISTRATION_ENABLED=false`
+- 启动时若不存在管理员，则使用 `DEFAULT_ADMIN_USERNAME` 和 `DEFAULT_ADMIN_PASSWORD` 初始化默认管理员
+- 管理员可创建用户、改角色、停用用户、重置密码
 
-- 当前知识库为扁平结构，不再维护父子层级。
-- 每个知识库只维护三类可编辑信息：名称、标签、说明。
-- 文档上传时只需要选择目标知识库，后端会把知识库名称和标签写入检索元数据。
+## 知识库模型
+
+- 当前知识库为扁平结构
+- 每个知识库包含：名称、标签、说明、可见性、所属人
+- 可见性分为 `public` 和 `private`
+- 公有知识库仅管理员可管理，私有知识库由管理员或所有者管理
+
+## 文档处理与图片
+
+- 支持 `.pdf`、`.docx`、`.md`、`.markdown`、`.txt`、`.rst`、`.csv`
+- 上传 `.docx` 或 `.pdf` 时会提取内嵌图片并保存到本地资源目录
+- 图片主要用于来源详情展示，不直接参与文本检索
+- 对较大的 `.pdf` 文件会跳过图片提取以降低耗时
+- 当前未接入 OCR 文本入库链路
+
+## 上传任务
+
+- 知识库上传支持同步和后台任务两种入口
+- 主界面默认走后台任务
+- `KNOWLEDGE_BASE_JOB_RETENTION_HOURS`：已完成或失败任务在内存中的保留时间，默认 `2`
+- `KNOWLEDGE_BASE_JOB_HISTORY_LIMIT`：任务历史快照数量上限，默认 `200`
+
+## 笔记系统
+
+- 笔记保存是异步任务，不阻塞主聊天流程
+- 标题由辅助模型基于问题、回答和来源线索生成
+- 笔记会保存所属知识库、原始问题、正文、来源摘要和保存任务状态
+- 重新生成候选答案时会复用最新公开设置
+- 用户点击确认后，会覆盖当前笔记内容，而不是新增一条独立笔记
+
+## 主要接口
+
+### 鉴权
+
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+- `GET /api/auth/bootstrap`
+- `GET /api/auth/users`
+- `POST /api/auth/users`
+- `PATCH /api/auth/users/{user_id}`
+- `POST /api/auth/users/{user_id}/reset-password`
+
+### 知识库
+
+- `GET /api/knowledge-base/spaces`
+- `POST /api/knowledge-base/spaces`
+- `PUT /api/knowledge-base/spaces/{space_id}`
+- `POST /api/knowledge-base/upload`
+- `POST /api/knowledge-base/upload-jobs`
+- `GET /api/knowledge-base/jobs/{job_id}`
+- `GET /api/knowledge-base/documents`
+- `DELETE /api/knowledge-base/documents/{doc_id}`
+- `DELETE /api/knowledge-base/spaces/{space_id}`
+- `POST /api/knowledge-base/spaces/{space_id}/delete`
+- `GET /api/knowledge-base/stats`
+
+### 聊天
+
+- `POST /api/chat/stream`
+- `POST /api/chat/`
+- `GET /api/chat/sources/{doc_id}/{chunk_index}`
+- `GET /api/chat/documents/{doc_id}/images/{image_id}`
+
+### 笔记
+
+- `POST /api/notes/save-jobs`
+- `GET /api/notes/save-jobs/{job_id}`
+- `GET /api/notes`
+- `GET /api/notes/{note_id}`
+- `POST /api/notes/{note_id}/revision-save-jobs`
