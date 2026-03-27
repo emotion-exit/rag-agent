@@ -287,17 +287,51 @@ def count_users() -> int:
     return int(row["total"] if row else 0)
 
 
-def list_users() -> list[dict[str, Any]]:
+def get_user_statistics() -> dict[str, int]:
+    with _get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) AS active_total,
+                SUM(CASE WHEN role = ? THEN 1 ELSE 0 END) AS admin_total
+            FROM users
+            """,
+            (ROLE_ADMIN,),
+        ).fetchone()
+
+    return {
+        "total": int(row["total"] or 0) if row else 0,
+        "active_total": int(row["active_total"] or 0) if row else 0,
+        "admin_total": int(row["admin_total"] or 0) if row else 0,
+    }
+
+
+def list_users(*, page: int = 1, page_size: int = 10) -> dict[str, Any]:
+    normalized_page = max(1, int(page or 1))
+    normalized_page_size = max(1, min(int(page_size or 10), 100))
+    offset = (normalized_page - 1) * normalized_page_size
+    summary = get_user_statistics()
+
     with _get_connection() as connection:
         rows = connection.execute(
             """
             SELECT user_id, username, role, is_active, created_at, updated_at
             FROM users
             ORDER BY CASE WHEN role = ? THEN 0 ELSE 1 END, created_at ASC, username ASC
+            LIMIT ? OFFSET ?
             """,
-            (ROLE_ADMIN,),
+            (ROLE_ADMIN, normalized_page_size, offset),
         ).fetchall()
-    return [_serialize_user(row) for row in rows]
+
+    return {
+        "items": [_serialize_user(row) for row in rows],
+        "total": summary["total"],
+        "active_total": summary["active_total"],
+        "admin_total": summary["admin_total"],
+        "page": normalized_page,
+        "page_size": normalized_page_size,
+    }
 
 
 def update_user_password(*, user_id: str, password: str) -> dict[str, Any]:

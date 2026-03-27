@@ -5,7 +5,11 @@ defineOptions({
 
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { LockOutlined, UserOutlined } from '@ant-design/icons-vue';
+import {
+  LockOutlined,
+  UserOutlined,
+  RobotOutlined
+} from '@ant-design/icons-vue';
 import { OButton, OCard, OFormItem, OInput, useOToast } from '@/orange-ui';
 import { getApiBase } from '@/services/runtime';
 import {
@@ -119,70 +123,42 @@ onMounted(() => {
 
 <template>
   <div
-    class="flex min-h-[calc(100vh-8rem)] items-center justify-center px-4 py-8">
-    <div class="grid w-full max-w-5xl gap-6 lg:grid-cols-[1.2fr_0.9fr]">
+    class="relative flex min-h-[calc(100vh-6rem)] w-full flex-col items-center justify-center p-4">
+    <div
+      class="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[800px] w-full max-w-[1000px] -translate-x-1/2 -translate-y-1/2 overflow-hidden opacity-40">
+      <div
+        class="absolute left-[20%] top-[20%] h-96 w-96 rounded-full bg-blue-400/20 mix-blend-multiply blur-[100px] filter" />
+      <div
+        class="absolute right-[20%] top-[30%] h-96 w-96 rounded-full bg-indigo-400/20 mix-blend-multiply blur-[100px] filter" />
+      <div
+        class="absolute bottom-[20%] left-[33%] h-96 w-96 rounded-full bg-purple-400/20 mix-blend-multiply blur-[100px] filter" />
+    </div>
+
+    <div class="z-10 w-full max-w-[400px]">
+      <div class="mb-8 flex flex-col items-center text-center">
+        <div
+          class="mb-6 flex h-[60px] w-[60px] items-center justify-center rounded-2xl border border-black/[0.08] bg-white text-zinc-900 shadow-xl shadow-black/5">
+          <RobotOutlined class="text-3xl" />
+        </div>
+        <h1 class="text-2xl font-bold tracking-tight text-zinc-900">
+          {{ pageTitle }}
+        </h1>
+        <p class="mt-2 text-sm text-zinc-500">
+          {{ bootstrapLoading ? '加载配置中...' : '欢迎来到 RAG.Agent 工作台' }}
+        </p>
+      </div>
+
       <OCard
         padding="lg"
-        class="relative overflow-hidden border-black/8 bg-white">
-        <div class="space-y-5">
-          <div
-            class="inline-flex rounded-full border border-black/8 bg-white/80 px-3 py-1 text-xs font-semibold tracking-[0.18em] text-zinc-500 uppercase">
-            Multi-user RAG
-          </div>
-          <div class="space-y-3">
-            <h1
-              class="max-w-lg text-4xl font-black tracking-tight text-heading">
-              私有知识库隔离，公有知识库共享。
-            </h1>
-            <p class="max-w-xl text-sm leading-7 text-(--color-text-muted)">
-              登录后，普通用户只能访问自己的私有知识库和全局公有知识库；管理员额外负责维护公有知识库。
-            </p>
-          </div>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div class="rounded-3xl border border-black/6 bg-white/78 p-4">
-              <div
-                class="text-xs font-semibold tracking-[0.14em] text-zinc-500 uppercase">
-                模式
-              </div>
-              <div class="mt-2 text-lg font-bold text-heading">
-                {{
-                  features.private_knowledge_base_enabled
-                    ? '公有 + 私有'
-                    : '仅公有知识库'
-                }}
-              </div>
-            </div>
-            <div class="rounded-3xl border border-black/6 bg-white/78 p-4">
-              <div
-                class="text-xs font-semibold tracking-[0.14em] text-zinc-500 uppercase">
-                注册
-              </div>
-              <div class="mt-2 text-lg font-bold text-heading">
-                {{ features.open_registration_enabled ? '已开放' : '已关闭' }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </OCard>
-
-      <OCard padding="lg" class="self-center">
-        <div class="space-y-5">
-          <div>
-            <div
-              class="text-sm font-semibold tracking-[0.18em] text-zinc-500 uppercase">
-              {{ bootstrapLoading ? '加载配置中' : '访问工作台' }}
-            </div>
-            <h2 class="mt-2 text-2xl font-bold tracking-tight text-heading">
-              {{ pageTitle }}
-            </h2>
-          </div>
-
-          <div class="space-y-4">
+        class="border-white/60 bg-white/70 shadow-2xl shadow-zinc-200/50 backdrop-blur-xl">
+        <div class="flex flex-col gap-6">
+          <div class="flex flex-col gap-4">
             <OFormItem label="用户名" :required="true">
               <OInput
                 v-model="form.username"
                 :disabled="loading"
-                placeholder="请输入用户名">
+                placeholder="请输入用户名"
+                class="bg-white/80">
                 <template #prefix>
                   <UserOutlined class="text-zinc-400" />
                 </template>
@@ -195,6 +171,7 @@ onMounted(() => {
                 type="password"
                 :disabled="loading"
                 placeholder="请输入密码"
+                class="bg-white/80"
                 @keydown.enter="submit">
                 <template #prefix>
                   <LockOutlined class="text-zinc-400" />
@@ -203,8 +180,12 @@ onMounted(() => {
             </OFormItem>
           </div>
 
-          <div class="space-y-3">
-            <OButton block :loading="loading" @click="submit">
+          <div class="flex flex-col gap-3">
+            <OButton
+              block
+              :loading="loading"
+              class="h-11 text-[15px]"
+              @click="submit">
               {{ submitText }}
             </OButton>
             <OButton
@@ -217,9 +198,13 @@ onMounted(() => {
             </OButton>
           </div>
 
-          <p class="text-xs leading-6 text-(--color-text-muted)">
-            普通用户账号需由管理员创建。默认管理员账号由后端自动初始化，请首次部署后尽快修改默认凭据。
-          </p>
+          <div
+            v-if="!registerMode"
+            class="mt-1 rounded-xl border border-orange-100 bg-orange-50/50 px-4 py-3">
+            <p class="text-[12px] leading-[1.6] text-orange-800/80">
+              普通用户账号需由管理员创建。默认管理员账号由后端自动初始化，请首次部署后尽快修改默认凭据。
+            </p>
+          </div>
         </div>
       </OCard>
     </div>

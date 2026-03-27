@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app.config import settings
+from app.config import normalize_public_frontend_config, settings
 from app.services.auth import (
     ROLE_ADMIN,
     ROLE_USER,
@@ -19,6 +19,15 @@ from app.services.auth import (
     update_user_active_status,
     update_user_password,
     update_user_role,
+)
+from app.services.public_config import (
+    get_system_public_config,
+    get_user_public_config,
+    get_user_public_config_overrides,
+    reset_system_public_config,
+    reset_user_public_config,
+    save_system_public_config,
+    save_user_public_config,
 )
 
 
@@ -126,6 +135,49 @@ async def me(request: Request):
     }
 
 
+@router.get("/public-config")
+async def get_current_user_runtime_config(request: Request):
+    user = get_request_user(request) or get_current_user(required=True)
+    return {
+        "config": get_user_public_config(str(user.get("user_id") or "")),
+        "has_overrides": bool(get_user_public_config_overrides(str(user.get("user_id") or ""))),
+    }
+
+
+@router.put("/public-config")
+async def save_current_user_runtime_config(payload: dict, request: Request):
+    user = get_request_user(request) or get_current_user(required=True)
+    saved_config = save_user_public_config(str(user.get("user_id") or ""), payload)
+    return {"success": True, "config": saved_config}
+
+
+@router.delete("/public-config")
+async def reset_current_user_runtime_config(request: Request):
+    user = get_request_user(request) or get_current_user(required=True)
+    config = reset_user_public_config(str(user.get("user_id") or ""))
+    return {"success": True, "config": config}
+
+
+@router.get("/public-config/system")
+async def get_system_runtime_config(request: Request):
+    _require_admin_user(request)
+    return {"config": get_system_public_config()}
+
+
+@router.put("/public-config/system")
+async def save_system_runtime_config(payload: dict, request: Request):
+    _require_admin_user(request)
+    saved_config = save_system_public_config(normalize_public_frontend_config(payload))
+    return {"success": True, "config": saved_config}
+
+
+@router.delete("/public-config/system")
+async def reset_system_runtime_config(request: Request):
+    _require_admin_user(request)
+    config = reset_system_public_config()
+    return {"success": True, "config": config}
+
+
 @router.get("/bootstrap")
 async def bootstrap():
     return {
@@ -138,9 +190,13 @@ async def bootstrap():
 
 
 @router.get("/users")
-async def admin_list_users(request: Request):
+async def admin_list_users(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+):
     _require_admin_user(request)
-    return {"items": list_users()}
+    return list_users(page=page, page_size=page_size)
 
 
 @router.post("/users")

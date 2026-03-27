@@ -15,6 +15,15 @@ export interface ManagedAuthUser extends AuthUser {
   updated_at: string;
 }
 
+export interface ManagedUserListResult {
+  items: ManagedAuthUser[];
+  total: number;
+  active_total: number;
+  admin_total: number;
+  page: number;
+  page_size: number;
+}
+
 export interface AuthFeatures {
   private_knowledge_base_enabled: boolean;
   open_registration_enabled: boolean;
@@ -34,6 +43,11 @@ interface AuthMeResponse {
 
 interface AdminUserListResponse {
   items: ManagedAuthUser[];
+  total?: number;
+  active_total?: number;
+  admin_total?: number;
+  page?: number;
+  page_size?: number;
 }
 
 interface AdminUserMutationResponse {
@@ -150,17 +164,39 @@ async function parseApiError(response: Response): Promise<string> {
   }
 }
 
-export async function fetchManagedUsers(): Promise<ManagedAuthUser[]> {
-  const response = await fetch(`${getApiBase()}/api/auth/users`, {
-    headers: buildAuthHeaders()
+export async function fetchManagedUsers(options?: {
+  page?: number;
+  pageSize?: number;
+}): Promise<ManagedUserListResult> {
+  const page = Math.max(1, Number(options?.page || 1));
+  const pageSize = Math.max(1, Number(options?.pageSize || 10));
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize)
   });
+
+  const response = await fetch(
+    `${getApiBase()}/api/auth/users?${query.toString()}`,
+    {
+      headers: buildAuthHeaders()
+    }
+  );
 
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
 
   const payload = (await response.json()) as AdminUserListResponse;
-  return Array.isArray(payload.items) ? payload.items : [];
+  const items = Array.isArray(payload.items) ? payload.items : [];
+
+  return {
+    items,
+    total: Math.max(0, Number(payload.total || 0)),
+    active_total: Math.max(0, Number(payload.active_total || 0)),
+    admin_total: Math.max(0, Number(payload.admin_total || 0)),
+    page: Math.max(1, Number(payload.page || page)),
+    page_size: Math.max(1, Number(payload.page_size || pageSize))
+  };
 }
 
 export async function createManagedUser(payload: {

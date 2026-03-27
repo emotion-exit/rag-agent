@@ -2,11 +2,10 @@
 
 这份配置模块承担三件事：
 1. 定义后端运行时需要的所有配置项。
-2. 统一配置优先级：APP_CONFIG_PATH 指向的 JSON > 环境变量 > 默认值。
-3. 将相对路径的本地存储目录解析为绝对路径，避免桌面版切换工作目录后找不到数据。
+2. 统一配置优先级：环境变量 > 代码默认值。
+3. 将相对路径的本地存储目录解析为绝对路径，避免工作目录变化后找不到数据。
 """
 
-import json
 import os
 from contextvars import ContextVar, Token
 from pathlib import Path
@@ -15,10 +14,12 @@ from typing import Any
 from dotenv import load_dotenv
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.fields import PydanticUndefined
+
+from app.system_public_config_defaults import get_default_system_public_config
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG_PATH = BACKEND_ROOT / "config.json"
 LEGACY_ENV_FALLBACKS: dict[str, tuple[str, ...]] = {
     "EMBEDDING_API_KEY": ("SILICONFLOW_API_KEY",),
     "EMBEDDING_BASE_URL": ("SILICONFLOW_BASE_URL",),
@@ -44,9 +45,6 @@ PUBLIC_FRONTEND_CONFIG_FIELDS = {
     "OPENROUTER_SITE_URL",
     "OPENROUTER_APP_TITLE",
     "OPENROUTER_CATEGORIES",
-    "CHROMA_PERSIST_DIR",
-    "UPLOAD_DIR",
-    "CORS_ORIGINS",
 }
 _request_settings_overrides: ContextVar[dict[str, Any]] = ContextVar(
     "request_settings_overrides",
@@ -63,37 +61,35 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    app_config_path: str = Field(default="", alias="APP_CONFIG_PATH")
-
     # Model endpoints
     embedding_api_key: str = Field(default="", alias="EMBEDDING_API_KEY")
     embedding_base_url: str = Field(default="", alias="EMBEDDING_BASE_URL")
     embedding_model: str = Field(default="", alias="EMBEDDING_MODEL")
-    embedding_provider: str = Field(default="openai", alias="EMBEDDING_PROVIDER")
-    embedding_max_input_tokens: int = Field(default=512, alias="EMBEDDING_MAX_INPUT_TOKENS")
-    embedding_target_chunk_tokens: int = Field(default=384, alias="EMBEDDING_TARGET_CHUNK_TOKENS")
-    embedding_chunk_overlap_tokens: int = Field(default=48, alias="EMBEDDING_CHUNK_OVERLAP_TOKENS")
-    embedding_tokenizer_model: str = Field(default="", alias="EMBEDDING_TOKENIZER_MODEL")
-    embedding_tokenizer_encoding: str = Field(default="cl100k_base", alias="EMBEDDING_TOKENIZER_ENCODING")
+    embedding_provider: str = Field(alias="EMBEDDING_PROVIDER")
+    embedding_max_input_tokens: int = Field(alias="EMBEDDING_MAX_INPUT_TOKENS")
+    embedding_target_chunk_tokens: int = Field(alias="EMBEDDING_TARGET_CHUNK_TOKENS")
+    embedding_chunk_overlap_tokens: int = Field(alias="EMBEDDING_CHUNK_OVERLAP_TOKENS")
+    embedding_tokenizer_model: str = Field(alias="EMBEDDING_TOKENIZER_MODEL")
+    embedding_tokenizer_encoding: str = Field(alias="EMBEDDING_TOKENIZER_ENCODING")
     embedding_request_timeout: float = Field(default=120.0, alias="EMBEDDING_REQUEST_TIMEOUT")
     embedding_connect_timeout: float = Field(default=20.0, alias="EMBEDDING_CONNECT_TIMEOUT")
     reranker_api_key: str = Field(default="", alias="RERANKER_API_KEY")
     reranker_base_url: str = Field(default="", alias="RERANKER_BASE_URL")
     reranker_model: str = Field(default="", alias="RERANKER_MODEL")
-    reranker_request_timeout: float = Field(default=20.0, alias="RERANKER_REQUEST_TIMEOUT")
-    retrieval_candidate_limit: int = Field(default=12, alias="RETRIEVAL_CANDIDATE_LIMIT")
-    retrieval_final_context_limit: int = Field(default=3, alias="RETRIEVAL_FINAL_CONTEXT_LIMIT")
-    retrieval_source_limit: int = Field(default=3, alias="RETRIEVAL_SOURCE_LIMIT")
-    retrieval_query_expansion_count: int = Field(default=2, alias="RETRIEVAL_QUERY_EXPANSION_COUNT")
-    reflection_tokens: int = Field(default=256, alias="REFLECTION_TOKENS")
+    reranker_request_timeout: float = Field(alias="RERANKER_REQUEST_TIMEOUT")
+    retrieval_candidate_limit: int = Field(alias="RETRIEVAL_CANDIDATE_LIMIT")
+    retrieval_final_context_limit: int = Field(alias="RETRIEVAL_FINAL_CONTEXT_LIMIT")
+    retrieval_source_limit: int = Field(alias="RETRIEVAL_SOURCE_LIMIT")
+    retrieval_query_expansion_count: int = Field(alias="RETRIEVAL_QUERY_EXPANSION_COUNT")
+    reflection_tokens: int = Field(alias="REFLECTION_TOKENS")
 
     chat_api_key: str = Field(default="", alias="CHAT_API_KEY")
     chat_base_url: str = Field(default="", alias="CHAT_BASE_URL")
     chat_model: str = Field(default="", alias="CHAT_MODEL")
-    chat_temperature: float = Field(default=0.0, alias="CHAT_TEMPERATURE")
-    openrouter_site_url: str = Field(default="https://localhost.invalid", alias="OPENROUTER_SITE_URL")
-    openrouter_app_title: str = Field(default="RAG.Agent Desktop", alias="OPENROUTER_APP_TITLE")
-    openrouter_categories: str = Field(default="general-chat", alias="OPENROUTER_CATEGORIES")
+    chat_temperature: float = Field(alias="CHAT_TEMPERATURE")
+    openrouter_site_url: str = Field(alias="OPENROUTER_SITE_URL")
+    openrouter_app_title: str = Field(alias="OPENROUTER_APP_TITLE")
+    openrouter_categories: str = Field(alias="OPENROUTER_CATEGORIES")
 
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
@@ -203,64 +199,17 @@ class Settings(BaseModel):
         }
 
 
-def _resolve_config_path() -> Path:
-    """确定最终配置文件路径。
-
-    桌面版会通过 APP_CONFIG_PATH 指向用户目录中的 config.json；
-    开发态如果没有显式指定，就回落到 backend/config.json。
-    """
-    configured = os.getenv("APP_CONFIG_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return DEFAULT_CONFIG_PATH.resolve()
-
-
-def _load_json_config(config_path: Path) -> dict[str, Any]:
-    """从 JSON 文件读取配置。
-
-    这里故意做得比较宽松：
-    - 文件不存在时返回空字典，方便首次启动。
-    - 顶层不是对象时也返回空字典，避免异常格式直接打崩服务。
-    """
-    if not config_path.exists():
-        return {}
-
-    with config_path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-
-    if not isinstance(payload, dict):
-        return {}
-
-    return {str(key): value for key, value in payload.items()}
-
-
 def _pick_config_value(
     field_name: str,
     alias: str,
-    json_config: dict[str, Any],
     default: Any,
 ) -> Any:
-    """按统一优先级挑选单个配置值。
+    """按统一优先级挑选单个配置值。"""
 
-    查找顺序：
-    1. JSON 中的 alias 键，例如 CHAT_MODEL。
-    2. JSON 中的字段名键，例如 chat_model。
-    3. 环境变量。
-    4. Pydantic 字段默认值。
-
-    对字符串会额外做 strip，避免把纯空白字符串当成有效配置。
-    """
-    for key in (alias, field_name):
-        if key not in json_config:
-            continue
-
-        value = json_config.get(key)
-        if isinstance(value, str):
-            if value.strip():
-                return value.strip()
-            continue
-        if value is not None:
-            return value
+    if alias in PUBLIC_FRONTEND_CONFIG_FIELDS:
+        defaults = get_default_system_public_config()
+        if alias in defaults:
+            return defaults[alias]
 
     env_value = os.getenv(alias, "").strip()
     if env_value:
@@ -271,47 +220,106 @@ def _pick_config_value(
         if legacy_value:
             return legacy_value
 
+    if default is PydanticUndefined:
+        raise RuntimeError(f"缺少必需环境变量：{alias}")
+
     return default
 
 
-def _resolve_storage_path(path_value: str, config_path: Path) -> str:
-    """把存储目录规范化为绝对路径。
-
-    绝对路径保持不变；相对路径以 config.json 所在目录为基准。
-    这样桌面版把配置文件放在用户目录时，数据目录也会稳定地跟着配置文件走。
-    """
+def _resolve_storage_path(path_value: str, base_dir: Path = BACKEND_ROOT) -> str:
+    """把存储目录规范化为绝对路径。"""
     path = Path(path_value).expanduser()
     if path.is_absolute():
         return str(path)
 
-    return str((config_path.parent / path).resolve())
+    return str((base_dir / path).resolve())
+
+
+def _extract_public_frontend_config(values: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: values[key]
+        for key in PUBLIC_FRONTEND_CONFIG_FIELDS
+        if key in values
+    }
 
 
 def load_settings() -> Settings:
     """加载并组装最终 Settings 对象。"""
     load_dotenv(BACKEND_ROOT / ".env", override=False)
 
-    config_path = _resolve_config_path()
-    json_config = _load_json_config(config_path)
-    values: dict[str, Any] = {"APP_CONFIG_PATH": str(config_path)}
+    values: dict[str, Any] = {}
 
     for field_name, model_field in Settings.model_fields.items():
-        if field_name == "app_config_path":
-            continue
-
         alias = model_field.alias or field_name.upper()
         default = model_field.default
-        values[alias] = _pick_config_value(field_name, alias, json_config, default)
+        values[alias] = _pick_config_value(field_name, alias, default)
 
-    # 只有本地存储目录需要做路径归一化；其余字段直接按原值交给 Pydantic 校验。
-    values["CHROMA_PERSIST_DIR"] = _resolve_storage_path(values["CHROMA_PERSIST_DIR"], config_path)
-    values["UPLOAD_DIR"] = _resolve_storage_path(values["UPLOAD_DIR"], config_path)
-    values["APP_DB_PATH"] = _resolve_storage_path(values["APP_DB_PATH"], config_path)
+    values["CHROMA_PERSIST_DIR"] = _resolve_storage_path(values["CHROMA_PERSIST_DIR"])
+    values["UPLOAD_DIR"] = _resolve_storage_path(values["UPLOAD_DIR"])
+    values["APP_DB_PATH"] = _resolve_storage_path(values["APP_DB_PATH"])
 
     return Settings.model_validate(values)
 
 
-def _normalize_public_frontend_overrides(overrides: dict[str, Any] | None) -> dict[str, Any]:
+def get_public_frontend_config_seed() -> dict[str, Any]:
+    """返回用于初始化数据库系统配置的默认值。"""
+    return dict(_public_frontend_config_seed)
+
+
+def _get_public_frontend_config_fallback(
+    fallback: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(fallback, dict):
+        return get_public_frontend_config_seed()
+
+    filtered: dict[str, Any] = {}
+    for key in PUBLIC_FRONTEND_CONFIG_FIELDS:
+        if key in fallback:
+            filtered[key] = fallback[key]
+
+    if not filtered:
+        return get_public_frontend_config_seed()
+
+    merged_values = _base_settings.model_dump(by_alias=True)
+    merged_values.update(_public_frontend_config_seed)
+    merged_values.update(filtered)
+    validated = Settings.model_validate(merged_values)
+    normalized = validated.model_dump(by_alias=True)
+    return {
+        key: normalized[key]
+        for key in PUBLIC_FRONTEND_CONFIG_FIELDS
+        if key in normalized
+    }
+
+
+def merge_public_frontend_config(
+    base_config: dict[str, Any] | None,
+    override_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged_values = normalize_public_frontend_config(base_config)
+    if not override_config:
+        return merged_values
+
+    return normalize_public_frontend_config(override_config, fallback=merged_values)
+
+
+def diff_public_frontend_config(
+    source_config: dict[str, Any] | None,
+    fallback_config: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized_source = normalize_public_frontend_config(source_config, fallback=fallback_config)
+    normalized_fallback = normalize_public_frontend_config(fallback_config)
+    return {
+        key: value
+        for key, value in normalized_source.items()
+        if normalized_fallback.get(key) != value
+    }
+
+
+def _normalize_public_frontend_overrides(
+    overrides: dict[str, Any] | None,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """校验并规范化前端可公开配置覆盖。"""
     if not isinstance(overrides, dict):
         return {}
@@ -325,26 +333,26 @@ def _normalize_public_frontend_overrides(overrides: dict[str, Any] | None) -> di
         return {}
 
     merged_values = _base_settings.model_dump(by_alias=True)
+    merged_values.update(_get_public_frontend_config_fallback(fallback))
     merged_values.update(filtered)
     validated = Settings.model_validate(merged_values)
     normalized = validated.model_dump(by_alias=True)
-    normalized["CHROMA_PERSIST_DIR"] = _resolve_storage_path(
-        normalized["CHROMA_PERSIST_DIR"],
-        Path(validated.app_config_path),
-    )
-    normalized["UPLOAD_DIR"] = _resolve_storage_path(
-        normalized["UPLOAD_DIR"],
-        Path(validated.app_config_path),
-    )
-    normalized["APP_DB_PATH"] = _resolve_storage_path(
-        normalized["APP_DB_PATH"],
-        Path(validated.app_config_path),
-    )
     return {
         key: normalized[key]
         for key in PUBLIC_FRONTEND_CONFIG_FIELDS
         if key in normalized
     }
+
+
+def normalize_public_frontend_config(
+    overrides: dict[str, Any] | None,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """对外暴露的公开配置规范化入口。"""
+    normalized = _normalize_public_frontend_overrides(overrides, fallback=fallback)
+    if normalized:
+        return normalized
+    return _get_public_frontend_config_fallback(fallback)
 
 
 def set_request_settings_overrides(overrides: dict[str, Any] | None) -> Token[dict[str, Any]]:
@@ -378,4 +386,5 @@ class SettingsProxy:
 
 # 模块导入时先加载基础配置，再通过代理按请求叠加前端公开设置。
 _base_settings = load_settings()
+_public_frontend_config_seed = get_default_system_public_config()
 settings = SettingsProxy()

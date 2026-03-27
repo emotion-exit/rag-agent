@@ -6,7 +6,8 @@ import type {
   NoteDetail,
   NoteListItem,
   NoteRevisionDraft,
-  NoteSaveJob
+  NoteSaveJob,
+  NoteSourceSummary
 } from '@/types/notes';
 
 interface NoteListResponse {
@@ -25,7 +26,7 @@ interface CreateNoteJobResponse {
 
 interface ChatResponse {
   reply: string;
-  sources: NoteListItem['sources'];
+  sources: NoteSourceSummary[];
 }
 
 async function parseApiError(response: Response): Promise<string> {

@@ -1,6 +1,9 @@
 import { buildAuthHeaders } from '@/services/auth';
+import { getApiBase } from '@/services/runtime';
 
 export const PUBLIC_FRONTEND_CONFIG_STORAGE_KEY = 'rag-agent.public-config.v1';
+
+let currentPublicFrontendConfig: PublicFrontendConfig | null = null;
 
 export interface PublicFrontendConfig {
   EMBEDDING_PROVIDER: string;
@@ -19,9 +22,6 @@ export interface PublicFrontendConfig {
   OPENROUTER_SITE_URL: string;
   OPENROUTER_APP_TITLE: string;
   OPENROUTER_CATEGORIES: string;
-  CHROMA_PERSIST_DIR: string;
-  UPLOAD_DIR: string;
-  CORS_ORIGINS: string;
 }
 
 export const PUBLIC_FRONTEND_CONFIG_KEYS = [
@@ -40,10 +40,7 @@ export const PUBLIC_FRONTEND_CONFIG_KEYS = [
   'CHAT_TEMPERATURE',
   'OPENROUTER_SITE_URL',
   'OPENROUTER_APP_TITLE',
-  'OPENROUTER_CATEGORIES',
-  'CHROMA_PERSIST_DIR',
-  'UPLOAD_DIR',
-  'CORS_ORIGINS'
+  'OPENROUTER_CATEGORIES'
 ] as const;
 
 export type PublicFrontendConfigKey =
@@ -62,106 +59,211 @@ const numericPublicKeys = new Set<PublicFrontendConfigKey>([
   'CHAT_TEMPERATURE'
 ]);
 
-export const DEFAULT_PUBLIC_FRONTEND_CONFIG: PublicFrontendConfig = {
-  EMBEDDING_PROVIDER: 'openai',
-  EMBEDDING_MAX_INPUT_TOKENS: 512,
-  EMBEDDING_TARGET_CHUNK_TOKENS: 384,
-  EMBEDDING_CHUNK_OVERLAP_TOKENS: 48,
-  EMBEDDING_TOKENIZER_MODEL: '',
-  EMBEDDING_TOKENIZER_ENCODING: 'cl100k_base',
-  RERANKER_REQUEST_TIMEOUT: 20,
-  RETRIEVAL_CANDIDATE_LIMIT: 12,
-  RETRIEVAL_FINAL_CONTEXT_LIMIT: 3,
-  RETRIEVAL_SOURCE_LIMIT: 3,
-  RETRIEVAL_QUERY_EXPANSION_COUNT: 2,
-  REFLECTION_TOKENS: 256,
-  CHAT_TEMPERATURE: 0,
-  OPENROUTER_SITE_URL: 'https://localhost.invalid',
-  OPENROUTER_APP_TITLE: 'RAG.Agent Web',
-  OPENROUTER_CATEGORIES: 'general-chat',
-  CHROMA_PERSIST_DIR: './data/chroma',
-  UPLOAD_DIR: './data/uploads',
-  CORS_ORIGINS: 'http://localhost:5173,http://localhost:3000,null'
-};
+export function createEmptyPublicFrontendConfig(): PublicFrontendConfig {
+  return {
+    EMBEDDING_PROVIDER: '',
+    EMBEDDING_MAX_INPUT_TOKENS: 0,
+    EMBEDDING_TARGET_CHUNK_TOKENS: 0,
+    EMBEDDING_CHUNK_OVERLAP_TOKENS: 0,
+    EMBEDDING_TOKENIZER_MODEL: '',
+    EMBEDDING_TOKENIZER_ENCODING: '',
+    RERANKER_REQUEST_TIMEOUT: 0,
+    RETRIEVAL_CANDIDATE_LIMIT: 0,
+    RETRIEVAL_FINAL_CONTEXT_LIMIT: 0,
+    RETRIEVAL_SOURCE_LIMIT: 0,
+    RETRIEVAL_QUERY_EXPANSION_COUNT: 0,
+    REFLECTION_TOKENS: 0,
+    CHAT_TEMPERATURE: 0,
+    OPENROUTER_SITE_URL: '',
+    OPENROUTER_APP_TITLE: '',
+    OPENROUTER_CATEGORIES: ''
+  };
+}
 
-export function extractPublicFrontendConfig(
-  source: Partial<PublicFrontendConfig>
+export function normalizePublicFrontendConfig(
+  source: Partial<PublicFrontendConfig>,
+  fallback: Partial<PublicFrontendConfig> = currentPublicFrontendConfig ||
+    createEmptyPublicFrontendConfig()
 ): PublicFrontendConfig {
   const normalized = {} as Record<PublicFrontendConfigKey, string | number>;
 
   for (const key of PUBLIC_FRONTEND_CONFIG_KEYS) {
-    const fallback = DEFAULT_PUBLIC_FRONTEND_CONFIG[key];
+    const fallbackValue = fallback[key];
     const rawValue = source[key];
 
     if (numericPublicKeys.has(key)) {
       const nextValue = Number(rawValue);
       normalized[key] = Number.isFinite(nextValue)
         ? nextValue
-        : Number(fallback);
+        : Number(fallbackValue ?? 0);
       continue;
     }
 
-    normalized[key] = String(rawValue ?? fallback);
+    normalized[key] = String(rawValue ?? fallbackValue ?? '');
   }
 
   return normalized as PublicFrontendConfig;
 }
 
-export function cloneDefaultPublicFrontendConfig(): PublicFrontendConfig {
-  return { ...DEFAULT_PUBLIC_FRONTEND_CONFIG };
-}
-
-export function loadPublicFrontendConfig(): PublicFrontendConfig {
+function clearLegacyPublicConfigStorage(): void {
   if (typeof window === 'undefined') {
-    return cloneDefaultPublicFrontendConfig();
+    return;
   }
 
-  try {
-    const rawValue = window.localStorage.getItem(
-      PUBLIC_FRONTEND_CONFIG_STORAGE_KEY
-    );
-    if (!rawValue) {
-      return cloneDefaultPublicFrontendConfig();
-    }
-
-    const parsed = JSON.parse(rawValue) as Partial<PublicFrontendConfig>;
-    return extractPublicFrontendConfig(parsed);
-  } catch {
-    return cloneDefaultPublicFrontendConfig();
-  }
+  window.localStorage.removeItem(PUBLIC_FRONTEND_CONFIG_STORAGE_KEY);
 }
 
-export function savePublicFrontendConfig(
+function setCurrentPublicFrontendConfig(
   source: Partial<PublicFrontendConfig>
 ): PublicFrontendConfig {
-  const normalized = extractPublicFrontendConfig(source);
-
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(
-      PUBLIC_FRONTEND_CONFIG_STORAGE_KEY,
-      JSON.stringify(normalized)
-    );
-  }
-
-  return normalized;
+  currentPublicFrontendConfig = normalizePublicFrontendConfig(source);
+  return { ...currentPublicFrontendConfig };
 }
 
-export function resetPublicFrontendConfig(): PublicFrontendConfig {
-  const defaults = cloneDefaultPublicFrontendConfig();
+async function parseApiError(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    return String(payload.detail || '').trim() || `HTTP ${response.status}`;
+  } catch {
+    return `HTTP ${response.status}`;
+  }
+}
 
-  if (typeof window !== 'undefined') {
-    window.localStorage.removeItem(PUBLIC_FRONTEND_CONFIG_STORAGE_KEY);
+export async function loadPublicFrontendConfig(): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+
+  const response = await fetch(`${getApiBase()}/api/auth/public-config`, {
+    headers: buildAuthHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
   }
 
-  return defaults;
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || {});
+}
+
+export async function loadSystemPublicFrontendConfig(): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+
+  const response = await fetch(
+    `${getApiBase()}/api/auth/public-config/system`,
+    {
+      headers: buildAuthHeaders()
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || {});
+}
+
+export async function savePublicFrontendConfig(
+  source: Partial<PublicFrontendConfig>
+): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+  const normalized = normalizePublicFrontendConfig(source);
+  const response = await fetch(`${getApiBase()}/api/auth/public-config`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...buildAuthHeaders()
+    },
+    body: JSON.stringify(normalized)
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || normalized);
+}
+
+export async function resetPublicFrontendConfig(): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+  const response = await fetch(`${getApiBase()}/api/auth/public-config`, {
+    method: 'DELETE',
+    headers: buildAuthHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || {});
+}
+
+export async function saveSystemPublicFrontendConfig(
+  source: Partial<PublicFrontendConfig>
+): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+  const normalized = normalizePublicFrontendConfig(source);
+  const response = await fetch(
+    `${getApiBase()}/api/auth/public-config/system`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders()
+      },
+      body: JSON.stringify(normalized)
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || normalized);
+}
+
+export async function resetSystemPublicFrontendConfig(): Promise<PublicFrontendConfig> {
+  clearLegacyPublicConfigStorage();
+  const response = await fetch(
+    `${getApiBase()}/api/auth/public-config/system`,
+    {
+      method: 'DELETE',
+      headers: buildAuthHeaders()
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as {
+    config?: Partial<PublicFrontendConfig>;
+  };
+  return setCurrentPublicFrontendConfig(payload.config || {});
 }
 
 export function buildPublicConfigHeaders(
   source?: Partial<PublicFrontendConfig>
 ): Record<string, string> {
-  const normalized = source
-    ? extractPublicFrontendConfig(source)
-    : loadPublicFrontendConfig();
+  if (!source) {
+    return {
+      ...buildAuthHeaders()
+    };
+  }
+
+  const normalized = normalizePublicFrontendConfig(source);
 
   return {
     ...buildAuthHeaders(),

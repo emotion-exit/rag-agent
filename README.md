@@ -9,7 +9,7 @@
 - 公有知识库共享 + 私有知识库隔离
 - 文档上传、后台任务、向量入库、来源追踪
 - 流式聊天、来源摘要、图片来源查看
-- 请求级公开高级设置
+- 管理员默认值 + 用户个人覆盖的双层高级设置
 - 反思策略配置，支持通过 Reflection Tokens 控制答案二次审查
 - 笔记归档：手动保存单条回答、AI 生成短标题、按知识库分组浏览
 - 笔记更新：基于最新公开设置重新生成候选答案，确认后覆盖当前笔记内容
@@ -110,33 +110,35 @@ pnpm build
 - 用户名：`admin`
 - 密码：`admin123456`
 
-建议在开发以外环境通过环境变量或 `config.json` 覆盖：
+建议在开发以外环境通过环境变量覆盖：
 
 - `DEFAULT_ADMIN_USERNAME`
 - `DEFAULT_ADMIN_PASSWORD`
 
 ## 配置说明
 
-后端配置优先级：
+后端基础配置优先级：
 
-1. `APP_CONFIG_PATH` 指向的 JSON 配置文件
-2. 环境变量
-3. 代码默认值
-4. 少量旧版环境变量别名兜底
+1. 环境变量
+2. 代码默认值
+3. 少量旧版环境变量别名兜底
 
-常用配置分类：
+常用基础配置分类：
 
-- Chat：`CHAT_API_KEY`、`CHAT_BASE_URL`、`CHAT_MODEL`、`CHAT_TEMPERATURE`
+- Chat：`CHAT_API_KEY`、`CHAT_BASE_URL`、`CHAT_MODEL`
 - Embedding：`EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL`、`EMBEDDING_MODEL`
 - Reranker：`RERANKER_API_KEY`、`RERANKER_BASE_URL`、`RERANKER_MODEL`
 
-常用检索与运行参数：
+常用系统高级参数：
 
 - `RETRIEVAL_CANDIDATE_LIMIT`
 - `RETRIEVAL_FINAL_CONTEXT_LIMIT`
 - `RETRIEVAL_SOURCE_LIMIT`
 - `RETRIEVAL_QUERY_EXPANSION_COUNT`
 - `REFLECTION_TOKENS`
+- `OPENROUTER_SITE_URL`
+- `OPENROUTER_APP_TITLE`
+- `OPENROUTER_CATEGORIES`
 - `CHROMA_PERSIST_DIR`
 - `UPLOAD_DIR`
 - `APP_DB_PATH`
@@ -144,7 +146,12 @@ pnpm build
 - `PRIVATE_KNOWLEDGE_BASE_ENABLED`
 - `OPEN_REGISTRATION_ENABLED`
 
-其中公开高级设置会通过 `X-Rag-Public-Config` 按请求传给后端，但只允许覆盖白名单字段，不会暴露 API Key 或模型密钥。
+其中高级设置分成两层：
+
+- 管理员默认配置：写入数据库，由管理员统一维护，作为系统统一默认值
+- 用户个人配置：写入数据库，仅当前用户可修改；请求生效时优先于管理员默认配置
+
+普通用户执行重置时，会删除个人覆盖项并重新继承管理员默认值。管理员重置时，则回到数据库初始化默认值。`X-Rag-Public-Config` 用于当前登录用户的临时预览覆盖，不会暴露 API Key 或模型密钥。
 
 ## 主要接口
 
@@ -210,9 +217,9 @@ pnpm build
 
 回答会携带来源文档、摘要、chunk、页码、章节和关联图片，便于核查答案依据。
 
-### 请求级公开配置
+### 分层请求配置
 
-前端设置页保存公开高级设置，后端按请求应用，不污染全局进程配置。
+前端设置页保存数据库中的高级设置。后端会在每个请求中按“用户个人配置 > 管理员默认配置”的顺序合并，并通过 ContextVar 应用到当前请求，不污染全局进程配置。
 
 ### 笔记归档与更新
 

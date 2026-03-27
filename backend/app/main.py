@@ -20,11 +20,17 @@ from app.services.auth import (
     extract_token_from_request,
     get_user_by_token,
     initialize_auth_db,
+    is_admin,
     reset_current_user,
     set_current_user,
 )
 from app.services.knowledge_spaces import initialize_knowledge_space_db
 from app.services.notes import initialize_notes_db
+from app.services.public_config import (
+    get_system_public_config,
+    get_user_public_config,
+    initialize_public_config_db,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,7 @@ os.makedirs(_base_settings.upload_dir, exist_ok=True)
 initialize_auth_db()
 initialize_knowledge_space_db()
 initialize_notes_db()
+initialize_public_config_db()
 
 app = FastAPI(
     title="RAG Agent API",
@@ -59,12 +66,14 @@ app.include_router(notes_router)
 
 @app.middleware("http")
 async def apply_public_frontend_config(request: Request, call_next):
+    auth_token = extract_token_from_request(request)
+    current_user = get_user_by_token(auth_token) if auth_token else None
     raw_config = request.headers.get("x-rag-public-config", "").strip()
     if not raw_config:
         raw_config = request.query_params.get("public_config", "").strip()
-    parsed_config: dict[str, Any] | None = None
 
-    if raw_config:
+    parsed_config: dict[str, Any] | None = None
+    if raw_config and is_admin(current_user):
         try:
             payload = json.loads(raw_config)
             if isinstance(payload, dict):
@@ -72,9 +81,13 @@ async def apply_public_frontend_config(request: Request, call_next):
         except json.JSONDecodeError:
             parsed_config = None
 
+    if parsed_config is None:
+        if current_user is not None:
+            parsed_config = get_user_public_config(str(current_user.get("user_id") or ""))
+        else:
+            parsed_config = get_system_public_config()
+
     token = set_request_settings_overrides(parsed_config)
-    auth_token = extract_token_from_request(request)
-    current_user = get_user_by_token(auth_token) if auth_token else None
     user_token = set_current_user(current_user)
     request.state.current_user = current_user
     try:

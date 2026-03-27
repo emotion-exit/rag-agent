@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from typing import Any
+
+
+DEFAULT_SYSTEM_PUBLIC_CONFIG: dict[str, Any] = {
+    "EMBEDDING_PROVIDER": "openai",
+    "EMBEDDING_MAX_INPUT_TOKENS": 512,
+    "EMBEDDING_TARGET_CHUNK_TOKENS": 384,
+    "EMBEDDING_CHUNK_OVERLAP_TOKENS": 48,
+    "EMBEDDING_TOKENIZER_MODEL": "",
+    "EMBEDDING_TOKENIZER_ENCODING": "cl100k_base",
+    "RERANKER_REQUEST_TIMEOUT": 20,
+    "RETRIEVAL_CANDIDATE_LIMIT": 12,
+    "RETRIEVAL_FINAL_CONTEXT_LIMIT": 3,
+    "RETRIEVAL_SOURCE_LIMIT": 3,
+    "RETRIEVAL_QUERY_EXPANSION_COUNT": 2,
+    "REFLECTION_TOKENS": 256,
+    "CHAT_TEMPERATURE": 0,
+    "OPENROUTER_SITE_URL": "http://localhost:5173",
+    "OPENROUTER_APP_TITLE": "RAG.Agent Local",
+    "OPENROUTER_CATEGORIES": "general-chat",
+}
+
+
+def get_default_system_public_config() -> dict[str, Any]:
+    return dict(DEFAULT_SYSTEM_PUBLIC_CONFIG)

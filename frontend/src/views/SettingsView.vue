@@ -7,7 +7,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import {
   CheckCircleOutlined,
   CloudServerOutlined,
-  DownOutlined,
   WarningOutlined
 } from '@ant-design/icons-vue';
 import { getApiBase } from '@/services/runtime';
@@ -17,14 +16,18 @@ import {
   resetManagedUserPassword,
   updateManagedUser,
   useAuthState,
-  type ManagedAuthUser
+  type ManagedAuthUser,
+  type ManagedUserListResult
 } from '@/services/auth';
 import {
   buildPublicConfigHeaders,
-  cloneDefaultPublicFrontendConfig,
+  createEmptyPublicFrontendConfig,
   loadPublicFrontendConfig,
+  loadSystemPublicFrontendConfig,
   resetPublicFrontendConfig,
+  resetSystemPublicFrontendConfig,
   savePublicFrontendConfig,
+  saveSystemPublicFrontendConfig,
   type PublicFrontendConfig
 } from '@/services/publicConfig';
 import {
@@ -32,7 +35,6 @@ import {
   OButton,
   OCard,
   OFormItem,
-  OFormSection,
   OInput,
   OModal,
   OSelect,
@@ -41,19 +43,26 @@ import {
 import { cn } from '@/utils/cn';
 
 const apiBase = getApiBase();
-const activeTab = ref('settings');
+const activeTab = ref<
+  'embedding' | 'retrieval' | 'chat' | 'reflection' | 'status' | 'users'
+>('status');
+const adminConfigPanel = ref<'system' | 'user'>('system');
 
 const authState = useAuthState();
-const form = reactive<PublicFrontendConfig>(cloneDefaultPublicFrontendConfig());
+const form = reactive<PublicFrontendConfig>(createEmptyPublicFrontendConfig());
 const loading = ref(false);
 const saving = ref(false);
 const health = ref<'unknown' | 'online' | 'offline'>('unknown');
 const notice = ref<{ type: 'success' | 'error'; text: string } | null>(null);
-const advancedExpanded = ref(true);
 const providerHealthLoading = ref(false);
 const providerHealth = ref<Record<string, ProviderHealthItem>>({});
 const managedUsers = ref<ManagedAuthUser[]>([]);
 const managedUsersLoading = ref(false);
+const managedUsersTotal = ref(0);
+const managedUsersActiveTotal = ref(0);
+const managedUsersAdminTotal = ref(0);
+const managedUsersPage = ref(1);
+const managedUsersPageSize = ref(6);
 const createUserModalVisible = ref(false);
 const createUserSubmitting = ref(false);
 const resetPasswordModalVisible = ref(false);
@@ -88,37 +97,16 @@ interface ProviderHealthResponse {
   providers?: Record<string, ProviderHealthItem>;
 }
 
-interface EffectRuleItem {
-  title: string;
-  detail: string;
-  tone: 'success' | 'warning' | 'neutral';
-}
-
 interface ReflectionTokenPreset {
   label: string;
   value: number;
   detail: string;
 }
 
-const effectRuleItems: EffectRuleItem[] = [
-  {
-    title: '下一次请求立即生效',
-    detail:
-      '公开高级设置保存在当前浏览器，并会自动附带到下一次聊天、知识库和来源详情请求。',
-    tone: 'success'
-  },
-  {
-    title: '不会改写后端基础凭据',
-    detail:
-      'Web 端只发送公开参数，不暴露也不覆盖服务端托管的 API Key、Base URL 和 Model。',
-    tone: 'neutral'
-  },
-  {
-    title: '仅保留 Web 所需配置',
-    detail: '当前分支已精简为纯 Web 形态，设置页只保留浏览器侧公开能力。',
-    tone: 'warning'
-  }
-];
+interface SettingsModuleTab {
+  key: 'embedding' | 'retrieval' | 'chat' | 'reflection';
+  label: string;
+}
 
 const healthText = computed(() => {
   if (health.value === 'online') return '后端服务运行中';
@@ -127,8 +115,51 @@ const healthText = computed(() => {
 });
 
 const isAdminMode = computed(() => authState.session?.user.role === 'admin');
+const hasEditableConfigAccess = computed(() =>
+  Boolean(authState.session?.user.user_id)
+);
+const isEditingSystemDefaults = computed(
+  () => isAdminMode.value && adminConfigPanel.value === 'system'
+);
 const currentUserId = computed(() =>
   String(authState.session?.user.user_id || '')
+);
+const settingsPageTitle = computed(() => {
+  if (isAdminMode.value) return '系统高级设置';
+  if (hasEditableConfigAccess.value) return '我的高级设置';
+  return '系统运行状态';
+});
+const settingsPageDescription = computed(() => {
+  if (isAdminMode.value) {
+    return '管理员可在这里切换维护系统默认配置和自己的个人配置。系统默认配置会作为所有用户的统一默认值与重置回退基线。';
+  }
+
+  if (hasEditableConfigAccess.value) {
+    return '这里保存的是当前账号的个人配置。请求会优先使用你的个人配置；未覆盖的字段继续继承管理员默认值。';
+  }
+
+  return '未登录状态下只能查看运行状态，不能读取或修改数据库中的运行参数。';
+});
+const configCardDescription = computed(() => {
+  if (isEditingSystemDefaults.value) {
+    return '管理员修改的是系统默认值。普通用户点击重置时，会回退到这里保存的默认配置，而不是代码内置值。';
+  }
+
+  return '个人配置只对当前账号生效，不会影响其他用户。重置后会删除个人覆盖项，并重新继承管理员默认值。';
+});
+const saveButtonText = computed(() =>
+  isEditingSystemDefaults.value ? '保存系统默认配置' : '保存我的配置'
+);
+const savingButtonText = computed(() =>
+  isEditingSystemDefaults.value
+    ? '正在保存系统默认配置...'
+    : '正在保存我的配置...'
+);
+const resetButtonText = computed(() =>
+  isEditingSystemDefaults.value ? '恢复初始化默认' : '恢复系统默认'
+);
+const configPanelBadgeText = computed(() =>
+  isEditingSystemDefaults.value ? '当前面板：系统默认值' : '当前面板：我的配置'
 );
 
 const userRoleOptions = [
@@ -159,13 +190,49 @@ const reflectionTokenPresets: ReflectionTokenPreset[] = [
   }
 ];
 
+const settingsModuleTabs: SettingsModuleTab[] = [
+  {
+    key: 'embedding',
+    label: 'Embedding'
+  },
+  {
+    key: 'retrieval',
+    label: '检索策略'
+  },
+  {
+    key: 'chat',
+    label: 'Chat'
+  },
+  {
+    key: 'reflection',
+    label: '反思策略'
+  }
+];
+
+const isPublicSettingsTab = computed(() =>
+  settingsModuleTabs.some((item) => item.key === activeTab.value)
+);
+
 const managedUserSummary = computed(() => {
-  const items = managedUsers.value;
   return {
-    total: items.length,
-    active: items.filter((item) => item.is_active).length,
-    admins: items.filter((item) => item.role === 'admin').length
+    total: managedUsersTotal.value,
+    active: managedUsersActiveTotal.value,
+    admins: managedUsersAdminTotal.value
   };
+});
+
+const managedUserTotalPages = computed(() =>
+  Math.max(1, Math.ceil(managedUsersTotal.value / managedUsersPageSize.value))
+);
+
+const managedUserRangeText = computed(() => {
+  if (!managedUsersTotal.value || !managedUsers.value.length) {
+    return '当前没有可管理的用户记录。';
+  }
+
+  const start = (managedUsersPage.value - 1) * managedUsersPageSize.value + 1;
+  const end = start + managedUsers.value.length - 1;
+  return `显示第 ${start}-${end} 条，共 ${managedUsersTotal.value} 条`;
 });
 
 const providerEntries = computed(() => [
@@ -187,18 +254,6 @@ watch(notice, (nextNotice) => {
 
   oToast.success(nextNotice.text);
 });
-
-function getEffectRuleToneClass(tone: EffectRuleItem['tone']) {
-  if (tone === 'success') {
-    return 'border-success-border bg-success-soft text-success';
-  }
-
-  if (tone === 'warning') {
-    return 'border-warning-border bg-warning-soft text-warning';
-  }
-
-  return 'border-black/8 bg-black/3 text-zinc-700';
-}
 
 function getStatusVariant(
   status: 'unknown' | 'online' | 'offline'
@@ -289,6 +344,24 @@ function formatUserStatus(isActive: boolean) {
   return isActive ? '启用中' : '已停用';
 }
 
+function getProviderHeadline(item?: ProviderHealthItem) {
+  if (!item) return '尚未执行检测';
+  if (item.status === 'ok') {
+    return item.configured ? '连接已验证，模型信息已脱敏' : '配置未公开';
+  }
+  if (item.status === 'missing_config') return '配置缺失';
+  if (!item.configured) return '配置未完成';
+  return '检测已返回异常';
+}
+
+function getProviderFootnote(item?: ProviderHealthItem) {
+  if (!item) return '—';
+  if (item.status === 'ok') return '公开检测视图不展示模型名和 Base URL';
+  return item.configured
+    ? '检测明细已脱敏，仅保留状态摘要'
+    : '请先补齐该能力所需配置';
+}
+
 function formatDateTime(value: string) {
   if (!value) return '—';
 
@@ -316,23 +389,13 @@ function isPendingUserAction(userId: string) {
   return Boolean(pendingUserActions[String(userId || '')]);
 }
 
-function upsertManagedUser(nextUser: ManagedAuthUser) {
-  const nextItems = [...managedUsers.value];
-  const targetIndex = nextItems.findIndex(
-    (item) => item.user_id === nextUser.user_id
-  );
-  if (targetIndex >= 0) {
-    nextItems.splice(targetIndex, 1, nextUser);
-  } else {
-    nextItems.push(nextUser);
-  }
-
-  managedUsers.value = nextItems.sort((left, right) => {
-    if (left.role !== right.role) {
-      return left.role === 'admin' ? -1 : 1;
-    }
-    return left.created_at.localeCompare(right.created_at);
-  });
+function updateManagedUserList(result: ManagedUserListResult) {
+  managedUsers.value = result.items;
+  managedUsersTotal.value = result.total;
+  managedUsersActiveTotal.value = result.active_total;
+  managedUsersAdminTotal.value = result.admin_total;
+  managedUsersPage.value = result.page;
+  managedUsersPageSize.value = result.page_size;
 }
 
 async function loadManagedUserList(options?: { silent?: boolean }) {
@@ -340,7 +403,11 @@ async function loadManagedUserList(options?: { silent?: boolean }) {
 
   managedUsersLoading.value = true;
   try {
-    managedUsers.value = await fetchManagedUsers();
+    const result = await fetchManagedUsers({
+      page: managedUsersPage.value,
+      pageSize: managedUsersPageSize.value
+    });
+    updateManagedUserList(result);
   } catch (error) {
     if (!options?.silent) {
       oToast.error(
@@ -350,6 +417,19 @@ async function loadManagedUserList(options?: { silent?: boolean }) {
   } finally {
     managedUsersLoading.value = false;
   }
+}
+
+async function changeManagedUsersPage(nextPage: number) {
+  const normalizedPage = Math.min(
+    Math.max(1, nextPage),
+    managedUserTotalPages.value
+  );
+  if (normalizedPage === managedUsersPage.value || managedUsersLoading.value) {
+    return;
+  }
+
+  managedUsersPage.value = normalizedPage;
+  await loadManagedUserList({ silent: true });
 }
 
 function openCreateUserModal() {
@@ -369,12 +449,12 @@ async function submitCreateUser() {
 
   createUserSubmitting.value = true;
   try {
-    const createdUser = await createManagedUser({
+    await createManagedUser({
       username: createUserForm.username,
       password: createUserForm.password,
       role: createUserForm.role
     });
-    upsertManagedUser(createdUser);
+    await loadManagedUserList({ silent: true });
     createUserModalVisible.value = false;
     oToast.success('用户创建成功。');
   } catch (error) {
@@ -401,11 +481,11 @@ async function submitResetPassword() {
 
   resetPasswordSubmitting.value = true;
   try {
-    const updatedUser = await resetManagedUserPassword(
+    await resetManagedUserPassword(
       resetPasswordForm.userId,
       resetPasswordForm.password
     );
-    upsertManagedUser(updatedUser);
+    await loadManagedUserList({ silent: true });
     resetPasswordModalVisible.value = false;
     oToast.success('密码已重置，目标账号将被强制重新登录。');
   } catch (error) {
@@ -423,8 +503,8 @@ async function handleUserRoleChange(
 
   setPendingUserAction(user.user_id, true);
   try {
-    const updatedUser = await updateManagedUser(user.user_id, { role });
-    upsertManagedUser(updatedUser);
+    await updateManagedUser(user.user_id, { role });
+    await loadManagedUserList({ silent: true });
     oToast.success(`已更新 ${user.username} 的角色。`);
   } catch (error) {
     oToast.error(error instanceof Error ? error.message : '更新角色失败。');
@@ -438,10 +518,10 @@ async function toggleUserActive(user: ManagedAuthUser) {
 
   setPendingUserAction(user.user_id, true);
   try {
-    const updatedUser = await updateManagedUser(user.user_id, {
+    await updateManagedUser(user.user_id, {
       is_active: !user.is_active
     });
-    upsertManagedUser(updatedUser);
+    await loadManagedUserList({ silent: true });
     oToast.success(
       user.is_active
         ? `已停用 ${user.username}。`
@@ -457,7 +537,9 @@ async function toggleUserActive(user: ManagedAuthUser) {
 async function refreshHealth() {
   try {
     const response = await fetch(`${apiBase}/health/public`, {
-      headers: buildPublicConfigHeaders(form)
+      headers: hasEditableConfigAccess.value
+        ? buildPublicConfigHeaders(form)
+        : buildPublicConfigHeaders()
     });
     health.value = response.ok ? 'online' : 'offline';
   } catch {
@@ -470,7 +552,9 @@ async function checkProviderHealth(options?: { silent?: boolean }) {
 
   try {
     const response = await fetch(`${apiBase}/health/providers/public`, {
-      headers: buildPublicConfigHeaders(form)
+      headers: hasEditableConfigAccess.value
+        ? buildPublicConfigHeaders(form)
+        : buildPublicConfigHeaders()
     });
     const data = (await response.json()) as ProviderHealthResponse;
 
@@ -496,14 +580,17 @@ async function checkProviderHealth(options?: { silent?: boolean }) {
 }
 
 async function loadConfig() {
+  if (!hasEditableConfigAccess.value) return;
+
   loading.value = true;
   notice.value = null;
 
   try {
     Object.assign(
       form,
-      cloneDefaultPublicFrontendConfig(),
-      loadPublicFrontendConfig()
+      isEditingSystemDefaults.value
+        ? await loadSystemPublicFrontendConfig()
+        : await loadPublicFrontendConfig()
     );
     await refreshHealth();
     await checkProviderHealth({ silent: true });
@@ -519,7 +606,7 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
-  if (saving.value) return;
+  if (!hasEditableConfigAccess.value || saving.value) return;
 
   saving.value = true;
   notice.value = null;
@@ -527,14 +614,17 @@ async function saveConfig() {
   try {
     Object.assign(
       form,
-      cloneDefaultPublicFrontendConfig(),
-      savePublicFrontendConfig(form)
+      isEditingSystemDefaults.value
+        ? await saveSystemPublicFrontendConfig(form)
+        : await savePublicFrontendConfig(form)
     );
     await refreshHealth();
     await checkProviderHealth({ silent: true });
     notice.value = {
       type: 'success',
-      text: '浏览器公开设置已保存，新的请求将自动使用这些参数。'
+      text: isEditingSystemDefaults.value
+        ? '系统默认配置已保存，后续请求会使用新的管理员默认值。'
+        : '个人配置已保存，当前账号后续请求会优先使用新的配置。'
     };
   } catch (error) {
     health.value = 'unknown';
@@ -548,42 +638,82 @@ async function saveConfig() {
 }
 
 async function resetWebConfig() {
-  if (saving.value) return;
+  if (!hasEditableConfigAccess.value || saving.value) return;
 
   Object.assign(
     form,
-    cloneDefaultPublicFrontendConfig(),
-    resetPublicFrontendConfig()
+    isEditingSystemDefaults.value
+      ? await resetSystemPublicFrontendConfig()
+      : await resetPublicFrontendConfig()
   );
   await refreshHealth();
   await checkProviderHealth({ silent: true });
   notice.value = {
     type: 'success',
-    text: '浏览器公开设置已恢复默认值。'
+    text: isEditingSystemDefaults.value
+      ? '系统默认配置已恢复到数据库初始化默认值。'
+      : '个人配置已清空，当前账号重新继承管理员默认值。'
   };
 }
 
-function toggleAdvanced() {
-  advancedExpanded.value = !advancedExpanded.value;
-}
-
 onMounted(() => {
-  void loadConfig();
+  if (hasEditableConfigAccess.value) {
+    activeTab.value = 'embedding';
+    void loadConfig();
+  } else {
+    void refreshHealth();
+    void checkProviderHealth({ silent: true });
+  }
   if (isAdminMode.value) {
     void loadManagedUserList({ silent: true });
   }
 });
 
-watch(isAdminMode, (nextValue) => {
-  if (!nextValue) {
-    managedUsers.value = [];
-    return;
-  }
-
-  if (!managedUsers.value.length) {
-    void loadManagedUserList({ silent: true });
-  }
+watch(adminConfigPanel, () => {
+  if (!isAdminMode.value || !isPublicSettingsTab.value) return;
+  void loadConfig();
 });
+
+watch(
+  () => authState.session?.user.role ?? '',
+  (nextRole) => {
+    if (!nextRole) {
+      managedUsers.value = [];
+      managedUsersTotal.value = 0;
+      managedUsersActiveTotal.value = 0;
+      managedUsersAdminTotal.value = 0;
+      managedUsersPage.value = 1;
+      adminConfigPanel.value = 'system';
+      activeTab.value = 'status';
+      Object.assign(form, createEmptyPublicFrontendConfig());
+      void refreshHealth();
+      void checkProviderHealth({ silent: true });
+      return;
+    }
+
+    if (nextRole !== 'admin') {
+      managedUsers.value = [];
+      managedUsersTotal.value = 0;
+      managedUsersActiveTotal.value = 0;
+      managedUsersAdminTotal.value = 0;
+      managedUsersPage.value = 1;
+      adminConfigPanel.value = 'system';
+      if (activeTab.value === 'users') {
+        activeTab.value = 'embedding';
+      }
+    }
+
+    if (activeTab.value === 'status') {
+      activeTab.value = 'embedding';
+    }
+
+    void loadConfig();
+
+    if (nextRole === 'admin' && !managedUsers.value.length) {
+      void loadManagedUserList({ silent: true });
+    }
+  }
+);
 </script>
 
 <template>
@@ -598,11 +728,10 @@ watch(isAdminMode, (nextValue) => {
         </div>
         <h1
           class="m-0 text-[24px] leading-[1.08] font-bold tracking-tight text-heading max-[768px]:text-[22px]">
-          公开高级设置
+          {{ settingsPageTitle }}
         </h1>
         <p class="mt-1.5 max-w-160 text-[13px] leading-[1.6] text-secondary">
-          当前分支为纯 Web
-          版本。这里保存的是浏览器侧公开参数，会随请求发送给后端，但不会暴露服务端基础凭据。
+          当前分支为纯 Web 版本。{{ settingsPageDescription }}
         </p>
       </div>
       <div
@@ -614,28 +743,28 @@ watch(isAdminMode, (nextValue) => {
       </div>
     </OCard>
 
-    <OCard tone="warning" class="flex items-center gap-4">
-      <WarningOutlined class="text-[26px] text-danger" />
-      <div>
-        <h2>当前为纯 Web 模式</h2>
-        <p>
-          本地壳层、运行时桥接和桌面专属目录管理能力都已移除，当前页面只保留浏览器可安全调整的公开参数。
-        </p>
-      </div>
+    <OCard
+      v-if="!hasEditableConfigAccess"
+      tone="muted"
+      class="text-sm leading-7 text-zinc-500">
+      当前未登录，只能查看运行状态。登录后可读取自己的生效配置；管理员额外拥有系统默认配置维护权限。
     </OCard>
 
     <div
       class="mb-4 mt-2 flex flex-wrap items-center gap-1 border-b border-border/60">
       <button
+        v-if="hasEditableConfigAccess"
+        v-for="item in settingsModuleTabs"
+        :key="item.key"
         type="button"
-        @click="activeTab = 'settings'"
+        @click="activeTab = item.key"
         :class="[
           'px-5 py-3 border-b-2 text-[15px] font-medium transition-colors outline-none',
-          activeTab === 'settings'
+          activeTab === item.key
             ? 'border-zinc-900 text-zinc-900'
             : 'border-transparent text-text-secondary hover:text-text hover:border-border-soft'
         ]">
-        功能设置
+        {{ item.label }}
       </button>
       <button
         type="button"
@@ -718,77 +847,81 @@ watch(isAdminMode, (nextValue) => {
         </div>
       </div>
 
-      <div class="grid gap-3">
-        <OCard
+      <div
+        class="flex items-center justify-between gap-3 rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 max-[768px]:flex-col max-[768px]:items-start">
+        <span>{{ managedUserRangeText }}</span>
+        <span>第 {{ managedUsersPage }} / {{ managedUserTotalPages }} 页</span>
+      </div>
+
+      <div class="grid gap-2.5">
+        <div
           v-for="user in managedUsers"
           :key="user.user_id"
-          padding="sm"
-          :tone="
+          :class="[
+            'grid grid-cols-[minmax(0,1.6fr)_160px_minmax(220px,1fr)] items-center gap-4 rounded-2xl border px-4 py-3',
             !user.is_active
-              ? 'muted'
+              ? 'border-border bg-surface-soft'
               : user.role === 'admin'
-                ? 'success'
-                : 'default'
-          "
-          class="flex flex-col gap-3.5">
+                ? 'border-success-border bg-success-soft/50'
+                : 'border-black/8 bg-white',
+            'max-[1080px]:grid-cols-1'
+          ]">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <div
+                class="truncate text-[16px] font-bold tracking-[-0.01em] text-zinc-900">
+                {{ user.username }}
+              </div>
+              <span
+                v-if="user.user_id === currentUserId"
+                class="rounded-full bg-black/6 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                当前账号
+              </span>
+              <span
+                :class="[
+                  'rounded-full px-2.5 py-1 text-[11px] font-semibold',
+                  user.is_active
+                    ? 'bg-success-soft text-success'
+                    : 'bg-surface-muted text-text-secondary'
+                ]">
+                {{ formatUserStatus(user.is_active) }}
+              </span>
+            </div>
+            <div class="mt-1 text-xs leading-6 text-zinc-500">
+              <span>角色：{{ formatUserRole(user.role) }}</span>
+              <span class="mx-2 text-black/20">/</span>
+              <span>创建于 {{ formatDateTime(user.created_at) }}</span>
+              <span class="mx-2 text-black/20">/</span>
+              <span>最近更新 {{ formatDateTime(user.updated_at) }}</span>
+            </div>
+          </div>
+
+          <div class="min-w-0 max-[1080px]:max-w-60">
+            <OSelect
+              :model-value="user.role"
+              :options="userRoleOptions"
+              :disabled="isPendingUserAction(user.user_id)"
+              @update:model-value="
+                handleUserRoleChange(user, $event as 'admin' | 'user')
+              " />
+          </div>
+
           <div
-            class="flex items-start justify-between gap-4 max-[960px]:grid max-[960px]:grid-cols-1">
-            <div>
-              <div class="flex flex-wrap items-center gap-2">
-                <div
-                  class="text-[16px] font-bold tracking-[-0.01em] text-zinc-900">
-                  {{ user.username }}
-                </div>
-                <span
-                  v-if="user.user_id === currentUserId"
-                  class="rounded-full bg-black/6 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                  当前账号
-                </span>
-                <span
-                  :class="[
-                    'rounded-full px-2.5 py-1 text-[11px] font-semibold',
-                    user.is_active
-                      ? 'bg-success-soft text-success'
-                      : 'bg-surface-muted text-text-secondary'
-                  ]">
-                  {{ formatUserStatus(user.is_active) }}
-                </span>
-              </div>
-              <div class="mt-1.5 text-xs leading-6 text-zinc-500">
-                创建于 {{ formatDateTime(user.created_at) }}
-              </div>
-            </div>
-
-            <div
-              class="grid min-w-90 grid-cols-[150px_repeat(2,minmax(0,1fr))] gap-2.5 max-[960px]:min-w-0 max-[960px]:grid-cols-1">
-              <OSelect
-                :model-value="user.role"
-                :options="userRoleOptions"
-                :disabled="isPendingUserAction(user.user_id)"
-                @update:model-value="
-                  handleUserRoleChange(user, $event as 'admin' | 'user')
-                " />
-              <OButton
-                variant="secondary"
-                :disabled="isPendingUserAction(user.user_id)"
-                @click="openResetPasswordModal(user)">
-                重置密码
-              </OButton>
-              <OButton
-                :variant="user.is_active ? 'warning' : 'secondary'"
-                :disabled="isPendingUserAction(user.user_id)"
-                @click="toggleUserActive(user)">
-                {{ user.is_active ? '停用账号' : '重新启用' }}
-              </OButton>
-            </div>
+            class="flex flex-wrap justify-end gap-2 max-[1080px]:justify-start">
+            <OButton
+              variant="secondary"
+              :disabled="isPendingUserAction(user.user_id)"
+              @click="openResetPasswordModal(user)">
+              重置密码
+            </OButton>
+            <OButton
+              :variant="user.is_active ? 'warning' : 'secondary'"
+              :disabled="isPendingUserAction(user.user_id)"
+              @click="toggleUserActive(user)">
+              {{ user.is_active ? '停用账号' : '重新启用' }}
+            </OButton>
           </div>
-
-          <div class="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-            <span>角色：{{ formatUserRole(user.role) }}</span>
-            <span class="text-black/20">/</span>
-            <span>最近更新：{{ formatDateTime(user.updated_at) }}</span>
-          </div>
-        </OCard>
+        </div>
 
         <OCard
           v-if="!managedUsers.length && !managedUsersLoading"
@@ -798,298 +931,271 @@ watch(isAdminMode, (nextValue) => {
           当前没有可管理的用户记录。
         </OCard>
       </div>
-    </OCard>
 
-    <OCard
-      v-show="activeTab === 'status'"
-      padding="lg"
-      class="flex flex-col gap-4">
       <div
-        class="flex items-start justify-between gap-4 max-[768px]:grid max-[768px]:grid-cols-1">
-        <div>
-          <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
-            生效规则
-          </div>
-          <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
-            Web
-            模式下的公开设置会作为请求级覆盖附带给后端，不修改服务端的基础模型凭据和部署配置。
-          </div>
+        v-if="managedUsersTotal > managedUsersPageSize"
+        class="flex items-center justify-between gap-3 max-[768px]:flex-col max-[768px]:items-stretch">
+        <div class="text-xs text-zinc-500">
+          每页 {{ managedUsersPageSize }} 条
         </div>
-        <div
-          class="rounded-full border border-black/8 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-700">
-          当前模式：Web Runtime
-        </div>
-      </div>
-
-      <div class="grid grid-cols-3 gap-3 max-[960px]:grid-cols-1">
-        <div
-          v-for="item in effectRuleItems"
-          :key="item.title"
-          :class="[
-            'rounded-2xl border px-4 py-3.5',
-            getEffectRuleToneClass(item.tone)
-          ]">
-          <div class="text-sm font-bold tracking-[-0.01em]">
-            {{ item.title }}
+        <div class="flex items-center gap-2 max-[768px]:justify-between">
+          <OButton
+            variant="secondary"
+            size="sm"
+            :disabled="managedUsersLoading || managedUsersPage <= 1"
+            @click="changeManagedUsersPage(managedUsersPage - 1)">
+            上一页
+          </OButton>
+          <div class="text-sm font-medium text-zinc-700">
+            第 {{ managedUsersPage }} / {{ managedUserTotalPages }} 页
           </div>
-          <div class="mt-1.5 text-xs leading-6 opacity-90">
-            {{ item.detail }}
-          </div>
+          <OButton
+            variant="secondary"
+            size="sm"
+            :disabled="
+              managedUsersLoading || managedUsersPage >= managedUserTotalPages
+            "
+            @click="changeManagedUsersPage(managedUsersPage + 1)">
+            下一页
+          </OButton>
         </div>
       </div>
     </OCard>
 
     <OCard
-      v-show="activeTab === 'settings'"
+      v-show="isPublicSettingsTab && hasEditableConfigAccess"
       padding="lg"
       class="flex flex-col gap-3.5">
       <div
-        class="flex cursor-pointer items-center justify-between text-lg font-bold tracking-[-0.02em] text-zinc-900"
-        @click="toggleAdvanced">
-        <span>公开高级设置</span>
-        <DownOutlined
-          :class="[
-            'transition-transform duration-200',
-            advancedExpanded ? 'rotate-180' : ''
-          ]" />
+        v-if="isAdminMode"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3">
+        <div>
+          <div class="text-[15px] font-bold tracking-[-0.01em] text-zinc-900">
+            配置面板
+          </div>
+          <div class="mt-1 text-[13px] leading-6 text-zinc-500">
+            管理员可以分别维护系统默认值和自己的个人配置，两者互不覆盖。
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span
+            class="rounded-full bg-black/6 px-3 py-1.5 text-[11px] font-semibold text-zinc-700">
+            {{ configPanelBadgeText }}
+          </span>
+          <button
+            type="button"
+            @click="adminConfigPanel = 'system'"
+            :class="[
+              'rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors',
+              adminConfigPanel === 'system'
+                ? 'border-zinc-900 bg-zinc-900 text-white'
+                : 'border-black/10 bg-white text-zinc-700 hover:border-black/20'
+            ]">
+            系统默认值
+          </button>
+          <button
+            type="button"
+            @click="adminConfigPanel = 'user'"
+            :class="[
+              'rounded-full border px-3.5 py-2 text-[13px] font-semibold transition-colors',
+              adminConfigPanel === 'user'
+                ? 'border-zinc-900 bg-zinc-900 text-white'
+                : 'border-black/10 bg-white text-zinc-700 hover:border-black/20'
+            ]">
+            我的配置
+          </button>
+        </div>
       </div>
-      <div v-if="advancedExpanded" class="flex flex-col gap-3">
-        <p class="text-zinc-500 leading-[1.7]">
-          这些参数会保存在当前浏览器，并自动附带到聊天、知识库和来源详情请求中。
-        </p>
+
+      <div
+        class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-[13px] leading-7 text-zinc-600">
+        {{ configCardDescription }}
+      </div>
+
+      <div class="flex flex-col gap-4 pt-1.5">
         <div
-          class="rounded-2xl border border-black/8 bg-zinc-50 px-4 py-3 text-xs leading-6 text-zinc-700">
-          新参数会在当前浏览器的下一次请求中立即生效。
+          v-show="activeTab === 'embedding'"
+          class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+          <OFormItem
+            label="Embedding Provider"
+            help="LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI 兼容接口通常填 openai。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_PROVIDER"
+              type="text"
+              placeholder="openai" />
+          </OFormItem>
+
+          <OFormItem
+            label="Embedding 最大输入 Token"
+            help="单段文本允许进入嵌入接口的最大 token 数，超过后会自动继续切分。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="512" />
+          </OFormItem>
+
+          <OFormItem
+            label="Embedding 目标分块 Token"
+            help="二次切分时的目标大小。建议小于最大输入 token，上调会减少 chunk 数。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="384" />
+          </OFormItem>
+
+          <OFormItem
+            label="Embedding 重叠 Token"
+            help="相邻分块之间保留的上下文 token 数，用于降低切分边界带来的信息断裂。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="48" />
+          </OFormItem>
+
+          <OFormItem
+            label="Embedding Tokenizer Model"
+            help="用于 token 计数的模型标识；留空时默认跟随当前 embedding model。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_TOKENIZER_MODEL"
+              type="text"
+              placeholder="留空时跟随 embedding provider 配置" />
+          </OFormItem>
+
+          <OFormItem
+            label="Embedding Tokenizer Encoding"
+            help="tokenizer model 无法直接识别时使用的编码兜底值。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.EMBEDDING_TOKENIZER_ENCODING"
+              type="text"
+              placeholder="cl100k_base" />
+          </OFormItem>
         </div>
-
-        <div class="flex flex-col gap-4 pt-1.5">
-          <OFormSection
-            title="请求元信息"
-            description="用于向上游网关传递应用来源、应用名称与请求标签等非敏感元信息。下一次请求立即生效。"
-            padding="sm"
-            class="flex flex-col gap-4">
-            <div
-              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-              <OFormItem
-                label="请求来源地址"
-                help="当上游网关需要识别请求来源站点时使用。多数场景保持默认即可。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.OPENROUTER_SITE_URL"
-                  type="text"
-                  placeholder="https://localhost.invalid" />
-              </OFormItem>
-
-              <OFormItem
-                label="应用名称"
-                help="当上游网关需要记录请求来自哪个客户端时使用。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.OPENROUTER_APP_TITLE"
-                  type="text"
-                  placeholder="RAG.Agent Web" />
-              </OFormItem>
-
-              <OFormItem
-                label="请求分类标签"
-                help="请求附带的业务标签，用于统计、路由或审计；名称保持通用，不绑定具体供应商。"
-                class="col-span-2 gap-1.5 max-[768px]:col-span-1">
-                <OInput
-                  v-model="form.OPENROUTER_CATEGORIES"
-                  type="text"
-                  placeholder="general-chat" />
-              </OFormItem>
-            </div>
-          </OFormSection>
-
-          <OFormSection
-            title="Embedding 策略"
-            description="控制向量化 provider、token 统计方式与切分上限。下一次上传与向量化请求立即生效。"
-            padding="sm"
-            class="flex flex-col gap-4">
-            <div
-              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-              <OFormItem
-                label="Embedding Provider"
-                help="LiteLLM 调用 embedding 时使用的 provider 标识。OpenAI 兼容接口通常填 openai。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_PROVIDER"
-                  type="text"
-                  placeholder="openai" />
-              </OFormItem>
-
-              <OFormItem
-                label="Embedding 最大输入 Token"
-                help="单段文本允许进入嵌入接口的最大 token 数，超过后会自动继续切分。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_MAX_INPUT_TOKENS"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="512" />
-              </OFormItem>
-
-              <OFormItem
-                label="Embedding 目标分块 Token"
-                help="二次切分时的目标大小。建议小于最大输入 token，上调会减少 chunk 数。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_TARGET_CHUNK_TOKENS"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="384" />
-              </OFormItem>
-
-              <OFormItem
-                label="Embedding 重叠 Token"
-                help="相邻分块之间保留的上下文 token 数，用于降低切分边界带来的信息断裂。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_CHUNK_OVERLAP_TOKENS"
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="48" />
-              </OFormItem>
-
-              <OFormItem
-                label="Embedding Tokenizer Model"
-                help="用于 token 计数的模型标识；留空时默认跟随当前 embedding model。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_TOKENIZER_MODEL"
-                  type="text"
-                  placeholder="留空时跟随 embedding provider 配置" />
-              </OFormItem>
-
-              <OFormItem
-                label="Embedding Tokenizer Encoding"
-                help="tokenizer model 无法直接识别时使用的编码兜底值。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.EMBEDDING_TOKENIZER_ENCODING"
-                  type="text"
-                  placeholder="cl100k_base" />
-              </OFormItem>
-            </div>
-          </OFormSection>
-
-          <OFormSection
-            title="检索策略"
-            description="控制召回、重排、上下文保留与问题扩写数量。下一次聊天检索请求立即生效。"
-            padding="sm"
-            class="flex flex-col gap-4">
-            <div
-              class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
-              <OFormItem
-                label="Reranker Timeout"
-                help="重排请求超时时间，单位秒，用于控制直连 rerank 接口的等待上限。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RERANKER_REQUEST_TIMEOUT"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="20" />
-              </OFormItem>
-
-              <OFormItem
-                label="召回候选数量"
-                help="每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="12" />
-              </OFormItem>
-
-              <OFormItem
-                label="最终上下文数量"
-                help="重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="3" />
-              </OFormItem>
-
-              <OFormItem
-                label="引用来源数量"
-                help="回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RETRIEVAL_SOURCE_LIMIT"
-                  type="number"
-                  min="1"
-                  step="1"
-                  placeholder="3" />
-              </OFormItem>
-
-              <OFormItem
-                label="问题扩写数量"
-                help="口语问题会先扩写出多少个更正式的相近问法再做召回。填 0 表示关闭扩写。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="2" />
-              </OFormItem>
-
-              <OFormItem
-                label="回答温度"
-                help="控制回答稳定性与发散度。值越低越稳，越高越灵活。"
-                class="gap-1.5">
-                <OInput
-                  v-model="form.CHAT_TEMPERATURE"
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  placeholder="0" />
-              </OFormItem>
-            </div>
-          </OFormSection>
-        </div>
-      </div>
-    </OCard>
-
-    <OCard
-      v-show="activeTab === 'settings'"
-      padding="lg"
-      class="flex flex-col gap-4">
-      <div>
-        <div class="text-lg font-bold tracking-[-0.02em] text-zinc-900">
-          反思策略
-        </div>
-        <div class="mt-1.5 text-[13px] leading-[1.7] text-zinc-500">
-          控制回答前的 reflection 校验强度。弱模型容易因为 reflection
-          不完整而被直接拦截，这里可以按模型能力快速切换策略。
-        </div>
-      </div>
-
-      <div class="grid gap-4 max-[960px]:grid-cols-1">
-        <!-- <OFormItem
-          label="Reflection Tokens"
-          help="填 0 表示关闭反思拦截；其他值越大，模型越容易输出完整 reflection 判定。"
-          class="gap-1.5">
-          <OInput
-            v-model="form.REFLECTION_TOKENS"
-            type="number"
-            min="0"
-            step="1"
-            placeholder="256" />
-        </OFormItem> -->
 
         <div
+          v-show="activeTab === 'retrieval'"
+          class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+          <OFormItem
+            label="Reranker Timeout"
+            help="重排请求超时时间，单位秒，用于控制直连 rerank 接口的等待上限。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.RERANKER_REQUEST_TIMEOUT"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="20" />
+          </OFormItem>
+
+          <OFormItem
+            label="召回候选数量"
+            help="每次检索阶段先召回多少个候选片段。多知识库场景下适当调高有助于减少漏召回。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.RETRIEVAL_CANDIDATE_LIMIT"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="12" />
+          </OFormItem>
+
+          <OFormItem
+            label="最终上下文数量"
+            help="重排后最多保留多少个片段进入答案上下文。值越高，引用更充分，但生成成本也会上升。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.RETRIEVAL_FINAL_CONTEXT_LIMIT"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="3" />
+          </OFormItem>
+
+          <OFormItem
+            label="引用来源数量"
+            help="回答完成后最多展示多少条引用来源。建议与最终上下文数量保持一致或略小。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.RETRIEVAL_SOURCE_LIMIT"
+              type="number"
+              min="1"
+              step="1"
+              placeholder="3" />
+          </OFormItem>
+
+          <OFormItem
+            label="问题扩写数量"
+            help="口语问题会先扩写出多少个更正式的相近问法再做召回。填 0 表示关闭扩写。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.RETRIEVAL_QUERY_EXPANSION_COUNT"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="2" />
+          </OFormItem>
+        </div>
+
+        <div
+          v-show="activeTab === 'chat'"
+          class="grid grid-cols-3 items-start gap-4 max-[960px]:grid-cols-2 max-[768px]:grid-cols-1">
+          <OFormItem
+            label="回答温度"
+            help="控制回答稳定性与发散度。值越低越稳，越高越灵活。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.CHAT_TEMPERATURE"
+              type="number"
+              min="0"
+              max="1"
+              step="0.1"
+              placeholder="0" />
+          </OFormItem>
+
+          <OFormItem
+            label="OpenRouter Site URL"
+            help="当 Chat Base URL 指向 OpenRouter 时，下发到 HTTP-Referer 请求头。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.OPENROUTER_SITE_URL"
+              type="text"
+              placeholder="http://localhost:5173" />
+          </OFormItem>
+
+          <OFormItem
+            label="OpenRouter App Title"
+            help="当 Chat Base URL 指向 OpenRouter 时，下发到 X-OpenRouter-Title 请求头。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.OPENROUTER_APP_TITLE"
+              type="text"
+              placeholder="RAG.Agent Local" />
+          </OFormItem>
+
+          <OFormItem
+            label="OpenRouter Categories"
+            help="当 Chat Base URL 指向 OpenRouter 时，下发到 X-OpenRouter-Categories 请求头。多个值可用英文逗号分隔。"
+            class="gap-1.5">
+            <OInput
+              v-model="form.OPENROUTER_CATEGORIES"
+              type="text"
+              placeholder="general-chat" />
+          </OFormItem>
+        </div>
+
+        <div
+          v-show="activeTab === 'reflection'"
           class="grid grid-cols-4 gap-2.5 max-[1200px]:grid-cols-2 max-[768px]:grid-cols-1">
           <button
             v-for="preset in reflectionTokenPresets"
@@ -1120,6 +1226,21 @@ watch(isAdminMode, (nextValue) => {
               {{ preset.detail }}
             </div>
           </button>
+        </div>
+
+        <div class="flex flex-wrap gap-3 max-[768px]:flex-col">
+          <OButton
+            :disabled="loading || saving"
+            :loading="saving"
+            @click="saveConfig">
+            {{ saving ? savingButtonText : saveButtonText }}
+          </OButton>
+          <OButton
+            variant="secondary"
+            :disabled="saving"
+            @click="resetWebConfig">
+            {{ resetButtonText }}
+          </OButton>
         </div>
       </div>
     </OCard>
@@ -1161,7 +1282,7 @@ watch(isAdminMode, (nextValue) => {
                   {{ entry.title }}
                 </div>
                 <div class="break-all text-xs leading-6 text-zinc-500">
-                  {{ entry.item?.model || '未检测' }}
+                  {{ getProviderHeadline(entry.item) }}
                 </div>
               </div>
               <div
@@ -1210,23 +1331,11 @@ watch(isAdminMode, (nextValue) => {
               </div>
             </div>
             <div class="break-all text-xs leading-6 text-zinc-500">
-              {{ entry.item?.base_url || '—' }}
+              {{ getProviderFootnote(entry.item) }}
             </div>
           </OCard>
         </div>
       </section>
-
-      <div class="flex flex-wrap gap-3 max-[768px]:flex-col">
-        <OButton
-          :disabled="loading || saving"
-          :loading="saving"
-          @click="saveConfig">
-          {{ saving ? '正在保存浏览器设置...' : '保存浏览器设置' }}
-        </OButton>
-        <OButton variant="secondary" :disabled="saving" @click="resetWebConfig">
-          恢复默认设置
-        </OButton>
-      </div>
     </OCard>
 
     <OModal
