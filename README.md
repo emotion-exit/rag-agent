@@ -236,8 +236,6 @@ rag-agent/
 │   │   ├── services/            # auth、notes、knowledge_spaces、vector_store 等
 │   │   ├── config.py            # 运行时配置与请求级覆盖
 │   │   └── main.py              # FastAPI 入口与健康检查
-│   ├── run_desktop.py           # 本地启动入口（兼容保留）
-│   └── rag_agent_backend.spec   # 打包配置（兼容保留）
 ├── docs/
 │   ├── 项目执行流程分析.md
 │   └── 项目功能解析与实践总结.md
