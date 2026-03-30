@@ -31,6 +31,7 @@ from app.services.public_config import (
     get_user_public_config,
     initialize_public_config_db,
 )
+from app.config import USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,12 @@ async def apply_public_frontend_config(request: Request, call_next):
 
     if parsed_config is None:
         if current_user is not None:
-            parsed_config = get_user_public_config(str(current_user.get("user_id") or ""))
+            parsed_config = get_user_public_config(
+                str(current_user.get("user_id") or ""),
+                allowed_fields=None
+                if is_admin(current_user)
+                else USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS,
+            )
         else:
             parsed_config = get_system_public_config()
 

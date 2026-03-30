@@ -16,6 +16,23 @@ from app.services.auth import get_app_db_connection
 SYSTEM_PUBLIC_CONFIG_KEY = "default"
 
 
+def _filter_allowed_public_config_fields(
+    source: dict[str, Any] | None,
+    allowed_fields: set[str] | None,
+) -> dict[str, Any]:
+    if not isinstance(source, dict):
+        return {}
+
+    if not allowed_fields:
+        return dict(source)
+
+    return {
+        key: value
+        for key, value in source.items()
+        if key in allowed_fields
+    }
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -112,7 +129,11 @@ def _load_user_public_config_row(connection, user_id: str) -> dict[str, Any] | N
     return payload if isinstance(payload, dict) else {}
 
 
-def get_user_public_config_overrides(user_id: str) -> dict[str, Any]:
+def get_user_public_config_overrides(
+    user_id: str,
+    *,
+    allowed_fields: set[str] | None = None,
+) -> dict[str, Any]:
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         return {}
@@ -122,10 +143,15 @@ def get_user_public_config_overrides(user_id: str) -> dict[str, Any]:
         raw_overrides = _load_user_public_config_row(connection, normalized_user_id)
         connection.commit()
 
+    raw_overrides = _filter_allowed_public_config_fields(raw_overrides, allowed_fields)
     return diff_public_frontend_config(raw_overrides, system_config) if raw_overrides is not None else {}
 
 
-def get_user_public_config(user_id: str) -> dict[str, Any]:
+def get_user_public_config(
+    user_id: str,
+    *,
+    allowed_fields: set[str] | None = None,
+) -> dict[str, Any]:
     normalized_user_id = str(user_id or "").strip()
     system_config = get_system_public_config()
     if not normalized_user_id:
@@ -136,10 +162,16 @@ def get_user_public_config(user_id: str) -> dict[str, Any]:
         raw_overrides = _load_user_public_config_row(connection, normalized_user_id)
         connection.commit()
 
+    raw_overrides = _filter_allowed_public_config_fields(raw_overrides, allowed_fields)
     return merge_public_frontend_config(system_config, raw_overrides)
 
 
-def save_user_public_config(user_id: str, source: dict[str, Any] | None) -> dict[str, Any]:
+def save_user_public_config(
+    user_id: str,
+    source: dict[str, Any] | None,
+    *,
+    allowed_fields: set[str] | None = None,
+) -> dict[str, Any]:
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         raise ValueError("用户不存在")
@@ -147,7 +179,11 @@ def save_user_public_config(user_id: str, source: dict[str, Any] | None) -> dict
     now = _utc_now().isoformat()
     with get_app_db_connection() as connection:
         system_config = _ensure_system_public_config(connection)
-        normalized_effective_config = normalize_public_frontend_config(source, fallback=system_config)
+        normalized_effective_config = normalize_public_frontend_config(
+            source,
+            fallback=system_config,
+            allowed_fields=allowed_fields,
+        )
         stored_overrides = diff_public_frontend_config(normalized_effective_config, system_config)
 
         connection.execute(

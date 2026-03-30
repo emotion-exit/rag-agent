@@ -46,6 +46,15 @@ PUBLIC_FRONTEND_CONFIG_FIELDS = {
     "OPENROUTER_APP_TITLE",
     "OPENROUTER_CATEGORIES",
 }
+USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS = {
+    "RERANKER_REQUEST_TIMEOUT",
+    "RETRIEVAL_CANDIDATE_LIMIT",
+    "RETRIEVAL_FINAL_CONTEXT_LIMIT",
+    "RETRIEVAL_SOURCE_LIMIT",
+    "RETRIEVAL_QUERY_EXPANSION_COUNT",
+    "REFLECTION_TOKENS",
+    "CHAT_TEMPERATURE",
+}
 _request_settings_overrides: ContextVar[dict[str, Any]] = ContextVar(
     "request_settings_overrides",
     default={},
@@ -319,13 +328,15 @@ def diff_public_frontend_config(
 def _normalize_public_frontend_overrides(
     overrides: dict[str, Any] | None,
     fallback: dict[str, Any] | None = None,
+    allowed_fields: set[str] | None = None,
 ) -> dict[str, Any]:
     """校验并规范化前端可公开配置覆盖。"""
     if not isinstance(overrides, dict):
         return {}
 
+    selected_fields = allowed_fields or PUBLIC_FRONTEND_CONFIG_FIELDS
     filtered: dict[str, Any] = {}
-    for key in PUBLIC_FRONTEND_CONFIG_FIELDS:
+    for key in selected_fields:
         if key in overrides:
             filtered[key] = overrides[key]
 
@@ -347,9 +358,14 @@ def _normalize_public_frontend_overrides(
 def normalize_public_frontend_config(
     overrides: dict[str, Any] | None,
     fallback: dict[str, Any] | None = None,
+    allowed_fields: set[str] | None = None,
 ) -> dict[str, Any]:
     """对外暴露的公开配置规范化入口。"""
-    normalized = _normalize_public_frontend_overrides(overrides, fallback=fallback)
+    normalized = _normalize_public_frontend_overrides(
+        overrides,
+        fallback=fallback,
+        allowed_fields=allowed_fields,
+    )
     if normalized:
         return normalized
     return _get_public_frontend_config_fallback(fallback)

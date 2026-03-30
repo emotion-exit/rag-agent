@@ -3,7 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app.config import normalize_public_frontend_config, settings
+from app.config import (
+    USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS,
+    normalize_public_frontend_config,
+    settings,
+)
 from app.services.auth import (
     ROLE_ADMIN,
     ROLE_USER,
@@ -138,16 +142,30 @@ async def me(request: Request):
 @router.get("/public-config")
 async def get_current_user_runtime_config(request: Request):
     user = get_request_user(request) or get_current_user(required=True)
+    allowed_fields = None if is_admin(user) else USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS
     return {
-        "config": get_user_public_config(str(user.get("user_id") or "")),
-        "has_overrides": bool(get_user_public_config_overrides(str(user.get("user_id") or ""))),
+        "config": get_user_public_config(
+            str(user.get("user_id") or ""),
+            allowed_fields=allowed_fields,
+        ),
+        "has_overrides": bool(
+            get_user_public_config_overrides(
+                str(user.get("user_id") or ""),
+                allowed_fields=allowed_fields,
+            )
+        ),
     }
 
 
 @router.put("/public-config")
 async def save_current_user_runtime_config(payload: dict, request: Request):
     user = get_request_user(request) or get_current_user(required=True)
-    saved_config = save_user_public_config(str(user.get("user_id") or ""), payload)
+    allowed_fields = None if is_admin(user) else USER_EDITABLE_PUBLIC_FRONTEND_CONFIG_FIELDS
+    saved_config = save_user_public_config(
+        str(user.get("user_id") or ""),
+        payload,
+        allowed_fields=allowed_fields,
+    )
     return {"success": True, "config": saved_config}
 
 

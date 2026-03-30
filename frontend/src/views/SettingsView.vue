@@ -209,6 +209,18 @@ const settingsModuleTabs: SettingsModuleTab[] = [
   }
 ];
 
+const visibleSettingsModuleTabs = computed(() => {
+  if (isAdminMode.value) {
+    return settingsModuleTabs;
+  }
+
+  return settingsModuleTabs.filter((item) => item.key !== 'embedding');
+});
+
+function getDefaultSettingsTab(): SettingsModuleTab['key'] {
+  return visibleSettingsModuleTabs.value[0]?.key || 'chat';
+}
+
 const isPublicSettingsTab = computed(() =>
   settingsModuleTabs.some((item) => item.key === activeTab.value)
 );
@@ -658,7 +670,7 @@ async function resetWebConfig() {
 
 onMounted(() => {
   if (hasEditableConfigAccess.value) {
-    activeTab.value = 'embedding';
+    activeTab.value = getDefaultSettingsTab();
     void loadConfig();
   } else {
     void refreshHealth();
@@ -698,13 +710,13 @@ watch(
       managedUsersAdminTotal.value = 0;
       managedUsersPage.value = 1;
       adminConfigPanel.value = 'system';
-      if (activeTab.value === 'users') {
-        activeTab.value = 'embedding';
+      if (activeTab.value === 'users' || activeTab.value === 'embedding') {
+        activeTab.value = getDefaultSettingsTab();
       }
     }
 
     if (activeTab.value === 'status') {
-      activeTab.value = 'embedding';
+      activeTab.value = getDefaultSettingsTab();
     }
 
     void loadConfig();
@@ -754,7 +766,7 @@ watch(
       class="mb-4 mt-2 flex flex-wrap items-center gap-1 border-b border-border/60">
       <button
         v-if="hasEditableConfigAccess"
-        v-for="item in settingsModuleTabs"
+        v-for="item in visibleSettingsModuleTabs"
         :key="item.key"
         type="button"
         @click="activeTab = item.key"
@@ -1164,6 +1176,7 @@ watch(
           </OFormItem>
 
           <OFormItem
+            v-if="isAdminMode"
             label="OpenRouter Site URL"
             help="当 Chat Base URL 指向 OpenRouter 时，下发到 HTTP-Referer 请求头。"
             class="gap-1.5">
@@ -1174,6 +1187,7 @@ watch(
           </OFormItem>
 
           <OFormItem
+            v-if="isAdminMode"
             label="OpenRouter App Title"
             help="当 Chat Base URL 指向 OpenRouter 时，下发到 X-OpenRouter-Title 请求头。"
             class="gap-1.5">
@@ -1184,6 +1198,7 @@ watch(
           </OFormItem>
 
           <OFormItem
+            v-if="isAdminMode"
             label="OpenRouter Categories"
             help="当 Chat Base URL 指向 OpenRouter 时，下发到 X-OpenRouter-Categories 请求头。多个值可用英文逗号分隔。"
             class="gap-1.5">
