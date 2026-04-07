@@ -96,6 +96,7 @@ class Settings(BaseModel):
     # Storage
     chroma_persist_dir: str = Field(default="./data/chroma", alias="CHROMA_PERSIST_DIR")
     upload_dir: str = Field(default="./data/uploads", alias="UPLOAD_DIR")
+    auth_db_path: str = Field(default="./data/auth.sqlite3", alias="AUTH_DB_PATH")
     knowledge_base_job_retention_hours: int = Field(
         default=2,
         alias="KNOWLEDGE_BASE_JOB_RETENTION_HOURS",
@@ -109,6 +110,11 @@ class Settings(BaseModel):
     cors_origins: str = Field(
         default="http://localhost:5173,http://localhost:3000,null",
         alias="CORS_ORIGINS",
+    )
+    jwt_secret: str = Field(default="rag-agent-dev-secret", alias="JWT_SECRET")
+    jwt_access_token_expire_minutes: int = Field(
+        default=60 * 24 * 7,
+        alias="JWT_ACCESS_TOKEN_EXPIRE_MINUTES",
     )
 
     def get_cors_origins(self) -> list[str]:
@@ -292,6 +298,7 @@ def load_settings() -> Settings:
     # 只有本地存储目录需要做路径归一化；其余字段直接按原值交给 Pydantic 校验。
     values["CHROMA_PERSIST_DIR"] = _resolve_storage_path(values["CHROMA_PERSIST_DIR"], config_path)
     values["UPLOAD_DIR"] = _resolve_storage_path(values["UPLOAD_DIR"], config_path)
+    values["AUTH_DB_PATH"] = _resolve_storage_path(values["AUTH_DB_PATH"], config_path)
 
     return Settings.model_validate(values)
 

@@ -19,6 +19,7 @@ import type {
   Message,
   SourceSummary
 } from '@/components/AnswerCard.vue';
+import { buildAuthHeaders } from '@/services/auth';
 import { getApiBase } from '@/services/runtime';
 import { buildPublicConfigHeaders } from '@/services/publicConfig';
 
@@ -312,6 +313,7 @@ async function submitMessage(text: string) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...buildAuthHeaders(),
         ...buildPublicConfigHeaders()
       },
       body: JSON.stringify({

@@ -15,13 +15,18 @@ from app.config import (
     set_request_settings_overrides,
     settings,
 )
-from app.routers import chat_router, knowledge_base_router
+from app.auth.database import init_auth_database
+from app.routers import auth_router, chat_router, knowledge_base_router
 
 logger = logging.getLogger(__name__)
 
 # Ensure data directories exist
 os.makedirs(_base_settings.chroma_persist_dir, exist_ok=True)
 os.makedirs(_base_settings.upload_dir, exist_ok=True)
+auth_db_dir = os.path.dirname(_base_settings.auth_db_path)
+if auth_db_dir:
+    os.makedirs(auth_db_dir, exist_ok=True)
+init_auth_database()
 
 app = FastAPI(
     title="RAG Agent API",
@@ -41,6 +46,7 @@ app.add_middleware(
 # Routers
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
+app.include_router(auth_router)
 
 
 @app.middleware("http")

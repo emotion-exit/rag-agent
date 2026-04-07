@@ -12,7 +12,7 @@ import re
 from urllib.parse import quote
 from typing import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types as genai_types
 
+from app.auth.security import get_optional_current_user
 from app.agent.rag_agent import (
     NO_KNOWLEDGE_BASE_ANSWER,
     build_hitl_clarification,
@@ -472,7 +473,21 @@ def _split_stream_chunks(text: str, max_length: int = STREAM_CHUNK_MAX_LENGTH) -
     return [chunk for chunk in chunks if chunk]
 
 
-async def _ensure_session_exists(session_id: str) -> None:
+def _resolve_actor_user_id(current_user: dict | None) -> str:
+    """解析当前请求对应的业务用户 id。"""
+    if current_user and str(current_user.get("id", "")).strip():
+        return str(current_user["id"])
+    return "anonymous"
+
+
+def _build_user_scoped_session_id(user_id: str, session_id: str) -> str:
+    """为会话 id 加上用户维度，避免不同用户串会话。"""
+    normalized_user = str(user_id or "anonymous").strip() or "anonymous"
+    normalized_session = str(session_id or "default").strip() or "default"
+    return f"{normalized_user}:{normalized_session}"
+
+
+async def _ensure_session_exists(user_id: str, session_id: str) -> None:
     """确保 ADK 会话存在。
 
     当前使用 InMemorySessionService，所以服务重启后会话会丢失；
@@ -481,18 +496,19 @@ async def _ensure_session_exists(session_id: str) -> None:
     session = await session_service.get_session(
         app_name=APP_NAME,
         session_id=session_id,
-        user_id="user",
+        user_id=user_id,
     )
     if session is None:
         await session_service.create_session(
             app_name=APP_NAME,
             session_id=session_id,
-            user_id="user",
+            user_id=user_id,
         )
 
 
 async def _stream_agent_response(
     message: str,
+    user_id: str,
     session_id: str,
     retrieval_filters: dict[str, str] | None = None,
 ) -> AsyncIterator[str]:
@@ -593,7 +609,7 @@ async def _stream_agent_response(
                     await asyncio.sleep(STREAM_CHUNK_DELAY_SECONDS)
 
             async for event in runner.run_async(
-                user_id="user",
+                user_id=user_id,
                 session_id=session_id,
                 new_message=user_content,
             ):
@@ -758,7 +774,7 @@ async def _stream_agent_response(
             session_service=session_service,
         )
 
-        await _ensure_session_exists(session_id)
+        await _ensure_session_exists(user_id, session_id)
 
         user_content = genai_types.Content(
             role="user",
@@ -785,15 +801,22 @@ async def _stream_agent_response(
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest,
+    current_user: dict | None = Depends(get_optional_current_user),
+):
     """流式聊天接口。"""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    actor_user_id = _resolve_actor_user_id(current_user)
+    scoped_session_id = _build_user_scoped_session_id(actor_user_id, request.session_id)
+
     return StreamingResponse(
         _stream_agent_response(
             request.message,
-            request.session_id,
+            actor_user_id,
+            scoped_session_id,
             request.retrieval_filters,
         ),
         media_type="text/event-stream",
@@ -806,15 +829,21 @@ async def chat_stream(request: ChatRequest):
 
 
 @router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    current_user: dict | None = Depends(get_optional_current_user),
+):
     """非流式聊天接口。"""
     if not request.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    actor_user_id = _resolve_actor_user_id(current_user)
+    scoped_session_id = _build_user_scoped_session_id(actor_user_id, request.session_id)
+
     source_summaries, retrieval_trace = build_source_payload_with_trace(
         request.message,
         explicit_metadata_filters=request.retrieval_filters,
-        session_id=request.session_id,
+        session_id=scoped_session_id,
     )
     clarification = build_hitl_clarification(retrieval_trace)
     if clarification:
@@ -825,7 +854,7 @@ async def chat(request: ChatRequest):
 
     agent = create_rag_agent(
         request.retrieval_filters,
-        session_id=request.session_id,
+        session_id=scoped_session_id,
         original_query=request.message,
         retrieval_documents=list(retrieval_trace.get("documents", [])),
     )
@@ -835,7 +864,7 @@ async def chat(request: ChatRequest):
         session_service=session_service,
     )
 
-    await _ensure_session_exists(request.session_id)
+    await _ensure_session_exists(actor_user_id, scoped_session_id)
 
     user_content = genai_types.Content(
         role="user",
@@ -845,8 +874,8 @@ async def chat(request: ChatRequest):
     # 非流式模式下只取最终响应，再走和流式同一套清洗逻辑，保证表现一致。
     reply_parts = []
     async for event in runner.run_async(
-        user_id="user",
-        session_id=request.session_id,
+        user_id=actor_user_id,
+        session_id=scoped_session_id,
         new_message=user_content,
     ):
         if event.is_final_response() and event.content and event.content.parts:
