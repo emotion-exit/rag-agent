@@ -111,6 +111,16 @@ class Settings(BaseModel):
         default="http://localhost:5173,http://localhost:3000,null",
         alias="CORS_ORIGINS",
     )
+    private_knowledge_base_enabled: bool = Field(
+        default=True,
+        alias="PRIVATE_KNOWLEDGE_BASE_ENABLED",
+    )
+    open_registration_enabled: bool = Field(
+        default=False,
+        alias="OPEN_REGISTRATION_ENABLED",
+    )
+    default_admin_username: str = Field(default="admin", alias="DEFAULT_ADMIN_USERNAME")
+    default_admin_password: str = Field(default="admin123456", alias="DEFAULT_ADMIN_PASSWORD")
     jwt_secret: str = Field(default="rag-agent-dev-secret", alias="JWT_SECRET")
     jwt_access_token_expire_minutes: int = Field(
         default=60 * 24 * 7,

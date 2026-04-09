@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import Header, HTTPException
 
+from app.auth.database import get_connection
 from app.auth.service import get_user_by_id
 from app.config import settings
 
@@ -53,6 +54,83 @@ def create_access_token(*, user_id: str, auth_method: str) -> tuple[str, int]:
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
+    try:
+        header_segment, payload_segment, signature_segment = token.split(".")
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="无效的访问令牌") from exc
+
+    signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
+    expected_signature = hmac.new(
+        settings.jwt_secret.encode("utf-8"),
+        signing_input,
+        hashlib.sha256,
+    ).digest()
+    actual_signature = _b64url_decode(signature_segment)
+    if not hmac.compare_digest(expected_signature, actual_signature):
+        raise HTTPException(status_code=401, detail="访问令牌签名校验失败")
+
+    try:
+        payload = json.loads(_b64url_decode(payload_segment).decode("utf-8"))
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=401, detail="访问令牌内容非法") from exc
+
+    if payload.get("token_type") != "access":
+        raise HTTPException(status_code=401, detail="访问令牌类型不正确")
+
+    expires_at = int(payload.get("exp") or 0)
+    if expires_at <= int(datetime.now(timezone.utc).timestamp()):
+        raise HTTPException(status_code=401, detail="访问令牌已过期")
+
+    user_id = str(payload.get("user_id") or payload.get("sub") or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=401, detail="访问令牌缺少用户标识")
+
+    if is_access_token_revoked(token):
+        raise HTTPException(status_code=401, detail="访问令牌已失效")
+
+    return payload
+
+
+def is_access_token_revoked(token: str) -> bool:
+    normalized_token = str(token or "").strip()
+    if not normalized_token:
+        return False
+
+    now = datetime.now(timezone.utc).isoformat()
+    with get_connection() as connection:
+        connection.execute(
+            "DELETE FROM auth_token_revocations WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (now,),
+        )
+        row = connection.execute(
+            "SELECT 1 FROM auth_token_revocations WHERE token = ? LIMIT 1",
+            (normalized_token,),
+        ).fetchone()
+    return row is not None
+
+
+def revoke_access_token(token: str) -> None:
+    normalized_token = str(token or "").strip()
+    if not normalized_token:
+        return
+
+    expires_at: str | None = None
+    try:
+        payload = decode_access_token_without_revocation_check(normalized_token)
+        exp = int(payload.get("exp") or 0)
+        if exp > 0:
+            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
+    except HTTPException:
+        expires_at = None
+
+    with get_connection() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO auth_token_revocations (token, revoked_at, expires_at) VALUES (?, ?, ?)",
+            (normalized_token, datetime.now(timezone.utc).isoformat(), expires_at),
+        )
+
+
+def decode_access_token_without_revocation_check(token: str) -> dict[str, Any]:
     try:
         header_segment, payload_segment, signature_segment = token.split(".")
     except ValueError as exc:
