@@ -16,6 +16,7 @@ from app.config import (
     settings,
 )
 from app.auth.database import init_auth_database
+from app.services.public_config import initialize_public_config_db
 from app.routers import auth_router, chat_router, knowledge_base_router
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ auth_db_dir = os.path.dirname(_base_settings.auth_db_path)
 if auth_db_dir:
     os.makedirs(auth_db_dir, exist_ok=True)
 init_auth_database()
+initialize_public_config_db()
 
 app = FastAPI(
     title="RAG Agent API",

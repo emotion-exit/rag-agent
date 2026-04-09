@@ -25,6 +25,15 @@ from app.auth.service import (
     update_user_role,
 )
 from app.config import settings
+from app.services.public_config import (
+    get_system_public_config,
+    get_user_public_config,
+    get_user_public_config_overrides,
+    reset_system_public_config,
+    reset_user_public_config,
+    save_system_public_config,
+    save_user_public_config,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -210,6 +219,49 @@ async def me(current_user: dict = Depends(get_current_user)):
         "user": _serialize_legacy_user(current_user),
         "features": _build_features_payload(),
     }
+
+
+@router.get("/public-config")
+async def get_current_user_runtime_config(current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user.get("id") or current_user.get("user_id") or "")
+    return {
+        "config": get_user_public_config(user_id),
+        "has_overrides": bool(get_user_public_config_overrides(user_id)),
+    }
+
+
+@router.put("/public-config")
+async def save_current_user_runtime_config(payload: dict, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user.get("id") or current_user.get("user_id") or "")
+    config = save_user_public_config(user_id, payload)
+    return {"success": True, "config": config}
+
+
+@router.delete("/public-config")
+async def reset_current_user_runtime_config(current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user.get("id") or current_user.get("user_id") or "")
+    config = reset_user_public_config(user_id)
+    return {"success": True, "config": config}
+
+
+@router.get("/public-config/system")
+async def get_system_runtime_config(current_user: dict = Depends(_require_admin_user)):
+    del current_user
+    return {"config": get_system_public_config()}
+
+
+@router.put("/public-config/system")
+async def save_system_runtime_config(payload: dict, current_user: dict = Depends(_require_admin_user)):
+    del current_user
+    config = save_system_public_config(payload)
+    return {"success": True, "config": config}
+
+
+@router.delete("/public-config/system")
+async def reset_system_runtime_config(current_user: dict = Depends(_require_admin_user)):
+    del current_user
+    config = reset_system_public_config()
+    return {"success": True, "config": config}
 
 
 @router.get("/bootstrap")

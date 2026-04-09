@@ -69,16 +69,62 @@ def _normalize_space_record(item: dict) -> dict:
     }
 
 
+def _infer_spaces_from_documents() -> list[dict]:
+    from app.services.vector_store import list_documents
+
+    inferred: dict[str, dict] = {}
+    for item in list_documents():
+        space_id = _normalize_text(item.get("space_id"))
+        name = _normalize_text(item.get("knowledge_space"))
+        if not space_id or not name:
+            continue
+
+        existing = inferred.get(space_id)
+        if existing is None:
+            inferred[space_id] = {
+                "space_id": space_id,
+                "name": name,
+                "tags": _join_tags(_split_tags(item.get("tags"))),
+                "description": "",
+                "created_at": _normalize_text(item.get("upload_time")),
+                "updated_at": _normalize_text(item.get("upload_time")),
+            }
+            continue
+
+        merged_tags = _split_tags(existing.get("tags")) + _split_tags(item.get("tags"))
+        existing["tags"] = _join_tags(merged_tags)
+        updated_at = _normalize_text(item.get("upload_time"))
+        if updated_at and (not existing.get("updated_at") or updated_at > str(existing.get("updated_at"))):
+            existing["updated_at"] = updated_at
+
+    return list(inferred.values())
+
+
 def list_knowledge_spaces() -> list[dict]:
-    spaces: list[dict] = []
+    spaces_by_id: dict[str, dict] = {}
 
     for item in _load_raw_spaces():
         normalized = _normalize_space_record(item)
         if not normalized["space_id"] or not normalized["name"]:
             continue
-        spaces.append(normalized)
+        spaces_by_id[normalized["space_id"]] = normalized
 
-    return sorted(spaces, key=lambda item: (item["name"], item["created_at"], item["space_id"]))
+    for item in _infer_spaces_from_documents():
+        normalized = _normalize_space_record(item)
+        if not normalized["space_id"] or not normalized["name"]:
+            continue
+        if normalized["space_id"] in spaces_by_id:
+            existing = spaces_by_id[normalized["space_id"]]
+            if not existing.get("tags"):
+                existing["tags"] = normalized["tags"]
+            if not existing.get("created_at"):
+                existing["created_at"] = normalized["created_at"]
+            if not existing.get("updated_at"):
+                existing["updated_at"] = normalized["updated_at"]
+            continue
+        spaces_by_id[normalized["space_id"]] = normalized
+
+    return sorted(spaces_by_id.values(), key=lambda item: (item["name"], item["created_at"], item["space_id"]))
 
 
 def get_knowledge_space(space_id: str) -> dict | None:
@@ -102,7 +148,7 @@ def create_knowledge_space(*, name: str, tags: str = "", description: str = "") 
         raise ValueError("知识库名称不能为空")
 
     raw_spaces = _load_raw_spaces()
-    if any(_normalize_text(item.get("name")) == normalized_name for item in raw_spaces):
+    if any(_normalize_text(item.get("name")) == normalized_name for item in list_knowledge_spaces()):
         raise ValueError("已存在同名知识库")
 
     now = datetime.now(timezone.utc).isoformat()
@@ -145,7 +191,7 @@ def update_knowledge_space(*, space_id: str, name: str, tags: str = "", descript
         if item_space_id == normalized_space_id:
             target_index = index
             continue
-        if item_name == normalized_name:
+        if item_name == normalized_name and item_space_id != normalized_space_id:
             raise ValueError("已存在同名知识库")
 
     if target_index < 0:
@@ -172,13 +218,15 @@ def delete_knowledge_space(space_id: str) -> list[str]:
     if not normalized_space_id:
         raise ValueError("知识库不存在")
 
+    if get_knowledge_space(normalized_space_id) is None:
+        raise ValueError("知识库不存在")
+
     raw_spaces = _load_raw_spaces()
     remaining_spaces = [
         item for item in raw_spaces if _normalize_text(item.get("space_id")) != normalized_space_id
     ]
 
-    if len(remaining_spaces) == len(raw_spaces):
-        raise ValueError("知识库不存在")
+    if len(remaining_spaces) != len(raw_spaces):
+        _save_raw_spaces(remaining_spaces)
 
-    _save_raw_spaces(remaining_spaces)
     return [normalized_space_id]

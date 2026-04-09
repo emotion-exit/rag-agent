@@ -345,6 +345,56 @@ def _normalize_public_frontend_overrides(overrides: dict[str, Any] | None) -> di
     }
 
 
+def get_public_frontend_config_seed() -> dict[str, Any]:
+    return {
+        key: _base_settings.model_dump(by_alias=True)[key]
+        for key in PUBLIC_FRONTEND_CONFIG_FIELDS
+        if key in _base_settings.model_dump(by_alias=True)
+    }
+
+
+def normalize_public_frontend_config(
+    overrides: dict[str, Any] | None,
+    *,
+    fallback: dict[str, Any] | None = None,
+    allowed_fields: set[str] | None = None,
+) -> dict[str, Any]:
+    source = dict(fallback or get_public_frontend_config_seed())
+    if isinstance(overrides, dict):
+        for key, value in overrides.items():
+            if key not in PUBLIC_FRONTEND_CONFIG_FIELDS:
+                continue
+            if allowed_fields is not None and key not in allowed_fields:
+                continue
+            source[key] = value
+    return _normalize_public_frontend_overrides(source)
+
+
+def merge_public_frontend_config(
+    base: dict[str, Any] | None,
+    overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    merged = dict(base or get_public_frontend_config_seed())
+    if isinstance(overrides, dict):
+        for key, value in overrides.items():
+            if key in PUBLIC_FRONTEND_CONFIG_FIELDS:
+                merged[key] = value
+    return normalize_public_frontend_config(merged)
+
+
+def diff_public_frontend_config(
+    source: dict[str, Any] | None,
+    base: dict[str, Any] | None,
+) -> dict[str, Any]:
+    normalized_source = normalize_public_frontend_config(source, fallback=base)
+    normalized_base = normalize_public_frontend_config(base)
+    return {
+        key: value
+        for key, value in normalized_source.items()
+        if normalized_base.get(key) != value
+    }
+
+
 def set_request_settings_overrides(overrides: dict[str, Any] | None) -> Token[dict[str, Any]]:
     """为当前请求设置临时配置覆盖。"""
     normalized = _normalize_public_frontend_overrides(overrides)
