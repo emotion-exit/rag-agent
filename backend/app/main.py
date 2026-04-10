@@ -16,8 +16,9 @@ from app.config import (
     settings,
 )
 from app.auth.database import init_auth_database
+from app.services.notes import initialize_notes_db
 from app.services.public_config import initialize_public_config_db
-from app.routers import auth_router, chat_router, knowledge_base_router
+from app.routers import auth_router, chat_router, knowledge_base_router, notes_router
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ auth_db_dir = os.path.dirname(_base_settings.auth_db_path)
 if auth_db_dir:
     os.makedirs(auth_db_dir, exist_ok=True)
 init_auth_database()
+initialize_notes_db()
 initialize_public_config_db()
 
 app = FastAPI(
@@ -49,6 +51,7 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(knowledge_base_router)
 app.include_router(auth_router)
+app.include_router(notes_router)
 
 
 @app.middleware("http")

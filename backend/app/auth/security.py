@@ -178,10 +178,7 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     return token
 
 
-def get_optional_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any] | None:
-    token = _extract_bearer_token(authorization)
-    if token is None:
-        return None
+def _resolve_user_from_token(token: str) -> dict[str, Any]:
     payload = decode_access_token(token)
     user_id = str(payload.get("user_id") or payload.get("sub") or "").strip()
     user = get_user_by_id(user_id)
@@ -190,8 +187,22 @@ def get_optional_current_user(authorization: str | None = Header(default=None)) 
     return user
 
 
+def get_optional_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any] | None:
+    raw_authorization = str(authorization or "").strip()
+    if not raw_authorization:
+        return None
+
+    try:
+        token = _extract_bearer_token(raw_authorization)
+        if token is None:
+            return None
+        return _resolve_user_from_token(token)
+    except HTTPException:
+        return None
+
+
 def get_current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    user = get_optional_current_user(authorization)
-    if user is None:
+    token = _extract_bearer_token(authorization)
+    if token is None:
         raise HTTPException(status_code=401, detail="当前请求缺少访问令牌")
-    return user
+    return _resolve_user_from_token(token)
