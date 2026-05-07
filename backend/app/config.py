@@ -90,7 +90,7 @@ class Settings(BaseModel):
     chat_model: str = Field(default="", alias="CHAT_MODEL")
     chat_temperature: float = Field(default=0.0, alias="CHAT_TEMPERATURE")
     openrouter_site_url: str = Field(default="https://localhost.invalid", alias="OPENROUTER_SITE_URL")
-    openrouter_app_title: str = Field(default="RAG.Agent Desktop", alias="OPENROUTER_APP_TITLE")
+    openrouter_app_title: str = Field(default="RAG.Agent", alias="OPENROUTER_APP_TITLE")
     openrouter_categories: str = Field(default="general-chat", alias="OPENROUTER_CATEGORIES")
 
     # Storage
