@@ -1,0 +1,27 @@
+{
+  "name": "backend-langgraphjs",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch ./agent.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c",
+  "dependencies": {
+    "@langchain/core": "^1.1.45",
+    "@langchain/openrouter": "^0.2.4",
+    "deepagents": "^1.10.0",
+    "langchain": "^1.4.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}
