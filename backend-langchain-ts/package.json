@@ -4,7 +4,7 @@
   "description": "",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch ./agent.ts",
+    "dev": "tsx watch ./main.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -12,9 +12,12 @@
   "license": "ISC",
   "packageManager": "pnpm@9.15.0+sha512.76e2379760a4328ec4415815bcd6628dee727af3779aaa4c914e3944156c4299921a89f976381ee107d41f12cfa4b66681ca9c718f0668fa0831ed4c6d8ba56c",
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
     "@langchain/core": "^1.1.45",
+    "@langchain/langgraph": "^1.3.0",
     "@langchain/openrouter": "^0.2.4",
     "deepagents": "^1.10.0",
+    "fastify": "^5.8.5",
     "langchain": "^1.4.0",
     "zod": "^4.4.3"
   },
