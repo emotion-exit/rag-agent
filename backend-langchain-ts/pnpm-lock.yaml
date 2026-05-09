@@ -17,6 +17,9 @@ importers:
       '@langchain/langgraph':
         specifier: ^1.3.0
         version: 1.3.0(@langchain/core@1.1.45(openai@6.36.0(zod@4.4.3)))(openai@6.36.0(zod@4.4.3))(zod@4.4.3)
+      '@langchain/ollama':
+        specifier: ^1.2.7
+        version: 1.2.7(@langchain/core@1.1.45(openai@6.36.0(zod@4.4.3)))
       '@langchain/openrouter':
         specifier: ^0.2.4
         version: 0.2.4(@langchain/core@1.1.45(openai@6.36.0(zod@4.4.3)))(zod@4.4.3)
@@ -266,6 +269,12 @@ packages:
       zod-to-json-schema:
         optional: true
 
+  '@langchain/ollama@1.2.7':
+    resolution: {integrity: sha512-7Gu17q1dn4nKGB3ZYJyaaL8H/2k7LHvcL6V25S8cVDniTTSvd0fWzI5MzPJvbf9WPxBhvmf+rDDLAhOWljHEtQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@langchain/core': ^1.0.0
+
   '@langchain/openai@1.4.5':
     resolution: {integrity: sha512-bQ2WMIZfSh02trJLYSAtiIcD3j6EBCiAm9nw0dZWQsVaUxmWc3JJqs8uUte6AkMazmLHzcUIw+14UkXO5fRJvQ==}
     engines: {node: '>=20'}
@@ -495,6 +504,9 @@ packages:
     resolution: {integrity: sha512-71ippSywq5Yb7/tVYyGbkBggbU8H3u5Rz56fH60jGFgr8uHwxs+aSKeqmluIVzM0m0kB7xQjKS6qPfd0b2ZoqQ==}
     hasBin: true
 
+  ollama@0.6.3:
+    resolution: {integrity: sha512-KEWEhIqE5wtfzEIZbDCLH51VFZ6Z3ZSa6sIOg/E/tBV8S51flyqBOXi+bRxlOYKDf8i327zG9eSTb8IJxvm3Zg==}
+
   on-exit-leak-free@2.1.2:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
@@ -644,6 +656,9 @@ packages:
   uuid@13.0.2:
     resolution: {integrity: sha512-vzi9uRZ926x4XV73S/4qQaTwPXM2JBj6/6lI/byHH1jOpCzb0zDbfytgA9LcN/hzb2l7WQSQnxITOVx5un/wGw==}
     hasBin: true
+
+  whatwg-fetch@3.6.20:
+    resolution: {integrity: sha512-EqhiFU6daOA8kpjOWTL0olhVOF3i7OrFzSYiGsEMB8GcXS+RrzauAERX65xMeNWVqxA6HXH2m69Z9LaKKdisfg==}
 
   yaml@2.8.4:
     resolution: {integrity: sha512-ml/JPOj9fOQK8RNnWojA67GbZ0ApXAUlN2UQclwv2eVgTgn7O9gg9o7paZWKMp4g0H3nTLtS9LVzhkpOFIKzog==}
@@ -821,6 +836,11 @@ snapshots:
       - svelte
       - vue
       - ws
+
+  '@langchain/ollama@1.2.7(@langchain/core@1.1.45(openai@6.36.0(zod@4.4.3)))':
+    dependencies:
+      '@langchain/core': 1.1.45(openai@6.36.0(zod@4.4.3))
+      ollama: 0.6.3
 
   '@langchain/openai@1.4.5(@langchain/core@1.1.45(openai@6.36.0(zod@4.4.3)))':
     dependencies:
@@ -1095,6 +1115,10 @@ snapshots:
 
   mustache@4.2.0: {}
 
+  ollama@0.6.3:
+    dependencies:
+      whatwg-fetch: 3.6.20
+
   on-exit-leak-free@2.1.2: {}
 
   openai@6.36.0(zod@4.4.3):
@@ -1211,6 +1235,8 @@ snapshots:
   uuid@10.0.0: {}
 
   uuid@13.0.2: {}
+
+  whatwg-fetch@3.6.20: {}
 
   yaml@2.8.4: {}
 
