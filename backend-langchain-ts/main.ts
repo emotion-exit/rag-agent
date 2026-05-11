@@ -11,17 +11,29 @@ fastify.register(cors, {
   methods: ['GET', 'POST', 'OPTIONS']
 });
 
-fastify.get('/chat', async (request, reply) => {
+fastify.post('/chat', async (request, reply) => {
+  const message = await (request.body as { message: string }).message;
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    'Access-Control-Allow-Origin': '*',
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
   try {
-    const result = await chat();
-    reply.code(200);
-    return result;
+    for await (const chunk of chat(message)) {
+      reply.raw.write(JSON.stringify(chunk) + '\n');
+    }
+    reply.raw.write(JSON.stringify({ type: 'done' }) + '\n');
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    reply.code(500).send({
-      error: 'An error occurred while processing the chat request.',
-      details: errorMessage
-    });
+    reply.raw.write(
+      JSON.stringify({ type: 'error', message: errorMessage }) + '\n'
+    );
+  } finally {
+    reply.raw.end();
   }
 });
 

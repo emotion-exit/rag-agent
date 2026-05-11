@@ -4,22 +4,39 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+type dynamicLLM = {
+  basic: ChatOpenRouter | ChatOllama;
+  pro: ChatOpenRouter | ChatOllama;
+};
+
 let _provider = 'openrouter';
 
-function llmFactory(provider: string): ChatOpenRouter | ChatOllama {
+function llmFactory(provider: string): dynamicLLM {
   _provider = provider;
   switch (_provider) {
     case 'ollama':
-      return new ChatOllama({
-        model: process.env.OLLAMA_MODEL as string,
-        think: false
-      });
+      return {
+        basic: new ChatOllama({
+          model: process.env.OLLAMA_MODEL as string,
+          think: false
+        }),
+        pro: new ChatOllama({
+          model: process.env.OLLAMA_MODEL_PRO as string,
+          think: false
+        })
+      };
     case 'openrouter':
     default:
-      return new ChatOpenRouter({
-        model: process.env.OPENROUTER_MODEL as string,
-        apiKey: process.env.OPENROUTER_API_KEY as string
-      });
+      return {
+        basic: new ChatOpenRouter({
+          model: process.env.OPENROUTER_MODEL as string,
+          apiKey: process.env.OPENROUTER_API_KEY as string
+        }),
+        pro: new ChatOpenRouter({
+          model: process.env.OPENROUTER_MODEL_PRO as string,
+          apiKey: process.env.OPENROUTER_API_KEY as string
+        })
+      };
   }
 }
 

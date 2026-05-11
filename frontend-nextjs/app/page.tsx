@@ -1,5 +1,14 @@
-import styles from './page.module.css';
+import type { Metadata } from 'next';
+import ConversationArea from '@/components/coversation-area';
+
+export const metadata: Metadata = {
+  title: 'index'
+};
 
 export default function Home() {
-  return <div className={styles.main}>123</div>;
+  return (
+    <>
+      <ConversationArea />
+    </>
+  );
 }

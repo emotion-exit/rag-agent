@@ -1,11 +1,11 @@
-import { createAgent } from 'langchain';
+import { createAgent, createMiddleware } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
 
 // factory
 import { llmFactory } from './factory';
 
 // model
-const model = llmFactory('ollama');
+const { basic, pro } = llmFactory('ollama');
 
 // system prompt
 const SYSTEM_PROMPT = `你是一个有用的助手，专门用来分析文本内容并回答用户的问题。你可以使用工具来获取文本内容并进行分析。请根据用户提供的内容和问题，尽力给出准确的答案。`;
@@ -13,35 +13,55 @@ const SYSTEM_PROMPT = `你是一个有用的助手，专门用来分析文本内
 // memory
 const checkpointer = new MemorySaver();
 
-// agent
-const agent = createAgent({
-  model,
-  systemPrompt: SYSTEM_PROMPT,
-  checkpointer
+// middleware
+const midlleware = createMiddleware({
+  name: 'dynamic-llm-middleware',
+  wrapModelCall(request, handler) {
+    const messageCount = request.messages.length;
+    // 切换模型，如果连问超过两轮，就切换到basic模型，否则使用pro模型
+    if (messageCount < 2) {
+      request.model = pro;
+    } else {
+      request.model = basic;
+    }
+    return handler(request);
+  }
 });
 
-// content
-const content = `解释一下RAG是什么？`;
+// agent
+const agent = createAgent({
+  model: pro,
+  systemPrompt: SYSTEM_PROMPT,
+  checkpointer,
+  middleware: [midlleware]
+});
 
-// invoke agent
-async function chat() {
-  const agentResult = await agent.invoke(
+// invoke agent by streaming
+async function* chat(userPrompt: string) {
+  const stream = await agent.stream(
     {
       messages: [
         {
           role: 'user',
-          content
+          content: userPrompt
         }
       ]
     },
     {
+      streamMode: 'messages',
       configurable: {
         thread_id: 'great-gatsby-lc'
       }
     }
   );
-  const agentMessages = agentResult.messages;
-  return agentMessages[agentMessages.length - 1]!.contentBlocks;
+
+  for await (const [token, metadata] of stream) {
+    yield {
+      type: 'token',
+      text: token,
+      metadata
+    };
+  }
 }
 
 export { chat };
