@@ -73,7 +73,7 @@ export default function ConversationArea() {
   }
 
   return (
-    <div className='w-200 bg-slate-100 shadow-xl rounded h-full flex flex-col p-1'>
+    <div className='w-200 bg-(background) text-(foreground) shadow-xl rounded h-full flex flex-col p-1'>
       <ChatArea messages={messages} />
       <SendArea sendMessage={sendMessage} />
     </div>
@@ -123,7 +123,7 @@ function SendArea({ sendMessage }: { sendMessage: (message: string) => void }) {
         }}
       />
       <button
-        className='bg-gray-600 text-white px-4 py-2 rounded hover:bg-grey-500 outline-none'
+        className='bg-gray-600  px-4 py-2 rounded hover:bg-grey-500 outline-none'
         onClick={() => {
           const input = document.querySelector(
             'input[type="text"]'
