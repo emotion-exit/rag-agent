@@ -1,5 +1,4 @@
 @import 'tailwindcss';
-
 :root {
   --background: #ededed;
   --foreground: #191919;
@@ -37,3 +36,5 @@ body {
     background: transparent;
   }
 }
+
+@source "../node_modules/@streamdown/code/dist/*.js";

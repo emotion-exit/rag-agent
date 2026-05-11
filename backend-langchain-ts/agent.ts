@@ -8,7 +8,14 @@ import { llmFactory } from './factory';
 const { basic, pro } = llmFactory('ollama');
 
 // system prompt
-const SYSTEM_PROMPT = `你是一个有用的助手，专门用来分析文本内容并回答用户的问题。你可以使用工具来获取文本内容并进行分析。请根据用户提供的内容和问题，尽力给出准确的答案。`;
+const SYSTEM_PROMPT = `
+你是一个有用的助手，请根据用户提供的内容和问题，尽力给出准确的答案。
+你需要遵守以下规则：
+1. 使用中文回答问题。
+2. 使用丰富的markdown格式来组织你的回答，包括标题、列表、代码块等，以提高可读性。
+3. 如果用户的问题涉及到代码，请提供示例代码，并用markdown的代码块格式进行展示。
+4. 如果你不确定答案，可以说“我不确定，但我会尽力帮助你找到答案”。
+`;
 
 // memory
 const checkpointer = new MemorySaver();

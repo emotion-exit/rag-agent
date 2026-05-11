@@ -1,12 +1,15 @@
 'use client';
 import { Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
+import { createCodePlugin } from '@streamdown/code';
 import { useState } from 'react';
-
 type Message = {
   role: 'user' | 'assistant';
   content: string;
 };
-
+const code = createCodePlugin({
+  themes: ['github-light', 'github-dark'] // [light, dark]
+});
 export default function ConversationArea() {
   const [messages, setMessages] = useState<Message[]>([]);
 
@@ -88,7 +91,10 @@ function ChatArea({ messages }: { messages: Message[] }) {
               ? 'bg-gray-600 text-gray-200 self-end'
               : 'bg-gray-200 text-gray-600 self-start'
           }`}>
-          <Streamdown key={index} isAnimating={status === 'streaming'}>
+          <Streamdown
+            key={index}
+            plugins={{ code }}
+            isAnimating={status === 'streaming'}>
             {message.content}
           </Streamdown>
         </div>
