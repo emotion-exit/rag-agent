@@ -4,7 +4,8 @@
   "description": "",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch ./main.ts",
+    "dev": "PROVIDER=openrouter tsx watch ./main.ts",
+    "dev:ollama": "PROVIDER=ollama tsx watch ./main.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

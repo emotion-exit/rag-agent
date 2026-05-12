@@ -5,7 +5,7 @@ import { MemorySaver } from '@langchain/langgraph';
 import { llmFactory } from './factory';
 
 // model
-const { basic, pro } = llmFactory('ollama');
+const { basic, pro } = llmFactory();
 
 // system prompt
 const SYSTEM_PROMPT = `

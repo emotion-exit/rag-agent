@@ -9,10 +9,11 @@ type dynamicLLM = {
   pro: ChatOpenRouter | ChatOllama;
 };
 
-let _provider = 'openrouter';
+let _provider = process.env.PROVIDER || 'openrouter';
 
-function llmFactory(provider: string): dynamicLLM {
-  _provider = provider;
+console.log(`Using provider: ${_provider}`);
+
+function llmFactory(): dynamicLLM {
   switch (_provider) {
     case 'ollama':
       return {

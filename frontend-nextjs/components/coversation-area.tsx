@@ -123,7 +123,7 @@ function SendArea({ sendMessage }: { sendMessage: (message: string) => void }) {
         }}
       />
       <button
-        className='bg-gray-600  px-4 py-2 rounded hover:bg-grey-500 outline-none'
+        className='border-1-background px-4 py-2 rounded outline-none'
         onClick={() => {
           const input = document.querySelector(
             'input[type="text"]'
