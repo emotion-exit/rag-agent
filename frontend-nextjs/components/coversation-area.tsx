@@ -23,7 +23,7 @@ export default function ConversationArea() {
         content: userPrompt
       }
     ]);
-    const response = await fetch('http://localhost:3000/chat', {
+    const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -68,6 +68,8 @@ export default function ConversationArea() {
           }
         }
       }
+    } else {
+      console.error('Request failed:', response.status, response.statusText);
     }
   }
 

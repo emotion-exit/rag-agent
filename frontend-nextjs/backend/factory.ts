@@ -6,7 +6,7 @@ import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 dotenv.config();
 
-const PROXY_AGENT = new ProxyAgent(process.env.NODE_PROXY as string);
+const PROXY_AGENT = new ProxyAgent(process.env.HTTPS_PROXY as string);
 
 type dynamicLLM = {
   basic: ChatOpenRouter | ChatOllama | ChatGoogle;
