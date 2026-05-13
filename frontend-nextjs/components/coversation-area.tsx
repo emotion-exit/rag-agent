@@ -2,7 +2,7 @@
 import { Streamdown } from 'streamdown';
 import 'streamdown/styles.css';
 import { createCodePlugin } from '@streamdown/code';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 type Message = {
   role: 'user' | 'assistant';
   content: string;
@@ -56,7 +56,6 @@ export default function ConversationArea() {
                     return [...prevMessages, assistantMessage];
                   }
                 });
-                autoScroll();
               } else if (parsed.type === 'done') {
                 // 处理完成
               } else if (parsed.type === 'error') {
@@ -72,24 +71,39 @@ export default function ConversationArea() {
     }
   }
 
+  const listRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    listRef.current?.scrollTo({
+      top: listRef.current.scrollHeight
+    });
+  }, [messages]);
+
   return (
-    <div className='w-200 bg-(background) text-(foreground) shadow-xl rounded h-full flex flex-col p-1'>
-      <ChatArea messages={messages} />
+    <div className='w-200 bg-background text-foreground shadow-xl rounded h-full flex flex-col p-1'>
+      <ChatArea messages={messages} listRef={listRef} />
       <SendArea sendMessage={sendMessage} />
     </div>
   );
 }
 
-function ChatArea({ messages }: { messages: Message[] }) {
+function ChatArea({
+  messages,
+  listRef
+}: {
+  messages: Message[];
+  listRef: React.RefObject<HTMLDivElement | null>;
+}) {
   return (
-    <div className='list flex-1 overflow-y-auto  flex flex-col gap-4 p-3'>
+    <div
+      ref={listRef}
+      className='list flex-1 overflow-y-auto  flex flex-col gap-4 p-3'>
       {messages.map((message, index) => (
         <div
           key={index}
-          className={`max-w-[70%] px-4 py-2 rounded ${
+          className={`px-4 py-2 rounded ${
             message.role === 'user'
-              ? 'bg-gray-600 text-gray-200 self-end'
-              : 'bg-gray-200 text-gray-600 self-start'
+              ? 'max-w-[70%]  bg-gray-600 text-gray-200 self-end'
+              : 'w-[70%] bg-gray-200 text-gray-600 self-start'
           }`}>
           <Streamdown
             key={index}
@@ -123,7 +137,7 @@ function SendArea({ sendMessage }: { sendMessage: (message: string) => void }) {
         }}
       />
       <button
-        className='border-1-background px-4 py-2 rounded outline-none'
+        className='bg-foreground text-background px-4 py-2 rounded outline-none'
         onClick={() => {
           const input = document.querySelector(
             'input[type="text"]'
@@ -137,11 +151,4 @@ function SendArea({ sendMessage }: { sendMessage: (message: string) => void }) {
       </button>
     </div>
   );
-}
-
-function autoScroll() {
-  const chatArea = document.querySelector('.list');
-  if (chatArea) {
-    chatArea.scrollTop = chatArea.scrollHeight;
-  }
 }

@@ -4,17 +4,21 @@ import { MemorySaver } from '@langchain/langgraph';
 // factory
 import { llmFactory } from './factory';
 
+// tools
+import extendSentence from './tools/extend-sentence';
+
 // model
 const { basic, pro } = llmFactory();
 
 // system prompt
 const SYSTEM_PROMPT = `
-你是一个有用的助手，请根据用户提供的内容和问题，尽力给出准确的答案。
-你需要遵守以下规则：
-1. 使用中文回答问题。
-2. 使用丰富的markdown格式来组织你的回答，包括标题、列表、代码块等，以提高可读性。
-3. 如果用户的问题涉及到代码，请提供示例代码，并用markdown的代码块格式进行展示。
-4. 如果你不确定答案，可以说“我不确定，但我会尽力帮助你找到答案”。
+你是一个语句修饰专家，能够将用户输入的句子扩写成两条正规的书面表达。
+通过调用工具extend-sentence来完成这个任务。
+要求：
+1. 你只能使用工具extend-sentence来修饰用户输入的句子，不能直接输出修饰后的句子。
+2. 必须使用中文，必须使用markdown格式。
+3. 你应该默认用户输入的句子是非正式的口语表达，你的任务是将它们修饰成正式的书面表达。
+4. 除非用户明确让你不要扩写或者修饰，你在做其他回答。
 `;
 
 // memory
@@ -39,6 +43,7 @@ const midlleware = createMiddleware({
 const agent = createAgent({
   model: pro,
   systemPrompt: SYSTEM_PROMPT,
+  tools: [extendSentence],
   checkpointer,
   middleware: [midlleware]
 });
