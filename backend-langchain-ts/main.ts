@@ -1,6 +1,11 @@
+import './utils/logger';
 import { chat } from './agent';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+
+console.log = () => {
+  // 加上绿色
+};
 
 const fastify = Fastify({
   logger: true

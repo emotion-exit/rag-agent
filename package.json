@@ -1,0 +1,18 @@
+{
+  "name": "rag-agent",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "concurrently -n backend-ts,frontend-nextjs -c blue,green \"pnpm:dev:backend-ts\" \"pnpm:dev:frontend-nextjs\"",
+    "dev:ollama": "concurrently -n backend-ts,frontend-nextjs -c blue,green \"pnpm:dev:backend-ts:ollama\" \"pnpm:dev:frontend-nextjs\"",
+    "dev:backend-ts": "pnpm --dir backend-langchain-ts dev",
+    "dev:backend-ts:ollama": "pnpm --dir backend-langchain-ts dev:ollama",
+    "dev:frontend-nextjs": "pnpm --dir frontend-nextjs dev"
+  },
+  "keywords": [],
+  "author": "xsf",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
