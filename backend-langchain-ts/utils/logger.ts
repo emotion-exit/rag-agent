@@ -15,17 +15,17 @@ const rawWarn = console.warn;
 const rawError = console.error;
 
 console.log = (...args) => {
-  rawLog(COLORS.log + 'Langchain LOG: ' + args.join(' ') + RESET);
+  rawLog(COLORS.log + args.join(' ') + RESET);
 };
 
 console.info = (...args) => {
-  rawInfo(COLORS.info + 'Langchain INFO' + args.join(' ') + RESET);
+  rawInfo(COLORS.info + args.join(' ') + RESET);
 };
 
 console.warn = (...args) => {
-  rawWarn(COLORS.warn + 'Langchain WARN' + args.join(' ') + RESET);
+  rawWarn(COLORS.warn + args.join(' ') + RESET);
 };
 
 console.error = (...args) => {
-  rawError(COLORS.error + 'Langchain ERROR' + args.join(' ') + RESET);
+  rawError(COLORS.error + args.join(' ') + RESET);
 };

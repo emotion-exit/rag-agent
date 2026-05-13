@@ -60,7 +60,7 @@ export default function ConversationArea() {
                 // 处理完成
               } else if (parsed.type === 'error') {
                 // 处理错误
-                console.error('Error from server:', parsed.message);
+                console.error('Error from server:', JSON.stringify(parsed));
               }
             } catch (error) {
               console.error('Failed to parse chunk:', chunk, error);

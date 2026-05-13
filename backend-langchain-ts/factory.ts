@@ -1,12 +1,16 @@
+import { ChatGoogle } from '@langchain/google';
 import { ChatOpenRouter } from '@langchain/openrouter';
 import { ChatOllama } from '@langchain/ollama';
 import dotenv from 'dotenv';
+import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 dotenv.config();
 
+const PROXY_AGENT = new ProxyAgent(process.env.NODE_PROXY as string);
+
 type dynamicLLM = {
-  basic: ChatOpenRouter | ChatOllama;
-  pro: ChatOpenRouter | ChatOllama;
+  basic: ChatOpenRouter | ChatOllama | ChatGoogle;
+  pro: ChatOpenRouter | ChatOllama | ChatGoogle;
 };
 
 let _provider = process.env.PROVIDER || 'openrouter';
@@ -26,16 +30,39 @@ function llmFactory(): dynamicLLM {
           think: false
         })
       };
+    case 'google':
+      // 让Google模型走代理，解决国内访问问题
+      setGlobalDispatcher(PROXY_AGENT);
+      return {
+        basic: new ChatGoogle({
+          model: process.env.GOOGLE_MODEL as string,
+          thinkingBudget: 0
+        }),
+        pro: new ChatGoogle({
+          model: process.env.GOOGLE_MODEL_PRO as string,
+          thinkingBudget: 0
+        })
+      };
     case 'openrouter':
+      // 让OpenRouter模型走代理，解决国内访问问题
+      setGlobalDispatcher(PROXY_AGENT);
     default:
       return {
         basic: new ChatOpenRouter({
           model: process.env.OPENROUTER_MODEL as string,
-          apiKey: process.env.OPENROUTER_API_KEY as string
+          modelKwargs: {
+            reasoning: {
+              effort: 'none'
+            }
+          }
         }),
         pro: new ChatOpenRouter({
           model: process.env.OPENROUTER_MODEL_PRO as string,
-          apiKey: process.env.OPENROUTER_API_KEY as string
+          modelKwargs: {
+            reasoning: {
+              effort: 'none'
+            }
+          }
         })
       };
   }

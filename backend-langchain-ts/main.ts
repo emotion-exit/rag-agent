@@ -3,10 +3,6 @@ import { chat } from './agent';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 
-console.log = () => {
-  // 加上绿色
-};
-
 const fastify = Fastify({
   logger: true
 });
@@ -33,9 +29,10 @@ fastify.post('/chat', async (request, reply) => {
     }
     reply.raw.write(JSON.stringify({ type: 'done' }) + '\n');
   } catch (error) {
+    console.error('Error in /chat handler:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     reply.raw.write(
-      JSON.stringify({ type: 'error', message: errorMessage }) + '\n'
+      JSON.stringify({ type: 'error', message: errorMessage, error }) + '\n'
     );
   } finally {
     reply.raw.end();

@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "concurrently -n backend-ts,frontend-nextjs -c blue,green \"pnpm:dev:backend-ts\" \"pnpm:dev:frontend-nextjs\"",
     "dev:ollama": "concurrently -n backend-ts,frontend-nextjs -c blue,green \"pnpm:dev:backend-ts:ollama\" \"pnpm:dev:frontend-nextjs\"",
+    "dev:google": "concurrently -n backend-ts,frontend-nextjs -c blue,green \"pnpm:dev:backend-ts:google\" \"pnpm:dev:frontend-nextjs\"",
     "dev:backend-ts": "pnpm --dir backend-langchain-ts dev",
     "dev:backend-ts:ollama": "pnpm --dir backend-langchain-ts dev:ollama",
+    "dev:backend-ts:google": "pnpm --dir backend-langchain-ts dev:google",
     "dev:frontend-nextjs": "pnpm --dir frontend-nextjs dev"
   },
   "keywords": [],

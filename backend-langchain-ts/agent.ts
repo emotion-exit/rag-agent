@@ -25,6 +25,11 @@ const SYSTEM_PROMPT = `
 const checkpointer = new MemorySaver();
 
 // middleware
+console.log('Basic model:', basic.model);
+console.log('Pro model:', pro.model);
+console.log(
+  'Use pro model firstly, and switch to basic model after 2 rounds of conversation'
+);
 const midlleware = createMiddleware({
   name: 'dynamic-llm-middleware',
   wrapModelCall(request, handler) {
