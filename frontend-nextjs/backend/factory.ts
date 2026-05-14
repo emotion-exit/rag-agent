@@ -6,6 +6,7 @@ import { ProxyAgent, setGlobalDispatcher } from 'undici';
 
 dotenv.config();
 
+const USE_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
 const PROXY_AGENT = new ProxyAgent(process.env.HTTPS_PROXY as string);
 
 type dynamicLLM = {
@@ -13,7 +14,7 @@ type dynamicLLM = {
   pro: ChatOpenRouter | ChatOllama | ChatGoogle;
 };
 
-let _provider = process.env.PROVIDER || 'openrouter';
+const _provider = process.env.PROVIDER || 'openrouter';
 
 console.log(`Using provider: ${_provider}`);
 
@@ -31,8 +32,10 @@ function llmFactory(): dynamicLLM {
         })
       };
     case 'google':
-      // 让Google模型走代理，解决国内访问问题
-      setGlobalDispatcher(PROXY_AGENT);
+      if (USE_PROXY) {
+        // 让Google模型走代理，解决国内访问问题
+        setGlobalDispatcher(PROXY_AGENT);
+      }
       return {
         basic: new ChatGoogle({
           model: process.env.GOOGLE_MODEL as string,
@@ -44,7 +47,10 @@ function llmFactory(): dynamicLLM {
         })
       };
     case 'openrouter':
-      // 让OpenRouter模型走代理，解决国内访问问题
+      if (USE_PROXY) {
+        // 让OpenRouter模型走代理，解决国内访问问题
+        setGlobalDispatcher(PROXY_AGENT);
+      }
       setGlobalDispatcher(PROXY_AGENT);
     default:
       return {

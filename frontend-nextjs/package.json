@@ -7,6 +7,8 @@
     "dev:ollama": "PROVIDER=ollama next dev -p 3001",
     "dev:google": "PROVIDER=google next dev -p 3001",
     "build": "next build",
+    "build:ollama": "PROVIDER=ollama next build",
+    "build:google": "PROVIDER=google next build",
     "start": "next start",
     "lint": "eslint"
   },
